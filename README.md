@@ -1,7 +1,9 @@
-# This repository is depricated
+# Physical Ai Scaffolding Kit
 
-Use
-- Github
-    - https://github.com/aws-samples/sample-physical-ai-scaffolding-kit
-- Gitlab
-    - https://gitlab.aws.dev/aws-jp-prototyping/physical-ai-scaffolding-kit/sample-physical-ai-scaffolding-kit
+[フィジカル AI 開発支援プログラム by AWS ジャパン](https://aws.amazon.com/jp/blogs/news/aws-japan-physical-ai-development-support-program/) 向けのサンプルリポジトリ
+
+このリポジトリには以下のサンプルを含みます。
+
+1. [Amazon SageMaker HyperPodを使ったSlurmクラスタ](/hyperpod/README.md)
+2. [π0 サンプル](samples/openpi-sample/README.md)
+3. [NVIDIA Isaac GROOT サンプル](/samples/groot/README.md)
