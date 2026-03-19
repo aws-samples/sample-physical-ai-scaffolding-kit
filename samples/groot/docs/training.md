@@ -9,7 +9,7 @@ flowchart TB
     login[Login Node<br/>Docker Build & Push]
     ecr[Container Registry<br/>Amazon ECR]
     fsx[FSx for Lustre<br/>/fsx shared]
-    compute[Compute Node<br/>sbatch --container-image<br/>Pyxis + Enroot]
+    compute[Compute Node<br/>sbatch<br/>Enroot]
 
     login -->|Docker Build & Push| ecr
     ecr -->|Enroot Import| login
@@ -219,9 +219,11 @@ bash ./hyperpod_import_container.sh latest us-west-2 123456789012
 
 #### 4.1 ファインチューニングの実行
 
+S3にアップロードしたファイルをデータとして利用する場合は、書き込みが発生するため事前にパーミッションを変更してから、トレーニングのコマンドを実行してください。
+
 ```bash
-cd ~/sample-physical-ai-scaffolding-kit/samples/groot/training
-sbatch slurm_finetune_container.sh
+DATASET_PATH=/fsx/s3link/my_dataset
+sudo chmod -R a+w "${DATASET_PATH}"
 ```
 
 環境変数でパラメータをカスタマイズできます。
@@ -243,6 +245,13 @@ NUM_GPUS=2 MAX_STEPS=5000 DATASET_PATH=/fsx/ubuntu/my_dataset \
 | `OUTPUT_DIR` | `/fsx/s3link/so100` | チェックポイント出力先 |
 | `DATASET_PATH` | `./demo_data/cube_to_bowl_5` | トレーニングデータセットのパス |
 | `BASE_MODEL` | `nvidia/GR00T-N1.6-3B` | ベースモデル |
+
+最低限のコマンド
+
+```bash
+cd ~/sample-physical-ai-scaffolding-kit/samples/groot/training
+sbatch slurm_finetune_container.sh
+```
 
 **進捗確認**:
 

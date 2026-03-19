@@ -4,6 +4,6 @@
 
 このリポジトリには以下のサンプルを含みます。
 
-1. [Amazon SageMaker HyperPodを使ったSlurmクラスタ](/hyperpod/README.md)
+1. [Amazon SageMaker HyperPodを使ったSlurmクラスタの構築](/hyperpod/README.md)
 2. [π0 サンプル](samples/openpi-sample/README.md)
 3. [NVIDIA Isaac GROOT サンプル](/samples/groot/README.md)

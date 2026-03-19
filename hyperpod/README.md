@@ -1,8 +1,10 @@
-# Amazon SageMaker HyperPodを使ったSlurmクラスタ
+# Amazon SageMaker HyperPodを使ったSlurmクラスタの構築
 
-このサンプルではSlurmクラスタを利用する場合にAmazon SageMaker HyperPodを利用した環境を構築します。共有ストレージには [Amazon FSx for Lustre](https://aws.amazon.com/jp/fsx/lustre/) を利用します。Lustre では [S3のバケットとリンク](https://docs.aws.amazon.com/ja_jp/fsx/latest/LustreGuide/create-dra-linked-data-repo.html)しいます。
+このサンプルではSlurmクラスタとして Amazon SageMaker HyperPod を利用した環境を構築する方法について紹介します。
 
 ## 構築されるアーキテクチャ
+
+node の共有ストレージには [Amazon FSx for Lustre](https://aws.amazon.com/jp/fsx/lustre/) を利用します。Lustre では [S3のバケットとリンク](https://docs.aws.amazon.com/ja_jp/fsx/latest/LustreGuide/create-dra-linked-data-repo.html)しており、蓄積したデータを簡単に利用でき様になっています。
 
 ![Architecture](/hyperpod/docs/architecture.png)
 
