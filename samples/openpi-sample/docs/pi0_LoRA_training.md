@@ -31,12 +31,15 @@ flowchart TB
 
 ## 前提条件
 
-### 必要な認証情報
+### 環境準備
 
 1. **Hyperpod クラスタ**: 本プロジェクト内の CDK を使って Hyperpod クラスタを AWS 上に構築している
 	以下の手順では、CDK で構築されている Hyperpod を前提に記述しますが、コンソールなどから手動で作成した Hyperpod でも同様に学習実行は可能です。
-2. **AWS 認証情報設定された開発環境**: ECR アクセス用
-3. **Hugging Face トークン**: データセットダウンロード用 (`HF_TOKEN`)
+2. **開発環境**: 以下の設定が必要になります。
+	1. AWS 認証情報設定: ECR アクセス用
+	2. Docker: pi0 学習用イメージのBuild用
+3. **Hugging Face トークン**: サンプル学習データセットダウンロード用 (`HF_TOKEN`)
+	1. [Hugging Face](https://huggingface.co/settings/tokens) での事前 Sign Up とToken の払い出しが必要です。独自の学習データを使用する場合は不要です。
 
 ***
 
@@ -71,17 +74,12 @@ IMAGE_TAG=v1.0.0 ./build_and_push_ecr.sh
 1. **コマンドライン引数**（最優先）
 2. **環境変数** (`AWS_REGION`, `AWS_ACCOUNT_ID`)
 3. **AWS CLI設定**
-
    * リージョン: `aws configure get region`
-
    * アカウントID: `aws sts get-caller-identity --query Account --output text`
 
 **実行内容**:
-
 * ECR リポジトリ `openpi-lora-train` の作成（存在しない場合）
-
 * Docker イメージのビルド（`train_lora.Dockerfile` を使用）
-
 * ECR へのプッシュ
 
 **出力例**:
@@ -89,25 +87,6 @@ IMAGE_TAG=v1.0.0 ./build_and_push_ecr.sh
 ```
 ✅ Docker image successfully pushed to ECR
 Image URI: 123456789012.dkr.ecr.us-west-2.amazonaws.com/openpi-lora-train:latest
-```
-
-***
-
-### データ転送
-
-* 以下のコマンドから処理ファイル一式を Hyperpod 構築 CDK で作成されている S3 バケットに転送します。
-
-* S3 該当バケット内のデータは FSx Lustre を経由して Hyperpod 内に自動で配置されます。
-
-* また独自の学習データなどがある場合は、以下を参考に S3 にデータを転送してください。
-
-```bash
-cd samples/
-
-zip -r openpi-sample.zip openpi-sample/
-
-aws s3 cp ./openpi-sample.zip \
-    s3://pask-bucketdata111111-XXXXXXXXXXXX/openpi-sample.zip
 ```
 
 ***
@@ -124,20 +103,12 @@ ssh pask-cluster
 #### プロジェクトのセットアップ
 
 ```bash
-# コード一式を User Directory に移動
-cp /fsx/s3link/openpi-sample.zip /fsx/ubuntu/
-
-# unzip モジュールインストール
-sudo apt install -y unzip
-
-# コード一式を解凍
-unzip openpi-sample.zip
-
-# 実行権限追加
-sudo chmod -R +x openpi-sample/
+# コード一式を PASK リポジトリのclone
+cd
+git clone git@github.com:aws-samples/sample-physical-ai-scaffolding-kit.git
 
 # セットアップを実行。パラメータについて以下を参照
-cd openpi-sample/lora_training
+cd samples/openpi-sample/lora_training
 ./setup.sh --hf-token "hf_xxxxx"
 
 # 環境変数を反映
@@ -145,45 +116,32 @@ source ~/.bashrc
 ```
 
 **パラメータについて**
-
 * hf-token（オプション）:  "hf\_" から始まる Hugging Face のTokenを指定
-
-  * [Hugging Face](https://huggingface.co/settings/tokens) での事前 Sign Up とToken の払い出しが必要です。
+	* [Hugging Face](https://huggingface.co/settings/tokens) での事前 Sign Up とToken の払い出しが必要です。
 
 **実行内容について**
 
 1. OpenPI リポジトリのクローン
-   \- /fsx/ubuntu/openpi-sample/openpi/ が存在しない場合
-
-   * GitHub から git clone <https://github.com/Physical-Intelligence/openpi.git> を実行
+	- /fsx/ubuntu/samples/openpi-sample/openpi/ が存在しない場合
+	- GitHub から git clone <https://github.com/Physical-Intelligence/openpi.git> を実行
 2. ディレクトリ構造の作成
-   \- /fsx/ubuntu/openpi-sample/logs/
-   \- /fsx/ubuntu/openpi-sample/.cache/
-   \- /fsx/ubuntu/openpi-sample/openpi/assets/physical-intelligence/libero/
+	- /fsx/ubuntu/samples/openpi-sample/logs/
+	- /fsx/ubuntu/samples/openpi-sample/.cache/
+	- /fsx/ubuntu/samples/openpi-sample/openpi/assets/physical-intelligence/libero/
 3. 環境変数を \~/.bashrc に設定 🆕
-   \- 既存の OpenPI/Enroot 設定があれば削除（バックアップ作成）
-   \- 以下の環境変数を追記：**!重要**これらの環境変数は、すべての Slurm ジョブスクリプトで使用されます。
-
-   * export OPENPI\_BASE\_DIR=/fsx/ubuntu/openpi-sample
-
-   * export OPENPI\_PROJECT\_ROOT=\${OPENPI\_BASE\_DIR}/openpi
-
-   * export OPENPI\_DATA\_HOME=\${OPENPI\_BASE\_DIR}/.cache
-
-   * export OPENPI\_LOG\_DIR=\${OPENPI\_BASE\_DIR}/logs
-
-   * export HF\_TOKEN=<引数で指定した値 or 空>
-
-   * export ENROOT\_CACHE\_PATH=/fsx/enroot
-
-   * export ENROOT\_DATA\_PATH=/fsx/enroot/data
+	- 既存の OpenPI/Enroot 設定があれば削除（バックアップ作成）
+	- 以下の環境変数を追記：**!重要**これらの環境変数は、すべての Slurm ジョブスクリプトで使用されます。
+		* export OPENPI\_BASE\_DIR=/fsx/ubuntu/samples/openpi-sample
+		* export OPENPI\_PROJECT\_ROOT=\${OPENPI\_BASE\_DIR}/openpi
+		* export OPENPI\_DATA\_HOME=\${OPENPI\_BASE\_DIR}/.cache
+		* export OPENPI\_LOG\_DIR=\${OPENPI\_BASE\_DIR}/logs
+		* export HF\_TOKEN=<引数で指定した値 or 空>
+		* export ENROOT\_CACHE\_PATH=/fsx/enroot
+		* export ENROOT\_DATA\_PATH=/fsx/enroot/data
 
 **Weights & Biases (wandb) について**:
-
 * デフォルトのスクリプトでは wandb を無効化しています (`--no-wandb-enabled`)
-
 * wandb でトレーニングをトラッキングしたい場合:
-
   1. [wandb.ai](https://wandb.ai) でアカウントを作成
   2. API key を取得して `~/.bashrc` に追加: `export WANDB_API_KEY=your_key_here`
   3. スクリプトから `--no-wandb-enabled` を削除（または `--wandb-enabled` に変更）
@@ -193,7 +151,7 @@ source ~/.bashrc
 
 ```bash
 # ECR イメージを Enroot 形式に変換
-cd openpi-sample/lora_training
+cd samples/openpi-sample/lora_training
 
 # EC2 メタデータから自動取得
 ./hyperpod_import_container.sh
@@ -243,11 +201,8 @@ cd openpi-sample/lora_training
 4. **フォールバック**: リージョンは `us-east-1`
 
 **実行内容**:
-
 * ECR から Docker イメージを Pull
-
 * SquashFS 形式 (`.sqsh`) に変換
-
 * `/fsx/enroot/data/` に保存
 
 **出力例**:
@@ -275,7 +230,7 @@ enroot list
 #### 正規化統計の計算（初回のみ）
 
 ```bash
-cd openpi-sample/lora_training
+cd samples/openpi-sample/lora_training
 
 # Slurm ジョブとして投入
 sbatch ./slurm_compute_norm_stats.sh pi0_libero_low_mem_finetune
@@ -300,7 +255,7 @@ tail -f ${OPENPI_LOG_DIR}/slurm_<JOB_ID>.err
 ##### 実行エラーについて
 **Hugging Face Quota エラー**:
 サンプルの学習データを使用する場合、Hugging Face からのダウンロード時に以下のような Quota エラーが発生することがあります。
-この場合は、少し時間をあけてから再度 `./slurm_compute_norm_stats.sh` を実行してください。
+この場合は、5分以上時間をあけてから再度 `./slurm_compute_norm_stats.sh` を実行してください。
 ダウンロードの途中から再開されるため、2回目では  Quota エラーなく処理が完了します。
 
 ```
@@ -314,7 +269,7 @@ We had to rate limit you, you hit the quota of 1000 api requests per 5 minutes p
 #### LoRA ファインチューニングの実行（GPU ジョブ）
 
 ```bash
-cd openpi-sample/lora_training
+cd samples/openpi-sample/lora_training
 
 # LoRA トレーニングを投入
 sbatch ./slurm_train_lora.sh pi0_libero_low_mem_finetune my_lora_run
@@ -399,10 +354,6 @@ scancel --name=openpi_lora_train
 
 ### ドキュメント
 
-* [training\_lora\_finetune.md](training_lora_finetune.md) - LoRA ファインチューニング詳細
-
 * [AWS HyperPod ドキュメント](https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod.html)
-
 * [Enroot ドキュメント](https://github.com/NVIDIA/enroot)
-
 * [Slurm ドキュメント](https://slurm.schedmd.com/documentation.html)
