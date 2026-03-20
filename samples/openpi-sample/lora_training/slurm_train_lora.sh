@@ -40,12 +40,16 @@ echo "=================================================="
 # Verify required environment variables are set
 if [ -z "${OPENPI_PROJECT_ROOT}" ] || [ -z "${OPENPI_DATA_HOME}" ] || [ -z "${OPENPI_LOG_DIR}" ]; then
     echo "ERROR: Required environment variables not set"
-    echo "Please set the following in ~/.bashrc:"
-    echo "  export OPENPI_BASE_DIR=/fsx/ubuntu/openpi_test"
+    echo "Please run setup.sh first to configure the environment:"
+    echo "  cd /fsx/ubuntu/samples/openpi-sample/lora_training"
+    echo "  ./setup.sh --hf-token \"your_hf_token\""
+    echo ""
+    echo "Or manually set the following in ~/.bashrc:"
+    echo "  export OPENPI_BASE_DIR=<your_base_directory>"
     echo "  export OPENPI_PROJECT_ROOT=\${OPENPI_BASE_DIR}/openpi"
     echo "  export OPENPI_DATA_HOME=\${OPENPI_BASE_DIR}/.cache"
     echo "  export OPENPI_LOG_DIR=\${OPENPI_BASE_DIR}/logs"
-    echo "  export HF_TOKEN=your_token_here"
+    echo "  export HF_TOKEN=<your_huggingface_token>"
     exit 1
 fi
 

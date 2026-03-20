@@ -34,8 +34,10 @@ flowchart TB
 ### 必要な認証情報
 
 1. **Hyperpod クラスタ**: 本プロジェクト内の CDK を使って Hyperpod クラスタを AWS 上に構築している
-	以下の手順では、CDK で構築されている Hyperpod を前提に記述しますが、コンソールなどから手動で作成した Hyperpod でも同様に学習実行は可能です。
-2. **AWS 認証情報設定された開発環境**: ECR アクセス用
+   以下の手順では、CDK で構築されている Hyperpod を前提に記述しますが、コンソールなどから手動で作成した Hyperpod でも同様に学習実行は可能です。
+2. **開発環境**: 以下の設定が必要です。
+   1. **AWS 認証情報設定**: ECR アクセス用
+   2. **Docker設定**: コンテナイメージビルド用
 3. **Hugging Face トークン**: データセットダウンロード用 (`HF_TOKEN`)
 
 ***
@@ -117,6 +119,7 @@ aws s3 cp ./openpi-sample.zip \
 #### HyperPod への SSH 接続
 
 [DEPLOYMENT.md](../../../hyperpod/docs/DEPLOYMENT.md) の HyperPod への SSH 接続方法を参考に接続。
+
 ```
 ssh pask-cluster
 ```
@@ -188,7 +191,8 @@ source ~/.bashrc
   2. API key を取得して `~/.bashrc` に追加: `export WANDB_API_KEY=your_key_here`
   3. スクリプトから `--no-wandb-enabled` を削除（または `--wandb-enabled` に変更）
 
----
+***
+
 #### Enroot で Docker イメージをインポート
 
 ```bash
@@ -267,7 +271,6 @@ enroot list
 # openpi-lora-train+latest.sqsh
 ```
 
-
 ***
 
 ### Slurm ジョブの実行
@@ -296,8 +299,8 @@ tail -f ${OPENPI_LOG_DIR}/slurm_<JOB_ID>.out
 tail -f ${OPENPI_LOG_DIR}/slurm_<JOB_ID>.err
 ```
 
-
 ##### 実行エラーについて
+
 **Hugging Face Quota エラー**:
 サンプルの学習データを使用する場合、Hugging Face からのダウンロード時に以下のような Quota エラーが発生することがあります。
 この場合は、少し時間をあけてから再度 `./slurm_compute_norm_stats.sh` を実行してください。
@@ -307,7 +310,6 @@ tail -f ${OPENPI_LOG_DIR}/slurm_<JOB_ID>.err
 huggingface_hub.errors.HfHubHTTPError: 429 Client Error: Too Many Requests for url: https://huggingface.co/api/datasets/physical-intelligence/
 We had to rate limit you, you hit the quota of 1000 api requests per 5 minutes period. Upgrade to a PRO user or Team/Enterprise organization account (https://hf.co/pricing) to get higher limits. See https://huggingface.co/docs/hub/rate-limits
 ```
-
 
 ***
 
