@@ -1,4 +1,4 @@
-# Dockerfile for using NVIDIA Isaac GROOT on HyperPod
+# Dockerfile for using NVIDIA Isaac GR00T on HyperPod
 # Based on https://github.com/NVIDIA/Isaac-GR00T/blob/main/docker/Dockerfile
 
 FROM nvcr.io/nvidia/pytorch:25.04-py3

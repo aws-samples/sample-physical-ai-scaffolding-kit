@@ -1,4 +1,4 @@
-# Physical Ai Scaffolding Kit
+# Physical AI Scaffolding Kit
 
 [フィジカル AI 開発支援プログラム by AWS ジャパン](https://aws.amazon.com/jp/blogs/news/aws-japan-physical-ai-development-support-program/) で紹介されているサンプルリポジトリです。
 

@@ -1,6 +1,6 @@
-# HyperPod + Slurm + Enroot での NVIDIA Isaac GROOT トレーニング実行ガイド
+# HyperPod + Slurm + Enroot での NVIDIA Isaac GR00T トレーニング実行ガイド
 
-AWS SageMaker HyperPod 上で Slurm + Enroot を使用して Docker コンテナで GROOT ファインチューニングを実行するガイドです。
+AWS SageMaker HyperPod 上で Slurm + Enroot を使用して Docker コンテナで GR00T ファインチューニングを実行するガイドです。
 
 ## アーキテクチャ
 
@@ -28,7 +28,7 @@ flowchart TB
 
 1. **HyperPod クラスタ**: 本プロジェクト内の CDK を使って HyperPod クラスタを AWS 上に構築している
    - コンソールなどから手動で作成した HyperPod でも同様に学習実行は可能です
-2. **Git LFS**: Isaac GROOT リポジトリではサンプルデータなどに Git LFS を使用
+2. **Git LFS**: Isaac GR00T リポジトリではサンプルデータなどに Git LFS を使用
 
 ---
 
@@ -51,7 +51,7 @@ git clone git@github.com:aws-samples/sample-physical-ai-scaffolding-kit.git
 
 #### 1.2 Git LFS のインストール
 
-[Isaac GROOT](https://github.com/NVIDIA/Isaac-GR00T) のリポジトリではサンプルデータなどの大きなファイルは Git LFS を利用しているため、[リポジトリを参考にインストール](https://github.com/git-lfs/git-lfs/wiki/Installation)します。
+[Isaac GR00T](https://github.com/NVIDIA/Isaac-GR00T) のリポジトリではサンプルデータなどの大きなファイルは Git LFS を利用しているため、[リポジトリを参考にインストール](https://github.com/git-lfs/git-lfs/wiki/Installation)します。
 
 途中で `Which services should be restarted?` と表示された場合は、Tab キーを押して `<Ok>` を選びエンターで進めてください。
 
@@ -68,14 +68,14 @@ git lfs install
 mkdir -p /fsx/ubuntu/joblog
 ```
 
-#### 1.4 Isaac GROOT リポジトリの Clone
+#### 1.4 Isaac GR00T リポジトリの Clone
 
 [**Installation Guide**](https://github.com/NVIDIA/Isaac-GR00T/tree/main?tab=readme-ov-file#installation-guide) を参考に、リポジトリを Clone します。
 
 ```bash
 cd
 git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T
-export GROOT_HOME="$HOME/Isaac-GR00T"
+export GR00T_HOME="$HOME/Isaac-GR00T"
 ```
 
 ---
@@ -87,7 +87,7 @@ export GROOT_HOME="$HOME/Isaac-GR00T"
 Worker node 上で Docker イメージをビルドし、ECR にプッシュします。
 
 ```bash
-cd ~/sample-physical-ai-scaffolding-kit/samples/groot/training
+cd ~/sample-physical-ai-scaffolding-kit/samples/gr00t/training
 sbatch slurm_build_docker.sh
 ```
 
@@ -105,22 +105,22 @@ sbatch slurm_build_docker.sh
 
 | 変数名 | デフォルト値 | 説明 |
 |--------|-------------|------|
-| `GROOT_HOME` | （必須） | Isaac-GR00T リポジトリのパス |
-| `ECR_REPOSITORY` | `groot-train` | ECR リポジトリ名 |
+| `GR00T_HOME` | （必須） | Isaac-GR00T リポジトリのパス |
+| `ECR_REPOSITORY` | `gr00t-train` | ECR リポジトリ名 |
 | `IMAGE_TAG` | `latest` | Docker イメージタグ |
 | `AWS_REGION` | 自動検出 | AWS リージョン |
 | `AWS_ACCOUNT_ID` | 自動検出 | AWS アカウント ID |
 
 ```bash
 # 例: リポジトリ名とイメージタグを変更
-GROOT_HOME=$HOME/Isaac-GR00T ECR_REPOSITORY=my-groot IMAGE_TAG=v1.0.0 \
+GR00T_HOME=$HOME/Isaac-GR00T ECR_REPOSITORY=my-gr00t IMAGE_TAG=v1.0.0 \
     sbatch slurm_build_docker.sh
 ```
 
 **実行内容**:
 
-- ECR リポジトリ `groot-train` の作成（存在しない場合）
-- Docker イメージのビルド（Isaac GROOT の `docker/Dockerfile` を使用）
+- ECR リポジトリ `gr00t-train` の作成（存在しない場合）
+- Docker イメージのビルド（Isaac GR00T の `docker/Dockerfile` を使用）
 - ECR へのプッシュ
 
 **進捗確認**:
@@ -160,7 +160,7 @@ End Time: Sat Mar 21 01:54:06 UTC 2026
 Docker build で作成したイメージを enroot を使って変換します。ローカルに Docker のキャッシュがあればそれを利用し、なければ ECR から取得します。
 
 ```bash
-cd ~/sample-physical-ai-scaffolding-kit/samples/groot/training
+cd ~/sample-physical-ai-scaffolding-kit/samples/gr00t/training
 bash ./hyperpod_import_container.sh
 ```
 
@@ -261,7 +261,7 @@ NUM_GPUS=2 MAX_STEPS=5000 DATASET_PATH=/fsx/ubuntu/my_dataset \
 最低限のコマンド(全てデフォルト値)
 
 ```bash
-cd ~/sample-physical-ai-scaffolding-kit/samples/groot/training
+cd ~/sample-physical-ai-scaffolding-kit/samples/gr00t/training
 sbatch slurm_finetune_container.sh
 ```
 
@@ -317,7 +317,7 @@ scancel -u ubuntu
 
 ### ドキュメント
 
-- [NVIDIA Isaac GROOT](https://github.com/NVIDIA/Isaac-GR00T) - 公式リポジトリ
+- [NVIDIA Isaac GR00T](https://github.com/NVIDIA/Isaac-GR00T) - 公式リポジトリ
 - [AWS HyperPod ドキュメント](https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod.html)
 - [Enroot ドキュメント](https://github.com/NVIDIA/enroot)
 - [Slurm ドキュメント](https://slurm.schedmd.com/documentation.html)

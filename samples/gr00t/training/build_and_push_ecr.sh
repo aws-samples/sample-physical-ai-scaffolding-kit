@@ -1,8 +1,8 @@
 #!/bin/bash
-# Build GROOT Docker image on a worker node and push to ECR
+# Build GR00T Docker image on a worker node and push to ECR
 #
 # Prerequisites:
-#   - GROOT_HOME environment variable must be set (path to Isaac-GR00T repository)
+#   - GR00T_HOME environment variable must be set (path to Isaac-GR00T repository)
 #   - Docker must be available on the worker node
 #   - AWS CLI configured with ECR access
 #
@@ -11,7 +11,7 @@
 #     sbatch slurm_build_docker.sh
 #
 # Environment Variables:
-#   GROOT_HOME (required): Path to Isaac-GR00T repository
+#   GR00T_HOME (required): Path to Isaac-GR00T repository
 #   AWS_REGION (optional): AWS region (default: auto-detect from EC2 metadata)
 #   AWS_ACCOUNT_ID (optional): AWS account ID (default: auto-detect from STS)
 #   ECR_REPOSITORY (optional): ECR repository name (default: groot-train)
@@ -50,27 +50,27 @@ ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}
 # Priority: 1. JOB_ID (set by Slurm wrapper)  2. PID + timestamp
 JOB_ID="${JOB_ID:-$$_$(date +%s)}"
 
-# Verify GROOT_HOME is set
-if [ -z "${GROOT_HOME}" ]; then
-    echo "ERROR: GROOT_HOME environment variable is not set"
+# Verify GR00T_HOME is set
+if [ -z "${GR00T_HOME}" ]; then
+    echo "ERROR: GR00T_HOME environment variable is not set"
     echo "Please set it to the Isaac-GR00T repository path:"
-    echo "  export GROOT_HOME=/fsx/ubuntu/Isaac-GR00T"
+    echo "  export GR00T_HOME=/fsx/ubuntu/Isaac-GR00T"
     exit 1
 fi
 
 # Resolve absolute path
-GROOT_HOME="$(cd "${GROOT_HOME}" && pwd)"
+GR00T_HOME="$(cd "${GR00T_HOME}" && pwd)"
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 DOCKERFILE_PATH="${SCRIPT_DIR}/Dockerfile"
 
 
 echo "=================================================="
-echo "GROOT Docker Image - Worker Node Build & ECR Push"
+echo "GR00T Docker Image - Worker Node Build & ECR Push"
 echo "=================================================="
 echo "ECR Repository: ${ECR_URI}"
 echo "Image Tag: ${IMAGE_TAG}"
 echo "Dockerfile: ${DOCKERFILE_PATH}"
-echo "GROOT_HOME: ${GROOT_HOME}"
+echo "GR00T_HOME: ${GR00T_HOME}"
 echo ""
 
 # Verify Script directory structure
@@ -101,7 +101,7 @@ echo "  Authentication successful"
 
 # Step 3: Build Docker image
 echo "[3/4] Building Docker image..."
-cd ${GROOT_HOME}
+cd ${GR00T_HOME}
 docker build \
     --no-cache \
     --platform linux/amd64 \
