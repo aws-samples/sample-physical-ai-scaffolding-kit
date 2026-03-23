@@ -84,7 +84,7 @@ export GR00T_HOME="$HOME/Isaac-GR00T"
 
 #### 2.1 Docker イメージのビルドと ECR への Push
 
-Worker node 上で Docker イメージをビルドし、ECR にプッシュします。
+Login node 上で Docker イメージをビルドし、ECR にプッシュします。
 
 ```bash
 cd ~/sample-physical-ai-scaffolding-kit/samples/gr00t/training
