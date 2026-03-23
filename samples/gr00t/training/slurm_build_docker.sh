@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=groot_docker_build
+#SBATCH --job-name=gr00t_docker_build
 #SBATCH --nodes=1
 #SBATCH --output=/fsx/ubuntu/joblog/docker_build_%j.out
 #SBATCH --error=/fsx/ubuntu/joblog/docker_build_%j.err

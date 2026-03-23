@@ -103,7 +103,7 @@ ssh pask-cluster
 ```bash
 # コード一式を PASK リポジトリのclone
 cd
-git clone git@github.com:aws-samples/sample-physical-ai-scaffolding-kit.git
+git clone https://github.com/aws-samples/sample-physical-ai-scaffolding-kit.git
 
 # セットアップを実行。パラメータについて以下を参照
 cd samples/openpi-sample/lora_training
