@@ -7,9 +7,9 @@
 #SBATCH --container-mounts=/fsx:/fsx
 
 # ================================================
-# GROOT Fine-tuning - Slurm Job Script (Container)
+# GR00T Fine-tuning - Slurm Job Script (Container)
 # ================================================
-# Runs GROOT fine-tuning inside the enroot container
+# Runs GR00T fine-tuning inside the enroot container
 # built by build_and_push_ecr.sh and imported by
 # hyperpod_import_container.sh.
 #
@@ -33,7 +33,7 @@
 set -e
 
 # Configuration with defaults
-GROOT_HOME="/workspace/gr00t"
+GR00T_HOME="/workspace/gr00t"
 NUM_GPUS="${NUM_GPUS:-1}"
 MAX_STEPS="${MAX_STEPS:-2000}"
 SAVE_STEPS="${SAVE_STEPS:-2000}"
@@ -47,12 +47,12 @@ MODALITY_CONFIG="${MODALITY_CONFIG:-examples/SO100/so100_config.py}"
 DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-4}"
 
 echo "=================================================="
-echo "GROOT Fine-tuning - Container Job"
+echo "GR00T Fine-tuning - Container Job"
 echo "=================================================="
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Node: ${SLURM_NODELIST}"
 echo "Start Time: $(date)"
-echo "GROOT_HOME: ${GROOT_HOME}"
+echo "GR00T_HOME: ${GR00T_HOME}"
 echo "Base Model: ${BASE_MODEL}"
 echo "Dataset: ${DATASET_PATH}"
 echo "Output Dir: ${OUTPUT_DIR}"
@@ -61,7 +61,7 @@ echo "Max Steps: ${MAX_STEPS}"
 echo "Batch Size: ${GLOBAL_BATCH_SIZE}"
 echo "=================================================="
 
-cd "${GROOT_HOME}"
+cd "${GR00T_HOME}"
 
 # Generate CUDA_VISIBLE_DEVICES based on NUM_GPUS (e.g., "0" for 1, "0,1" for 2)
 if [ "${NUM_GPUS}" -eq 1 ]; then
@@ -77,7 +77,7 @@ export WORLD_SIZE="${NUM_GPUS}"
 export RANK="${RANK:-0}"
 export LOCAL_RANK="${LOCAL_RANK:-0}"
 
-CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES}" ${GROOT_HOME}/.venv/bin/python \
+CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES}" ${GR00T_HOME}/.venv/bin/python \
     gr00t/experiment/launch_finetune.py \
     --base-model-path "${BASE_MODEL}" \
     --dataset-path "${DATASET_PATH}" \
