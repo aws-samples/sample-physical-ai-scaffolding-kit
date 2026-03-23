@@ -14,13 +14,13 @@
 #   GR00T_HOME (required): Path to Isaac-GR00T repository
 #   AWS_REGION (optional): AWS region (default: auto-detect from EC2 metadata)
 #   AWS_ACCOUNT_ID (optional): AWS account ID (default: auto-detect from STS)
-#   ECR_REPOSITORY (optional): ECR repository name (default: groot-train)
+#   ECR_REPOSITORY (optional): ECR repository name (default: gr00t-train)
 #   IMAGE_TAG (optional): Docker image tag (default: latest)
 
 set -e
 
 # Configuration
-ECR_REPOSITORY="${ECR_REPOSITORY:-groot-train}"
+ECR_REPOSITORY="${ECR_REPOSITORY:-gr00t-train}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 
 # Get AWS Region

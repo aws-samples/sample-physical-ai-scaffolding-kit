@@ -31,7 +31,7 @@ cdkがインストールされていない場合は [AWS CDK の開始方法](ht
 Githubよりサンプルコードをcloneします。
 
 ```bash
-git clone git@github.com:aws-samples/sample-physical-ai-scaffolding-kit.git
+git clone https://github.com/aws-samples/sample-physical-ai-scaffolding-kit.git
 cd sample-physical-ai-scaffolding-kit/hyperpod
 ```
 

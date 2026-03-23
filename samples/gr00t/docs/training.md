@@ -46,7 +46,7 @@ ssh pask-cluster
 
 ```bash
 cd
-git clone git@github.com:aws-samples/sample-physical-ai-scaffolding-kit.git
+git clone https://github.com/aws-samples/sample-physical-ai-scaffolding-kit.git
 ```
 
 #### 1.2 Git LFS のインストール

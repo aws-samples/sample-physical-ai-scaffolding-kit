@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --job-name=groot_finetune
+#SBATCH --job-name=gr00t_finetune
 #SBATCH --nodes=1
 #SBATCH --output=/fsx/ubuntu/joblog/finetune_%j.out
 #SBATCH --error=/fsx/ubuntu/joblog/finetune_%j.err
-#SBATCH --container-image=/fsx/enroot/data/groot-train+latest.sqsh
+#SBATCH --container-image=/fsx/enroot/data/gr00t-train+latest.sqsh
 #SBATCH --container-mounts=/fsx:/fsx
 
 # ================================================
@@ -14,7 +14,7 @@
 # hyperpod_import_container.sh.
 #
 # Prerequisites:
-#   - Enroot container imported at /fsx/enroot/data/groot-train+latest.sqsh
+#   - Enroot container imported at /fsx/enroot/data/gr00t-train+latest.sqsh
 #   - mkdir -p /fsx/ubuntu/joblog
 #
 # Usage:
