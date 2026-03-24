@@ -1,37 +1,37 @@
 #!/bin/bash
-#SBATCH --job-name=groot_docker_build
+#SBATCH --job-name=gr00t_docker_build
 #SBATCH --nodes=1
 #SBATCH --output=/fsx/ubuntu/joblog/docker_build_%j.out
 #SBATCH --error=/fsx/ubuntu/joblog/docker_build_%j.err
 
 # ================================================
-# GROOT Docker Build - Slurm Job Script
+# GR00T Docker Build - Slurm Job Script
 # ================================================
-# Builds GROOT Docker image on a worker node and pushes to ECR.
+# Builds GR00T Docker image on a worker node and pushes to ECR.
 #
 # Usage:
 #   sbatch slurm_build_docker.sh
 #
 # Prerequisites:
-#   - GROOT_HOME must be set in ~/.bashrc
+#   - GR00T_HOME must be set in ~/.bashrc
 #   - mkdir -p /fsx/ubuntu/joblog
 # ================================================
 
 set -e
 
 echo "=================================================="
-echo "GROOT Docker Build - Slurm Job"
+echo "GR00T Docker Build - Slurm Job"
 echo "=================================================="
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Node: ${SLURM_NODELIST}"
 echo "Start Time: $(date)"
 echo "=================================================="
 
-# Verify GROOT_HOME
-if [ -z "${GROOT_HOME}" ]; then
-    echo "ERROR: GROOT_HOME is not set"
+# Verify GR00T_HOME
+if [ -z "${GR00T_HOME}" ]; then
+    echo "ERROR: GR00T_HOME is not set"
     echo "Please add to ~/.bashrc:"
-    echo "  export GROOT_HOME=/fsx/ubuntu/Isaac-GR00T"
+    echo "  export GR00T_HOME=/fsx/ubuntu/Isaac-GR00T"
     exit 1
 fi
 

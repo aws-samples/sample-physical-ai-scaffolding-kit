@@ -56,7 +56,7 @@ if [ -z "${AWS_ACCOUNT_ID}" ]; then
     exit 1
 fi
 
-ECR_REPOSITORY="groot-train"
+ECR_REPOSITORY="gr00t-train"
 ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${IMAGE_TAG}"
 
 # Enroot configuration
@@ -64,7 +64,7 @@ ENROOT_CACHE_PATH="${ENROOT_CACHE_PATH:-/fsx/enroot}"
 ENROOT_DATA_PATH="${ENROOT_DATA_PATH:-/fsx/enroot/data}"
 
 echo "=================================================="
-echo "GROOT Training - Enroot Import Script"
+echo "GR00T Training - Enroot Import Script"
 echo "=================================================="
 echo "ECR Image: ${ECR_URI}"
 echo "Enroot Cache: ${ENROOT_CACHE_PATH}"
