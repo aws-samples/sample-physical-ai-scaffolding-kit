@@ -3,8 +3,6 @@
 #SBATCH --nodes=1
 #SBATCH --output=/fsx/ubuntu/joblog/finetune_%j.out
 #SBATCH --error=/fsx/ubuntu/joblog/finetune_%j.err
-#SBATCH --container-image=/fsx/enroot/data/gr00t-train+latest.sqsh
-#SBATCH --container-mounts=/fsx:/fsx
 
 # ================================================
 # GR00T Fine-tuning - Slurm Job Script (Container)
@@ -61,8 +59,6 @@ echo "Max Steps: ${MAX_STEPS}"
 echo "Batch Size: ${GLOBAL_BATCH_SIZE}"
 echo "=================================================="
 
-cd "${GR00T_HOME}"
-
 # Generate CUDA_VISIBLE_DEVICES based on NUM_GPUS (e.g., "0" for 1, "0,1" for 2)
 if [ "${NUM_GPUS}" -eq 1 ]; then
     CUDA_VISIBLE_DEVICES="0"
@@ -71,13 +67,23 @@ else
 fi
 
 # Set PyTorch distributed environment variables
+export CUDA_VISIBLE_DEVICES
 export MASTER_ADDR="${MASTER_ADDR:-localhost}"
 export MASTER_PORT="${MASTER_PORT:-29500}"
 export WORLD_SIZE="${NUM_GPUS}"
 export RANK="${RANK:-0}"
 export LOCAL_RANK="${LOCAL_RANK:-0}"
 
-CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES}" ${GR00T_HOME}/.venv/bin/python \
+# Container configuration
+CONTAINER_IMAGE="/fsx/enroot/data/gr00t-train+latest.sqsh"
+
+# Use srun with Pyxis to execute inside the enroot container.
+# Container options are passed to srun (not #SBATCH) so that the
+# batch script itself runs on the host where srun is available.
+srun --container-image="${CONTAINER_IMAGE}" \
+    --container-mounts="/fsx:/fsx" \
+    --container-workdir="${GR00T_HOME}" \
+    "${GR00T_HOME}/.venv/bin/python" \
     gr00t/experiment/launch_finetune.py \
     --base-model-path "${BASE_MODEL}" \
     --dataset-path "${DATASET_PATH}" \
