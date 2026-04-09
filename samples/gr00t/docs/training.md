@@ -262,6 +262,8 @@ NUM_GPUS=2 MAX_STEPS=5000 DATASET_PATH=/fsx/ubuntu/my_dataset \
 
 ```bash
 cd ~/sample-physical-ai-scaffolding-kit/samples/gr00t/training
+
+export GR00T_HOME="$HOME/Isaac-GR00T"
 sbatch slurm_finetune_container.sh
 ```
 
