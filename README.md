@@ -1,17 +1,19 @@
+[日本語](./README.ja.md) | English
+
 # Physical AI Scaffolding Kit
 
-[フィジカル AI 開発支援プログラム by AWS ジャパン](https://aws.amazon.com/jp/blogs/news/aws-japan-physical-ai-development-support-program/) で紹介されているサンプルリポジトリです。
+This is a sample repository introduced in the [Physical AI Development Support Program by AWS Japan](https://aws.amazon.com/jp/blogs/news/aws-japan-physical-ai-development-support-program/).
 
-このリポジトリには以下のサンプルを含みます。
+This repository contains the following samples.
 
-## 環境構築
+## Environment Setup
 
-ローカルの限られたリソースの中では、効率的に速くトレーニングを繰り返すことが課題になることがあります。
-Amazon SageMaker HyperPod は、生成 AI モデルの構築に伴う、差別化につながらない手間のかかる作業をなくし、豊富なリソースを使いながら効率的にモデルの構築を進めることができます。
+When working with limited local resources, efficiently iterating on training can become a challenge.
+Amazon SageMaker HyperPod eliminates the undifferentiated heavy lifting associated with building generative AI models, enabling you to build models efficiently with abundant resources.
 
-1. [Amazon SageMaker HyperPodを使ったSlurmクラスタの構築](/hyperpod/README.md)
+1. [Building a Slurm Cluster with Amazon SageMaker HyperPod](/hyperpod/README.md)
 
-## Amazon SageMaker HyperPod 向けのサンプル
+## Samples for Amazon SageMaker HyperPod
 
-1. [π0 サンプル](samples/openpi-sample/README.md)
-2. [NVIDIA Isaac GR00T サンプル](/samples/gr00t/README.md)
+1. [π0 Sample](samples/openpi-sample/README.md)
+2. [NVIDIA Isaac GR00T Sample](/samples/gr00t/README.md)
