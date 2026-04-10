@@ -1,7 +1,9 @@
+[日本語](./README.ja.md) | English
+
 # NVIDIA Isaac GR00T on Amazon SageMaker HyperPod
 
-本ディレクトリは、Amazon SageMaker HyperPod上でNVIDIA Isaac GR00Tのモデルトレーニングを行う際のサンプルスクリプトになります。
+This directory contains sample scripts for running NVIDIA Isaac GR00T model training on Amazon SageMaker HyperPod.
 
-## ドキュメント一覧
+## Documents
 
-1. [Training](/samples/gr00t/docs/training.md): AWS SageMaker HyperPod 上で Slurm + Enroot を使用して Docker コンテナでファインチューニングを実行するガイド
+1. [Training](/samples/gr00t/docs/en/training.md): Guide for running fine-tuning in Docker containers using Slurm + Enroot on AWS SageMaker HyperPod

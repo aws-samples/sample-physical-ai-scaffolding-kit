@@ -93,7 +93,7 @@ Image URI: 123456789012.dkr.ecr.us-west-2.amazonaws.com/openpi-lora-train:latest
 
 #### HyperPod への SSH 接続
 
-[DEPLOYMENT.md](../../../hyperpod/docs/DEPLOYMENT.md) の HyperPod への SSH 接続方法を参考に接続。
+[DEPLOYMENT.md](../../../hyperpod/docs/ja/DEPLOYMENT.md) の HyperPod への SSH 接続方法を参考に接続。
 ```
 ssh pask-cluster
 ```

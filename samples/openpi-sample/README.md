@@ -1,7 +1,9 @@
+[日本語](./README.ja.md) | English
+
 # OpenPI on Amazon SageMaker HyperPod
 
-本ディレクトリは、Amazon SageMaker HyperPod上でOpenPI（Physical Intelligence）のモデルトレーニングや推論実行サンプルスクリプトになります。
+This directory contains sample scripts for model training and inference execution of OpenPI (Physical Intelligence) on Amazon SageMaker HyperPod.
 
-## ドキュメント一覧
+## Documentation
 
-1. [LoRA Training](docs/pi0_LoRA_training.md): AWS SageMaker HyperPod 上で Slurm + Enroot を使用して Docker コンテナで LoRA ファインチューニングを実行するガイド
+1. [LoRA Training](docs/en/pi0_LoRA_training.md): Guide for running LoRA fine-tuning in Docker containers using Slurm + Enroot on AWS SageMaker HyperPod
