@@ -93,7 +93,7 @@ Image URI: 123456789012.dkr.ecr.us-west-2.amazonaws.com/openpi-lora-train:latest
 
 #### SSH Connection to HyperPod
 
-Connect by following the SSH connection instructions in [DEPLOYMENT.md](../../../hyperpod/docs/en/DEPLOYMENT.md).
+Connect by following the SSH connection instructions in [DEPLOYMENT.md](/hyperpod/docs/en/DEPLOYMENT.md).
 ```
 ssh pask-cluster
 ```
