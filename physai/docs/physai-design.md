@@ -48,6 +48,7 @@ physai list   [--host HOST]
 physai status <job-id> [--host HOST]
 physai logs   <job-id> [--host HOST]
 physai cancel <job-id> [--host HOST]
+physai clean  [--older-than DAYS] [--all] [--dry-run] [-f] [--host HOST]
 ```
 
 ## 3. Path Resolution
@@ -189,6 +190,20 @@ JOB_ID  TYPE   NAME                    STATE      TIME     COMMENT
 
 `physai logs <job-id>` always works regardless of sacct — it tails `/fsx/physai/logs/<job-id>.out`.
 
+### Cleanup
+
+Build dirs (`/fsx/physai/builds/`) and log files (`/fsx/physai/logs/`) accumulate over time. `physai clean` removes old ones:
+
+```bash
+physai clean                    # remove items older than 7 days (default)
+physai clean --older-than 3     # older than 3 days
+physai clean --all              # remove all
+physai clean --dry-run          # show what would be removed
+physai clean -f                 # skip confirmation
+```
+
+Files belonging to active jobs are never removed.
+
 ## 7. Build Workflow
 
 `physai build examples/so101-gr00t/containers/leisaac-runtime`
@@ -297,6 +312,7 @@ cli/
     ├── config.py         # load ~/.physai/config.yaml + --host override
     ├── ssh.py            # run, run_stream, rsync, tail_log
     ├── build.py          # read project/container yaml, generate build.sbatch
+    ├── clean.py          # remove old build dirs and logs
     ├── pipeline.py       # read run_config, generate train/eval/run sbatch
     ├── data.py           # ls, upload
     └── jobs.py           # list, status, logs, cancel (squeue/sacct wrappers)
