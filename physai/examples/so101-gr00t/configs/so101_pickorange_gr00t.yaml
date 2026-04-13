@@ -1,0 +1,17 @@
+sim:
+  platform: leisaac
+  environment: LeIsaac-SO101-PickOrange-v0
+  mimic_environment: LeIsaac-SO101-PickOrange-Mimic-v0
+  language_instruction: "Pick up the orange and place it on the plate"
+
+model:
+  name: gr00t-n1.6
+  config_dir: model_configs/gr00t-n1.6/so101-dualcam
+
+resources:
+  augment:   { partition: gpu, gres: "gpu:1", container: leisaac-runtime }
+  convert:   { partition: cpu, container: so101-converter }
+  validate:  { partition: cpu, container: so101-converter }
+  train:     { partition: gpu, gres: "gpu:1", container: gr00t-trainer }
+  eval:      { partition: gpu, gres: "gpu:1", container: leisaac-runtime }
+  register:  { partition: cpu }

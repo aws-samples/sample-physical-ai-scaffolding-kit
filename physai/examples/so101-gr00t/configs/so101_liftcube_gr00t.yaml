@@ -1,0 +1,17 @@
+sim:
+  platform: leisaac
+  environment: LeIsaac-SO101-LiftCube-v0
+  mimic_environment: LeIsaac-SO101-LiftCube-Mimic-v0
+  language_instruction: "Lift the red cube up"
+
+model:
+  name: gr00t-n1.6
+  config_dir: model_configs/gr00t-n1.6/so101-singlecam
+
+resources:
+  augment:   { partition: gpu, gres: "gpu:1", container: leisaac-runtime }
+  convert:   { partition: cpu, container: so101-converter }
+  validate:  { partition: cpu, container: so101-converter }
+  train:     { partition: gpu, gres: "gpu:1", container: gr00t-trainer }
+  eval:      { partition: gpu, gres: "gpu:1", container: leisaac-runtime }
+  register:  { partition: cpu }
