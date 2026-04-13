@@ -91,9 +91,8 @@ Three subsystems are independently extensible:
 │  ├── datasets/       │
 │  ├── checkpoints/    │
 │  ├── evaluations/    │
-│  ├── configs/        │
-│  ├── model_configs/  │
-│  └── enroot/         │
+│  ├── enroot/         │
+│  └── physai/         │
 └──────────────────────┘
 ```
 
@@ -108,7 +107,7 @@ Three subsystems are independently extensible:
 
 ### 3.1 run_config.yaml
 
-One config per pipeline variant (robot + task + model), stored at `/fsx/configs/`.
+One config per pipeline variant (robot + task + model), stored in the project repo alongside container definitions.
 
 ```yaml
 sim:
@@ -121,7 +120,7 @@ sim:
 
 model:
   name: <model_name>
-  config_dir: model_configs/<model>/<robot>
+  config_dir: <relative-name>         # e.g., gr00t-n1.6/so101-singlecam
 
 resources:
   augment:   { partition: gpu, gres: "gpu:1", container: <sim_runtime_container> }
@@ -132,6 +131,8 @@ resources:
   register:  { partition: cpu }
 ```
 
+The `physai` CLI rsyncs the config and resolves `model.config_dir` via configured search paths (see physai-design.md §3). Datasets and checkpoints are referenced by name and resolved to `/fsx/` paths.
+
 ### 3.2 Container Protocol
 
 Each container implements fixed entrypoint scripts. The pipeline calls these and nothing else. The config is passed via `RUN_CONFIG` environment variable.
@@ -140,7 +141,7 @@ Each container implements fixed entrypoint scripts. The pipeline calls these and
 
 | Entrypoint | Arguments | Contract |
 |-----------|-----------|----------|
-| `/app/eval.sh` | `<checkpoint_dir> <model_config_dir> <output_dir> <eval_rounds>` | Run trained policy in simulation, write `metrics.json` to output dir. If `$DISPLAY` is set, render to display (visual mode); otherwise run headless. |
+| `/app/eval.sh` | `<checkpoint_dir> <model_config_dir> <output_dir> <eval_rounds> [--visual]` | Run trained policy in simulation, write `metrics.json` to output dir. Pass `--visual` to render to display (DCV); otherwise run headless. |
 | `/app/augment.sh` (optional) | `<input_hdf5> <output_dir> <num_trials>` | Produce augmented HDF5 in same format with more episodes. |
 
 **Converter container** (conversion + validation):
@@ -160,11 +161,12 @@ All containers read `sim.*` and `model.*` from `$RUN_CONFIG` when they need envi
 
 ### 3.3 Model Config Directory
 
-Per-model, per-robot config files on `/fsx`. The pipeline passes this directory to containers — it does not interpret the contents.
+Per-model, per-robot config files stored locally. The `model.config_dir` in `run_config.yaml` is a relative name (e.g., `gr00t-n1.6/so101`). The CLI resolves it against configured search paths and rsyncs the matched directory to the cluster. The pipeline passes the directory to containers — it does not interpret the contents.
 
 ```
-/fsx/model_configs/<model>/<robot>/
-└── <model-specific config files>
+<model_config_path>/
+└── <model>/<robot>/
+    └── <model-specific config files>
 ```
 
 ### 3.4 Container Build System
@@ -329,7 +331,7 @@ What the pipeline does:
 1. Submits a Slurm job with `--gres=gpu:1,dcv:1` to allocate a GPU node with DCV (custom GRES ensures one DCV session per node)
 2. Creates a DCV session on the allocated node
 3. Prints the SSM port-forwarding command and DCV URL
-4. Runs `/app/eval.sh` inside the container with `$DISPLAY` set — the container renders to the DCV session instead of running headless
+4. Runs `/app/eval.sh` inside the container with `--visual` — the container renders to the DCV session instead of running headless
 5. Streams the eval log to the local terminal
 6. When evaluation finishes (or user cancels via `physai cancel`), the DCV session is cleaned up
 
@@ -366,10 +368,14 @@ The `physai` CLI runs locally and orchestrates work on the cluster via SSH (simi
 physai build <path-to-container-folder>           # build, stream log
 physai build <path-to-container-folder> --rebuild  # remove existing sqsh first
 
-# Pipeline runs
-physai run --config <config.yaml> --dataset <path> [--augment] --max-steps <N>
-physai train --config <config.yaml> --dataset <path> --max-steps <N>
-physai eval --config <config.yaml> --checkpoint <path> [--visual]
+# Pipeline runs (--config is a local file, --dataset/--checkpoint are names on /fsx)
+physai run --config <local-yaml> --dataset <name> [--augment] --max-steps <N>
+physai train --config <local-yaml> --dataset <name> --max-steps <N>
+physai eval --config <local-yaml> --checkpoint <name> [--visual]
+
+# Data management
+physai ls <category> [<path>]         # list remote data (raw, datasets, checkpoints, enroot)
+physai upload <category> <local-path> # upload data to cluster
 
 # Job management (works for any job type: build, run, train, eval)
 physai list                    # all jobs
@@ -437,9 +443,11 @@ s3://<bucket>/
 ├── datasets/               # Converted LeRobot datasets (staged from S3 or written by converter)
 ├── checkpoints/            # Training checkpoints (published to S3 by registration)
 ├── evaluations/            # Eval logs and metrics (published to S3 by registration)
-├── configs/                # run_config.yaml files
-├── model_configs/          # Per-model, per-robot config files
-└── enroot/                 # Container squashfs images
+├── enroot/                 # Container squashfs images
+└── physai/                 # CLI working state
+    ├── logs/               # Job logs: <job-id>.out
+    ├── builds/             # Build working dirs
+    └── sync/               # rsynced configs and model configs
 ```
 
 **Local NVMe** (`/opt/dlami/nvme`): Fast local storage on GPU worker nodes. Used for temporary augmented HDF5 (600GB+) that never touches `/fsx`.
@@ -516,7 +524,7 @@ Containers are built via the container build system (see §3.4) and stored as sq
 Two configs — same containers, same model config, different task:
 
 ```yaml
-# /fsx/configs/so101_pickorange_gr00t.yaml
+# examples/so101-gr00t/configs/so101_pickorange_gr00t.yaml
 sim:
   platform: leisaac
   environment: LeIsaac-SO101-PickOrange-v0
@@ -524,7 +532,7 @@ sim:
 
 model:
   name: gr00t-n1.6
-  config_dir: model_configs/gr00t-n1.6/so101
+  config_dir: gr00t-n1.6/so101
 
 resources:
   augment:   { partition: gpu, gres: "gpu:1", container: leisaac-runtime }
@@ -536,7 +544,7 @@ resources:
 ```
 
 ```yaml
-# /fsx/configs/so101_liftcube_gr00t.yaml
+# examples/so101-gr00t/configs/so101_liftcube_gr00t.yaml
 sim:
   platform: leisaac
   environment: LeIsaac-SO101-LiftCube-v0
@@ -544,7 +552,7 @@ sim:
 
 model:
   name: gr00t-n1.6
-  config_dir: model_configs/gr00t-n1.6/so101
+  config_dir: gr00t-n1.6/so101
 
 resources:
   augment:   { partition: gpu, gres: "gpu:1", container: leisaac-runtime }
@@ -560,7 +568,7 @@ Only `sim.environment` and `sim.mimic_environment` differ. Everything else — c
 ### 10.3 Model Config: GR00T N1.6 for SO-101
 
 ```
-/fsx/model_configs/gr00t-n1.6/so101/
+examples/so101-gr00t/model_configs/gr00t-n1.6/so101/
 ├── modality.json              # Joint group → index mapping
 └── modality_config.py         # ModalityConfig: action representation, normalization, horizon
 ```
@@ -635,9 +643,8 @@ Checks: 6D action + 6D state + front/wrist cameras + `modality.json` present.
 ### 10.8 Training: GR00T N1.6
 
 ```bash
-physai train --config so101_liftcube_gr00t.yaml \
-  --dataset datasets/so101_liftcube \
-  --max-steps 10000
+physai train --config examples/so101-gr00t/configs/so101_liftcube_gr00t.yaml \
+  --dataset so101_liftcube --max-steps 10000
 ```
 
 This submits a Slurm job that runs inside the `gr00t-trainer` container:
@@ -654,8 +661,8 @@ Internally, `/app/train.sh` runs `gr00t/data/stats.py` (normalization stats) the
 ### 10.9 Evaluation: GR00T + LeIsaac
 
 ```bash
-physai eval --config so101_liftcube_gr00t.yaml \
-  --checkpoint checkpoints/<run-id>/checkpoint-10000
+physai eval --config examples/so101-gr00t/configs/so101_liftcube_gr00t.yaml \
+  --checkpoint gr00t-n1.6-liftcube-30k
 ```
 
 This submits a Slurm job that runs inside the `leisaac-runtime` container:
@@ -667,7 +674,7 @@ bash /app/eval.sh /fsx/checkpoints/<run-id>/checkpoint-10000 \
   20
 ```
 
-Internally, `/app/eval.sh` starts the GR00T policy server (`run_gr00t_server.py`) and runs LeIsaac's `policy_inference.py` with `--policy_type=gr00tn1.6`. If `$DISPLAY` is set (visual mode via DCV), it omits `--headless` so Isaac Sim renders to the DCV session; otherwise it passes `--headless` for batch evaluation.
+Internally, `/app/eval.sh` starts the GR00T policy server (`run_gr00t_server.py`) and runs LeIsaac's `policy_inference.py` with `--policy_type=gr00tn1.6`. When `--visual` is passed (via `physai eval --visual`), it omits `--headless` so Isaac Sim renders to the DCV session; otherwise it passes `--headless` for batch evaluation. `DISPLAY` must always be set — IsaacSim requires GLFW/GLX even in headless mode.
 
 ### 10.10 Extending
 
@@ -689,7 +696,7 @@ Changes outside LeIsaac:
 | What | Where | Example |
 |------|-------|---------|
 | Conversion script | `hdf5_to_lerobot.py` | Update hardcoded joint limits and camera names |
-| Model config | `/fsx/model_configs/gr00t-n1.6/so101_topcam/` | New `modality.json` with updated video key mapping |
+| Model config | `examples/.../model_configs/gr00t-n1.6/so101_topcam/` | New `modality.json` with updated video key mapping |
 | Container rebuild | `leisaac-runtime` + `so101-converter` | Rebuild with updated code |
 
 **Key coupling**: `robot_utils.py` and `hdf5_to_lerobot.py` both hardcode SO-101 joint limits. Both need updating for a new robot.
