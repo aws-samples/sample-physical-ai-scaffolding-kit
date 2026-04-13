@@ -1,6 +1,6 @@
 #!/bin/bash
 # /app/eval.sh — Container protocol entrypoint for GR00T N1.6 evaluation in LeIsaac.
-# Usage: /app/eval.sh <checkpoint_dir> <model_config_dir> <output_dir> <eval_rounds>
+# Usage: /app/eval.sh <checkpoint_dir> <model_config_dir> <output_dir> <eval_rounds> [--visual]
 # Reads sim.environment from $RUN_CONFIG for task selection.
 set -eo pipefail
 SECONDS=0
@@ -9,6 +9,8 @@ CHECKPOINT_DIR="$1"
 MODEL_CONFIG_DIR="$2"
 OUTPUT_DIR="$3"
 EVAL_ROUNDS="${4:-20}"
+VISUAL=false
+for arg in "$@"; do [[ "$arg" == "--visual" ]] && VISUAL=true; done
 LEISAAC_PYTHON="$LEISAAC_DIR/.venv/bin/python"
 GR00T_PYTHON="$GR00T_DIR/.venv/bin/python"
 PORT=$($LEISAAC_PYTHON -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
@@ -37,8 +39,11 @@ echo "Language instruction: $LANGUAGE_INSTRUCTION"
 
 mkdir -p "$OUTPUT_DIR"
 
-# Cleanup server on exit
-cleanup() { kill $SERVER_PID 2>/dev/null; wait $SERVER_PID 2>/dev/null; }
+# Cleanup all child processes on exit
+cleanup() {
+  kill $SERVER_PID $WATCHDOG_PID 2>/dev/null
+  wait $SERVER_PID $WATCHDOG_PID 2>/dev/null || true
+}
 trap cleanup EXIT
 
 # PyTorch distributed env (required under Slurm)
@@ -84,15 +89,23 @@ if [[ "$SERVER_READY" != "true" ]]; then
 fi
 
 # ── Run evaluation ──
-# If $DISPLAY is set, render to display (visual mode via DCV); otherwise headless.
-HEADLESS_FLAG=""
-if [[ -z "$DISPLAY" ]]; then
-  HEADLESS_FLAG="--headless"
+# DISPLAY must always be set (IsaacSim requires GLFW/GLX even headless).
+if [[ -z "${DISPLAY:-}" ]]; then
+  echo "ERROR: DISPLAY is not set"
+  exit 1
+fi
+
+HEADLESS_FLAG="--headless"
+if [[ "$VISUAL" == "true" ]]; then
+  HEADLESS_FLAG=""
 fi
 
 echo "[eval.sh] Starting policy_inference.py at $(date)"
 T_EVAL_START=$SECONDS
 cd "$LEISAAC_DIR"
+
+# Fatal patterns that indicate IsaacSim is stuck and won't recover
+FATAL_PATTERNS="CUDA error|illegal memory access|Segmentation fault|Failed to create NGX|Traceback \(most recent call last\)|FileNotFoundError|ModuleNotFoundError"
 
 PYTHONUNBUFFERED=1 $LEISAAC_PYTHON scripts/evaluation/policy_inference.py \
   --task="$TASK" \
@@ -101,8 +114,24 @@ PYTHONUNBUFFERED=1 $LEISAAC_PYTHON scripts/evaluation/policy_inference.py \
   --policy_host=localhost --policy_port=$PORT \
   --policy_timeout_ms=5000 --policy_action_horizon=16 \
   --policy_language_instruction="$LANGUAGE_INSTRUCTION" \
-  --device=cuda --enable_cameras $HEADLESS_FLAG 2>&1 | tee "$OUTPUT_DIR/eval.log"
-EVAL_EXIT=${PIPESTATUS[0]}
+  --device=cuda --enable_cameras $HEADLESS_FLAG 2>&1 | tee "$OUTPUT_DIR/eval.log" &
+EVAL_PID=$!
+
+# Watchdog: tail the log and kill eval if fatal pattern detected
+(
+  tail -f "$OUTPUT_DIR/eval.log" 2>/dev/null | while IFS= read -r line; do
+    if echo "$line" | grep -qE "$FATAL_PATTERNS"; then
+      echo "[eval.sh] FATAL: detected error pattern, killing eval (pid $EVAL_PID)"
+      kill $EVAL_PID 2>/dev/null
+      exit 0
+    fi
+  done
+) &
+WATCHDOG_PID=$!
+
+wait $EVAL_PID
+EVAL_EXIT=$?
+kill $WATCHDOG_PID 2>/dev/null || true
 echo "[eval.sh] policy_inference.py exited with code $EVAL_EXIT (eval: $(( SECONDS - T_EVAL_START ))s, total: ${SECONDS}s)"
 
 # ── Parse results and write metrics ──
@@ -129,3 +158,4 @@ EOF
 echo "Metrics written to $OUTPUT_DIR/metrics.json"
 echo "Success rate: $SUCCESS_RATE"
 echo "Total time: ${SECONDS}s (server: $(( T_EVAL_START - T_SERVER_START ))s, eval: $(( SECONDS - T_EVAL_START ))s)"
+exit $EVAL_EXIT

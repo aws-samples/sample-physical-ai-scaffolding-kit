@@ -1,0 +1,3 @@
+name: leisaac-runtime
+partition: gpu
+gres: "gpu:1"

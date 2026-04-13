@@ -1,5 +1,5 @@
 #!/bin/bash
-# warmup.sh — Warm up IsaacSim shader caches.
+# Warm up IsaacSim shader caches.
 # Equivalent to https://github.com/isaac-sim/IsaacSim/blob/main/source/scripts/warmup.sh
 # adapted for pip-installed IsaacSim.
 set -eo pipefail
