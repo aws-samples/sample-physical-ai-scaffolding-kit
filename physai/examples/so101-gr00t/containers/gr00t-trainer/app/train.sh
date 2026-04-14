@@ -32,16 +32,29 @@ export RANK="${RANK:-0}"
 export LOCAL_RANK="${LOCAL_RANK:-0}"
 
 echo "Starting GR00T N1.6 training: max_steps=$MAX_STEPS"
-/workspace/gr00t/.venv/bin/python gr00t/experiment/launch_finetune.py \
+TRAIN_WORK_DIR="${OUTPUT_DIR}/.work"
+rm -rf "$TRAIN_WORK_DIR"
+mkdir -p "$TRAIN_WORK_DIR"
+
+$GR00T_DIR/.venv/bin/python $GR00T_DIR/gr00t/experiment/launch_finetune.py \
   --base-model-path nvidia/GR00T-N1.6-3B \
   --dataset-path "$DATASET_DIR" \
   --embodiment-tag NEW_EMBODIMENT \
   --modality-config-path "$MODALITY_CONFIG" \
   --num-gpus 1 \
-  --output-dir "$OUTPUT_DIR" \
+  --output-dir "$TRAIN_WORK_DIR" \
   --max-steps "$MAX_STEPS" \
   --no-use-wandb \
   --global-batch-size 12 \
-  --save-steps 5000 \
-  --save-total-limit 3 \
+  --save-steps "$MAX_STEPS" \
+  --save-total-limit 1 \
   --dataloader-num-workers 4
+
+# GR00T trainer writes to $TRAIN_WORK_DIR/checkpoint-<step>/.
+# Move it to $OUTPUT_DIR per the container protocol.
+CKPT_DIR="$TRAIN_WORK_DIR/checkpoint-$MAX_STEPS"
+if [[ -d "$CKPT_DIR" ]]; then
+  echo "Publishing checkpoint to $OUTPUT_DIR"
+  mv "$CKPT_DIR"/* "$OUTPUT_DIR"/
+fi
+rm -rf "$TRAIN_WORK_DIR"
