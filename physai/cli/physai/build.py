@@ -81,6 +81,8 @@ def _generate_sbatch(cfg: dict, build_dir: str, build_name: str) -> str:
         f"#SBATCH --gres={gres}",
         "#SBATCH --output=/fsx/physai/logs/%j.out",
         "set -eo pipefail",
+        'trap \'echo "\\nBuild failed. Container may be left on the worker node."; '
+        'echo "  Clean up: physai clean --enroot"\' ERR',
         "SECONDS=0",
         f"BUILD_DIR={build_dir}",
         f"BUILD_NAME={build_name}",
@@ -188,6 +190,6 @@ def run_build(session: Session, container_dir: str, rebuild: bool = False) -> No
     # Submit
     job_id = session.run(f"sbatch --parsable {build_dir}/build.sbatch")
     print(f"Submitted build job {job_id} for {name}")
-    print(f"Reconnect: physai logs {job_id}")
+    print(f"Reconnect: physai logs {job_id}", flush=True)
 
     session.stream_log(job_id)

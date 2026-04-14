@@ -3,7 +3,7 @@
 import argparse
 import sys
 
-from . import build, clean, config, jobs
+from . import build, clean, config, jobs, pipeline
 from .ssh import Session
 
 
@@ -20,6 +20,26 @@ def main():
     p_build.add_argument(
         "--rebuild", action="store_true", help="Remove existing sqsh first"
     )
+
+    # eval
+    p_eval = sub.add_parser("eval", help="Evaluate a checkpoint in simulation")
+    p_eval.add_argument("--config", required=True, help="Path to run config yaml")
+    p_eval.add_argument(
+        "--checkpoint", required=True, help="Checkpoint name on cluster"
+    )
+    p_eval.add_argument(
+        "--model-config-root",
+        action="append",
+        default=[],
+        help="Model config search path",
+    )
+    p_eval.add_argument(
+        "--eval-rounds",
+        type=int,
+        default=20,
+        help="Number of eval rounds (default: 20)",
+    )
+    p_eval.add_argument("--visual", action="store_true", help="Render to DCV display")
 
     # list
     sub.add_parser("list", help="List physai jobs")
@@ -54,6 +74,11 @@ def main():
     p_clean.add_argument(
         "-f", action="store_true", dest="force", help="Skip confirmation"
     )
+    p_clean.add_argument(
+        "--enroot",
+        action="store_true",
+        help="Remove stale enroot containers from worker nodes",
+    )
 
     args = parser.parse_args()
     if not args.command:
@@ -65,6 +90,16 @@ def main():
 
     if args.command == "build":
         build.run_build(session, args.container_dir, args.rebuild)
+    elif args.command == "eval":
+        roots = args.model_config_root + cfg.get("model_config_roots", [])
+        pipeline.run_eval(
+            session,
+            args.config,
+            args.checkpoint,
+            model_config_roots=roots,
+            eval_rounds=args.eval_rounds,
+            visual=args.visual,
+        )
     elif args.command == "list":
         jobs.list_jobs(session)
     elif args.command == "status":
@@ -79,4 +114,5 @@ def main():
             older_than=0 if args.all else args.older_than,
             dry_run=args.dry_run,
             force=args.force,
+            enroot=args.enroot,
         )

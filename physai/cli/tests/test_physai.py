@@ -15,6 +15,12 @@ from physai.build import (
 from physai.clean import run_clean
 from physai.config import load
 from physai.jobs import _parse_job_name, cancel_job, list_jobs
+from physai.pipeline import (
+    _generate_eval_sbatch,
+    _get_resources,
+    _load_run_config,
+    _resolve_model_config,
+)
 
 
 # ── config ──
@@ -154,6 +160,7 @@ def test_generate_sbatch(tmp_path):
 #SBATCH --gres=gpu:1
 #SBATCH --output=/fsx/physai/logs/%j.out
 set -eo pipefail
+trap 'echo "\\nBuild failed. Container may be left on the worker node."; echo "  Clean up: physai clean --enroot"' ERR
 SECONDS=0
 BUILD_DIR=/fsx/physai/builds/test-123
 BUILD_NAME=test-123
@@ -240,8 +247,9 @@ def test_clean_dry_run(capsys):
         "",  # squeue (no active jobs)
         "/fsx/physai/builds/old-build",  # find builds
         "/fsx/physai/logs/100.out",  # find logs
+        "",  # find sync
     ]
-    run_clean(session, older_than=0, dry_run=True, force=False)
+    run_clean(session, older_than=0, dry_run=True, force=False, enroot=False)
     out = capsys.readouterr().out
     assert "Would remove" in out
     assert "old-build" in out
@@ -256,10 +264,11 @@ def test_clean_force(capsys):
         "",  # squeue
         "/fsx/physai/builds/old-build",  # find builds
         "/fsx/physai/logs/100.out",  # find logs
+        "",  # find sync
         "",  # rm builds
         "",  # rm logs
     ]
-    run_clean(session, older_than=0, dry_run=False, force=True)
+    run_clean(session, older_than=0, dry_run=False, force=True, enroot=False)
     out = capsys.readouterr().out
     assert "Removed 2 items." in out
 
@@ -270,6 +279,121 @@ def test_clean_nothing(capsys):
         "",  # squeue
         "",  # find builds
         "",  # find logs
+        "",  # find sync
     ]
-    run_clean(session, older_than=7, dry_run=False, force=False)
+    run_clean(session, older_than=7, dry_run=False, force=False, enroot=False)
     assert "Nothing to clean." in capsys.readouterr().out
+
+
+# ── pipeline: _load_run_config ──
+
+
+def test_load_run_config(tmp_path):
+    cfg_file = tmp_path / "run.yaml"
+    cfg_file.write_text(
+        "model:\n  config_dir: gr00t/so101\nresources:\n  eval: {container: rt}\n"
+    )
+    cfg = _load_run_config(str(cfg_file))
+    assert cfg["model"]["config_dir"] == "gr00t/so101"
+    assert cfg["resources"]["eval"]["container"] == "rt"
+
+
+def test_load_run_config_missing_file():
+    with pytest.raises(SystemExit, match="not found"):
+        _load_run_config("/nonexistent.yaml")
+
+
+def test_load_run_config_missing_model(tmp_path):
+    cfg_file = tmp_path / "run.yaml"
+    cfg_file.write_text("resources:\n  eval: {container: rt}\n")
+    with pytest.raises(SystemExit, match="model"):
+        _load_run_config(str(cfg_file))
+
+
+# ── pipeline: _resolve_model_config ──
+
+
+def test_resolve_model_config(tmp_path):
+    (tmp_path / "gr00t" / "so101").mkdir(parents=True)
+    result = _resolve_model_config("gr00t/so101", [str(tmp_path)])
+    assert result == (tmp_path / "gr00t" / "so101").resolve()
+
+
+def test_resolve_model_config_not_found(tmp_path):
+    with pytest.raises(SystemExit, match="not found"):
+        _resolve_model_config("gr00t/so101", [str(tmp_path)])
+
+
+def test_resolve_model_config_first_match(tmp_path):
+    root1 = tmp_path / "a"
+    root2 = tmp_path / "b"
+    (root1 / "gr00t" / "so101").mkdir(parents=True)
+    (root2 / "gr00t" / "so101").mkdir(parents=True)
+    result = _resolve_model_config("gr00t/so101", [str(root1), str(root2)])
+    assert result == (root1 / "gr00t" / "so101").resolve()
+
+
+# ── pipeline: _get_resources ──
+
+
+def test_get_resources():
+    cfg = {"resources": {"eval": {"partition": "gpu", "container": "rt"}}}
+    assert _get_resources(cfg, "eval") == {"partition": "gpu", "container": "rt"}
+
+
+def test_get_resources_missing_stage():
+    with pytest.raises(SystemExit, match="resources.train"):
+        _get_resources({"resources": {}}, "train")
+
+
+def test_get_resources_missing_container():
+    with pytest.raises(SystemExit, match="container"):
+        _get_resources({"resources": {"eval": {"partition": "gpu"}}}, "eval")
+
+
+# ── pipeline: _generate_eval_sbatch ──
+
+
+def test_generate_eval_sbatch():
+    run_cfg = {"sim": {"environment": "LeIsaac-SO101-LiftCube-v0"}}
+    res = {"partition": "gpu", "gres": "gpu:1", "container": "leisaac-runtime"}
+    sbatch = _generate_eval_sbatch(
+        run_cfg,
+        res,
+        run_id="eval-20260414-090000",
+        remote_config="/fsx/physai/sync/eval-20260414-090000/run_config.yaml",
+        remote_model_config="/fsx/physai/sync/eval-20260414-090000/model_config",
+        checkpoint_dir="/fsx/checkpoints/my-ckpt",
+        output_dir="/fsx/evaluations/eval-20260414-090000",
+        eval_rounds=20,
+        visual=False,
+    )
+    expected = """\
+#!/bin/bash
+#SBATCH --job-name=physai/eval/leisaac-runtime
+#SBATCH --comment="checkpoint=/fsx/checkpoints/my-ckpt"
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu:1
+#SBATCH --output=/fsx/physai/logs/%j.out
+set -eo pipefail
+export RUN_CONFIG=/fsx/physai/sync/eval-20260414-090000/run_config.yaml
+export DISPLAY=${DISPLAY:-:0}
+export PYTHONUNBUFFERED=1
+
+srun --container-image=/fsx/enroot/leisaac-runtime.sqsh \\
+  --container-mounts=/fsx:/fsx,/tmp/.X11-unix:/tmp/.X11-unix \\
+  bash /app/eval.sh \\
+    /fsx/checkpoints/my-ckpt \\
+    /fsx/physai/sync/eval-20260414-090000/model_config \\
+    /fsx/evaluations/eval-20260414-090000 \\
+    20
+"""
+    assert sbatch == expected
+
+
+def test_generate_eval_sbatch_visual():
+    res = {"partition": "gpu", "gres": "gpu:1", "container": "leisaac-runtime"}
+    sbatch = _generate_eval_sbatch(
+        {}, res, "r", "/cfg", "/mc", "/ckpt", "/out", 10, visual=True
+    )
+    assert "10 --visual\n" in sbatch
