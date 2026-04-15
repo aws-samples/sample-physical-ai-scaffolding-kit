@@ -12,6 +12,6 @@ resources:
   augment:   { partition: gpu, gres: "gpu:1", container: leisaac-runtime }
   convert:   { partition: cpu, container: so101-converter }
   validate:  { partition: cpu, container: so101-converter }
-  train:     { partition: gpu, gres: "gpu:1", container: gr00t-trainer }
+  train:     { partition: gpu, gres: "gpu:1", constraint: l40s, container: gr00t-trainer }
   eval:      { partition: gpu, gres: "gpu:1", container: leisaac-runtime }
   register:  { partition: cpu }

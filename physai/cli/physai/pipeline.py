@@ -65,6 +65,8 @@ def _generate_eval_sbatch(
     container = res["container"]
     partition = res.get("partition", "gpu")
     gres = res.get("gres", "gpu:1")
+    constraint = res.get("constraint", "")
+    constraint_line = f"\n#SBATCH --constraint={constraint}" if constraint else ""
     visual_flag = " --visual" if visual else ""
 
     return f"""\
@@ -72,7 +74,7 @@ def _generate_eval_sbatch(
 #SBATCH --job-name=physai/eval/{container}
 #SBATCH --comment="checkpoint={checkpoint_dir}"
 #SBATCH --partition={partition}
-#SBATCH --gres={gres}
+#SBATCH --gres={gres}{constraint_line}
 #SBATCH --output=/fsx/physai/logs/%j.out
 set -eo pipefail
 export RUN_CONFIG={remote_config}
@@ -164,13 +166,15 @@ def _generate_train_sbatch(
     container = res["container"]
     partition = res.get("partition", "gpu")
     gres = res.get("gres", "gpu:1")
+    constraint = res.get("constraint", "")
+    constraint_line = f"\n#SBATCH --constraint={constraint}" if constraint else ""
 
     return f"""\
 #!/bin/bash
 #SBATCH --job-name=physai/train/{container}
 #SBATCH --comment="dataset={dataset_dir}"
 #SBATCH --partition={partition}
-#SBATCH --gres={gres}
+#SBATCH --gres={gres}{constraint_line}
 #SBATCH --output=/fsx/physai/logs/%j.out
 set -eo pipefail
 export RUN_CONFIG={remote_config}

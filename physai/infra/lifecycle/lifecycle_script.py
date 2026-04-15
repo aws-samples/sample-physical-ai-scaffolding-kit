@@ -92,6 +92,10 @@ def main():
     # 2. Start Slurm
     run("./start_slurm.sh", node_type, ",".join(controller_ips), env=env)
 
+    # 3. Configure Slurm node features (controller only — patches slurm.conf)
+    if node_type == "controller":
+        run("./configure_slurm_features.sh", env=env)
+
     # 3. Install Docker + Enroot + Pyxis
     run("./install_docker.sh", env=env)
     run("./install_enroot_pyxis.sh", node_type, env=env)

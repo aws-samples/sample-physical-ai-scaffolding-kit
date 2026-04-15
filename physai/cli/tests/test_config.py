@@ -1,7 +1,5 @@
 """Tests for physai config loading."""
 
-from unittest.mock import MagicMock
-
 import pytest
 
 from physai.config import load
