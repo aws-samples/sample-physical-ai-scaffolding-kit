@@ -8,6 +8,7 @@ git checkout "$GR00T_REF"
 
 uv sync
 uv pip install -e .
+uv pip install flash-attn --no-build-isolation
 
 rm -rf .git
 

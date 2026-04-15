@@ -41,6 +41,23 @@ def main():
     )
     p_eval.add_argument("--visual", action="store_true", help="Render to DCV display")
 
+    # train
+    p_train = sub.add_parser("train", help="Train a model")
+    p_train.add_argument("--config", required=True, help="Path to run config yaml")
+    p_train.add_argument("--dataset", required=True, help="Dataset name on cluster")
+    p_train.add_argument(
+        "--model-config-root",
+        action="append",
+        default=[],
+        help="Model config search path",
+    )
+    p_train.add_argument(
+        "--max-steps",
+        type=int,
+        default=10000,
+        help="Max training steps (default: 10000)",
+    )
+
     # list
     sub.add_parser("list", help="List physai jobs")
 
@@ -99,6 +116,15 @@ def main():
             model_config_roots=roots,
             eval_rounds=args.eval_rounds,
             visual=args.visual,
+        )
+    elif args.command == "train":
+        roots = args.model_config_root + cfg.get("model_config_roots", [])
+        pipeline.run_train(
+            session,
+            args.config,
+            args.dataset,
+            model_config_roots=roots,
+            max_steps=args.max_steps,
         )
     elif args.command == "list":
         jobs.list_jobs(session)
