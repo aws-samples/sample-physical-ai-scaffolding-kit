@@ -110,6 +110,10 @@ Three subsystems are independently extensible:
 One config per pipeline variant (robot + task + model), stored in the project repo alongside container definitions.
 
 ```yaml
+pipeline:
+  stages: [convert, validate, train, eval, register]
+  # With augmentation: [augment, convert, validate, train, eval, register]
+
 sim:
   platform: <sim_platform>           # e.g., leisaac, robosuite
   # Remaining fields are platform-specific.
@@ -122,14 +126,33 @@ model:
   name: <model_name>
   config_dir: <relative-name>         # e.g., gr00t-n1.6/so101-singlecam
 
-resources:
-  augment:   { partition: gpu, gres: "gpu:1", container: <sim_runtime_container> }
-  convert:   { partition: cpu, container: <converter_container> }
-  validate:  { partition: cpu, container: <converter_container> }
-  train:     { partition: gpu, gres: "gpu:1", container: <trainer_container> }
-  eval:      { partition: gpu, gres: "gpu:1", container: <sim_runtime_container> }
-  register:  { partition: cpu }
+stages:
+  augment:
+    partition: gpu
+    gres: "gpu:1"
+    container: <sim_runtime_container>
+  convert:
+    partition: cpu
+    container: <converter_container>
+  validate:
+    partition: cpu
+    container: <converter_container>
+  train:
+    partition: gpu
+    gres: "gpu:1"
+    constraint: <feature>             # optional, e.g., l40s
+    container: <trainer_container>
+    max_steps: 10000
+  eval:
+    partition: gpu
+    gres: "gpu:1"
+    container: <sim_runtime_container>
+    rounds: 20
+  register:
+    partition: cpu
 ```
+
+`pipeline.stages` defines which stages run by default. The CLI's `--from`/`--to` flags override this. Each stage entry contains both Slurm resource config (partition, gres, constraint, container) and stage-specific parameters (max_steps, rounds).
 
 The `physai` CLI rsyncs the config and resolves `model.config_dir` via configured search paths (see physai-design.md §3). Datasets and checkpoints are referenced by name and resolved to `/fsx/` paths.
 
@@ -141,8 +164,28 @@ Each container implements fixed entrypoint scripts. The pipeline calls these and
 
 | Entrypoint | Arguments | Contract |
 |-----------|-----------|----------|
-| `/app/eval.sh` | `<checkpoint_dir> <model_config_dir> <output_dir> <eval_rounds> [--visual]` | Run trained policy in simulation, write `metrics.json` to output dir. Pass `--visual` to render to display (DCV); otherwise run headless. |
+| `/app/eval.sh` | `<checkpoint_dir> <model_config_dir> <output_dir> <eval_rounds> [--visual]` | Run trained policy in simulation. Write to `<output_dir>`: `eval.log` (full stdout/stderr), `metrics.json` (see below). Pass `--visual` to render to display (DCV); otherwise run headless. Exit code reflects eval success. |
 | `/app/augment.sh` (optional) | `<input_hdf5> <output_dir> <num_trials>` | Produce augmented HDF5 in same format with more episodes. |
+
+**eval.sh output: `metrics.json`**
+
+```json
+{
+  "eval_rounds": 20,
+  "success_rate": 0.2,
+  "checkpoint": "<checkpoint_dir argument>"
+}
+```
+
+Containers may add platform-specific fields (e.g., `task`, `language_instruction`). The pipeline only requires `success_rate`.
+
+**Trainer container** (model training):
+
+| Entrypoint | Arguments | Contract |
+|-----------|-----------|----------|
+| `/app/train.sh` | `<dataset_dir> <model_config_dir> <output_dir> <max_steps>` | Run training. Write checkpoint files to `<output_dir>`. Output format is model-specific (e.g., GR00T writes `checkpoint-<step>/` subdirectories). |
+
+> **TODO**: Define a `train_summary.json` or similar output for the `register` stage to consume (e.g., final loss, steps completed, checkpoint paths). Currently `train.sh` only writes model checkpoints.
 
 **Converter container** (conversion + validation):
 
@@ -341,23 +384,32 @@ DCV server is installed on GPU worker nodes via HyperPod lifecycle scripts. SSM 
 
 ### 7.1 Slurm Job Chain
 
+`physai run` submits one Slurm job per stage, linked by `--dependency=afterok`. The stages to run come from `pipeline.stages` in the config, overridden by `--from`/`--to` on the CLI.
+
 ```bash
-# Without augmentation:
-JOB1=$(sbatch --parsable convert.sh)
+# Default stages from config: [convert, validate, train, eval, register]
+RUN_ID=run-20260415-155400
+JOB1=$(sbatch --parsable --job-name=physai/run/$RUN_ID/convert convert.sh)
+JOB2=$(sbatch --parsable --job-name=physai/run/$RUN_ID/validate --dependency=afterok:$JOB1 validate.sh)
+JOB3=$(sbatch --parsable --job-name=physai/run/$RUN_ID/train    --dependency=afterok:$JOB2 train.sh)
+JOB4=$(sbatch --parsable --job-name=physai/run/$RUN_ID/eval     --dependency=afterok:$JOB3 eval.sh)
+JOB5=$(sbatch --parsable --job-name=physai/run/$RUN_ID/register --dependency=afterok:$JOB4 register.sh)
+
+# With augmentation: [augment, convert, validate, train, eval, register]
+# (augment + convert co-scheduled as single GPU job per §4)
+JOB1=$(sbatch --parsable --job-name=physai/run/$RUN_ID/augment_convert augment_and_convert.sh)
 JOB2=$(sbatch --parsable --dependency=afterok:$JOB1 validate.sh)
 JOB3=$(sbatch --parsable --dependency=afterok:$JOB2 train.sh)
 JOB4=$(sbatch --parsable --dependency=afterok:$JOB3 eval.sh)
 JOB5=$(sbatch --parsable --dependency=afterok:$JOB4 register.sh)
 
-# With augmentation (augment + convert run as single GPU job, using local NVMe for intermediate data):
-JOB1=$(sbatch --parsable augment_and_convert.sh)
-JOB2=$(sbatch --parsable --dependency=afterok:$JOB1 validate.sh)
-JOB3=$(sbatch --parsable --dependency=afterok:$JOB2 train.sh)
-JOB4=$(sbatch --parsable --dependency=afterok:$JOB3 eval.sh)
-JOB5=$(sbatch --parsable --dependency=afterok:$JOB4 register.sh)
+# Override: --from train
+JOB1=$(sbatch --parsable --job-name=physai/run/$RUN_ID/train train.sh)
+JOB2=$(sbatch --parsable --job-name=physai/run/$RUN_ID/eval     --dependency=afterok:$JOB1 eval.sh)
+JOB3=$(sbatch --parsable --job-name=physai/run/$RUN_ID/register --dependency=afterok:$JOB2 register.sh)
 ```
 
-All jobs share a run ID via `--job-name=run-<id>/<stage>`. If any step fails, downstream jobs are automatically cancelled.
+All jobs share a run ID via `--job-name=physai/run/<run-id>/<stage>`. If any step fails, downstream jobs are automatically cancelled by Slurm's dependency mechanism. `physai cancel` on any job in the chain cancels all jobs sharing the run ID.
 
 ### 7.2 physai CLI
 
@@ -369,9 +421,11 @@ physai build <path-to-container-folder>           # build, stream log
 physai build <path-to-container-folder> --rebuild  # remove existing sqsh first
 
 # Pipeline runs (--config is a local file, --dataset/--checkpoint are names on /fsx)
-physai run --config <local-yaml> --dataset <name> [--augment] --max-steps <N>
-physai train --config <local-yaml> --dataset <name> --max-steps <N>
-physai eval --config <local-yaml> --checkpoint <name> [--visual]
+physai run   --config <local-yaml> --raw <name>                        # run default stages from config
+physai run   --config <local-yaml> --from train --dataset <name>       # override: train → end
+physai run   --config <local-yaml> --from eval --checkpoint <name>     # override: eval only
+physai train --config <local-yaml> --dataset <name>                    # shortcut for --from train --to train
+physai eval  --config <local-yaml> --checkpoint <name> [--eval-rounds N] [--visual]      # shortcut for --from eval --to eval
 
 # Data management
 physai ls <category> [<path>]         # list remote data (raw, datasets, checkpoints, enroot)
@@ -525,45 +579,63 @@ Two configs — same containers, same model config, different task:
 
 ```yaml
 # examples/so101-gr00t/configs/so101_pickorange_gr00t.yaml
+pipeline:
+  stages: [train, eval]
+
 sim:
   platform: leisaac
   environment: LeIsaac-SO101-PickOrange-v0
   mimic_environment: LeIsaac-SO101-PickOrange-Mimic-v0
+  language_instruction: "Pick up the orange"
 
 model:
   name: gr00t-n1.6
   config_dir: gr00t-n1.6/so101
 
-resources:
-  augment:   { partition: gpu, gres: "gpu:1", container: leisaac-runtime }
-  convert:   { partition: cpu, container: so101-converter }
-  validate:  { partition: cpu, container: so101-converter }
-  train:     { partition: gpu, gres: "gpu:1", container: gr00t-trainer }
-  eval:      { partition: gpu, gres: "gpu:1", container: leisaac-runtime }
-  register:  { partition: cpu }
+stages:
+  train:
+    partition: gpu
+    gres: "gpu:1"
+    constraint: l40s
+    container: gr00t-trainer
+    max_steps: 10000
+  eval:
+    partition: gpu
+    gres: "gpu:1"
+    container: leisaac-runtime
+    rounds: 20
 ```
 
 ```yaml
 # examples/so101-gr00t/configs/so101_liftcube_gr00t.yaml
+pipeline:
+  stages: [train, eval]
+
 sim:
   platform: leisaac
   environment: LeIsaac-SO101-LiftCube-v0
   mimic_environment: LeIsaac-SO101-LiftCube-Mimic-v0
+  language_instruction: "Lift the red cube up"
 
 model:
   name: gr00t-n1.6
   config_dir: gr00t-n1.6/so101
 
-resources:
-  augment:   { partition: gpu, gres: "gpu:1", container: leisaac-runtime }
-  convert:   { partition: cpu, container: so101-converter }
-  validate:  { partition: cpu, container: so101-converter }
-  train:     { partition: gpu, gres: "gpu:1", container: gr00t-trainer }
-  eval:      { partition: gpu, gres: "gpu:1", container: leisaac-runtime }
-  register:  { partition: cpu }
+stages:
+  train:
+    partition: gpu
+    gres: "gpu:1"
+    constraint: l40s
+    container: gr00t-trainer
+    max_steps: 10000
+  eval:
+    partition: gpu
+    gres: "gpu:1"
+    container: leisaac-runtime
+    rounds: 20
 ```
 
-Only `sim.environment` and `sim.mimic_environment` differ. Everything else — containers, model config, resources — is identical.
+Only `sim.environment`, `sim.mimic_environment`, and `sim.language_instruction` differ. Everything else — containers, model config, stage parameters — is identical.
 
 ### 10.3 Model Config: GR00T N1.6 for SO-101
 
@@ -644,14 +716,16 @@ Checks: 6D action + 6D state + front/wrist cameras + `modality.json` present.
 
 ```bash
 physai train --config examples/so101-gr00t/configs/so101_liftcube_gr00t.yaml \
-  --dataset so101_liftcube --max-steps 10000
+  --dataset so101_liftcube
 ```
+
+`max_steps` comes from `stages.train.max_steps` in the config (default: 10000). Override with `--max-steps` on the CLI.
 
 This submits a Slurm job that runs inside the `gr00t-trainer` container:
 
 ```bash
 bash /app/train.sh /fsx/datasets/so101_liftcube \
-  /fsx/model_configs/gr00t-n1.6/so101 \
+  /fsx/physai/sync/<run-id>/model_config \
   /fsx/checkpoints/<run-id> \
   10000
 ```
@@ -665,11 +739,13 @@ physai eval --config examples/so101-gr00t/configs/so101_liftcube_gr00t.yaml \
   --checkpoint gr00t-n1.6-liftcube-30k
 ```
 
+`rounds` comes from `stages.eval.rounds` in the config (default: 20). Override with `--eval-rounds` on the CLI.
+
 This submits a Slurm job that runs inside the `leisaac-runtime` container:
 
 ```bash
-bash /app/eval.sh /fsx/checkpoints/<run-id>/checkpoint-10000 \
-  /fsx/model_configs/gr00t-n1.6/so101 \
+bash /app/eval.sh /fsx/checkpoints/gr00t-n1.6-liftcube-30k \
+  /fsx/physai/sync/<run-id>/model_config \
   /fsx/evaluations/<run-id> \
   20
 ```

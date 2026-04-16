@@ -27,10 +27,25 @@ Every workload command submits a Slurm job, streams its log to the local termina
 
 ```
 physai build <container-folder> [--rebuild] [--host HOST]
-physai train --config <local-yaml> --dataset <name> --max-steps <N> [--model-config-root PATH] [--host HOST]
-physai eval  --config <local-yaml> --checkpoint <name> [--visual] [--model-config-root PATH] [--host HOST]
-physai run   --config <local-yaml> --dataset <name> [--augment] --max-steps <N> [--model-config-root PATH] [--host HOST]
+physai run   --config <local-yaml> [--from STAGE] [--to STAGE] [--raw NAME] [--dataset NAME] [--checkpoint NAME] [--max-steps N] [--eval-rounds N] [--visual] [--model-config-root PATH] [--host HOST]
+physai train --config <local-yaml> --dataset <name> [--max-steps N] [--model-config-root PATH] [--host HOST]
+physai eval  --config <local-yaml> --checkpoint <name> [--eval-rounds N] [--visual] [--model-config-root PATH] [--host HOST]
 ```
+
+`physai run` executes the stages listed in `pipeline.stages` from the config. `--from`/`--to` override the range. `physai train` and `physai eval` are shortcuts for single-stage runs.
+
+Stages in order: `augment`, `convert`, `validate`, `train`, `eval`, `register`
+
+| `--from` | Required args | Resolves to |
+|----------|--------------|-------------|
+| `augment` | `--raw` | `/fsx/raw/<name>` |
+| `convert` | `--raw` | `/fsx/raw/<name>` |
+| `validate` | `--dataset` | `/fsx/datasets/<name>` |
+| `train` | `--dataset` | `/fsx/datasets/<name>` |
+| `eval` | `--checkpoint` | `/fsx/checkpoints/<name>` |
+| `register` | (none — reads from previous stage outputs) | |
+
+Stage-specific parameters (e.g., `max_steps`, `rounds`) come from the config's `stages.<name>` section. `--max-steps` on the CLI overrides `stages.train.max_steps`. `--eval-rounds` overrides `stages.eval.rounds`.
 
 ### Data commands
 
@@ -39,7 +54,7 @@ physai ls <category> [<path>] [--host HOST]     # list remote data
 physai upload <category> <local-path> [--host HOST]  # upload data to cluster
 ```
 
-Categories: `raw`, `datasets`, `checkpoints`, `enroot`
+Categories: `raw`, `datasets`, `checkpoints`
 
 ### Job management commands
 
@@ -62,6 +77,7 @@ The CLI uses two kinds of references:
 |----------|--------|------------|
 | `--config <path>` | Local file | rsynced to cluster |
 | `model.config_dir` (in yaml) | Relative name | Resolved via model config search paths, then rsynced |
+| `--raw <name>` | Name | → `/fsx/raw/<name>` |
 | `--dataset <name>` | Name | → `/fsx/datasets/<name>` |
 | `--checkpoint <name>` | Name | → `/fsx/checkpoints/<name>` |
 | `<container-folder>` | Local directory | rsynced to cluster |
@@ -109,10 +125,6 @@ test-run-1/                 4.1G
 
 $ physai ls raw
 pickorange.hdf5          580G
-
-$ physai ls enroot
-leisaac-runtime.sqsh     42G
-gr00t-trainer.sqsh       41G
 ```
 
 Implementation: `ssh <host> ls -lh /fsx/<category>/` (or `du -sh` for directories).
@@ -122,7 +134,7 @@ Implementation: `ssh <host> ls -lh /fsx/<category>/` (or `du -sh` for directorie
 Upload data to the cluster:
 
 ```bash
-# Raw demos → S3 (auto-imports to /fsx/raw/ via DRA)
+# Raw demos — prompts to recommend uploading to S3 first, then rsyncs to /fsx/raw/
 physai upload raw /path/to/demos.hdf5
 
 # Pre-converted dataset → /fsx/datasets/ directly
@@ -132,7 +144,10 @@ physai upload datasets /path/to/so101_liftcube/
 physai upload checkpoints /path/to/checkpoint-dir/
 ```
 
-`physai upload raw` uploads to S3 (`s3://<bucket>/raw/`) because `/fsx/raw/` is a read-only DRA link. All other categories rsync directly to `/fsx/<category>/`.
+All categories rsync to `/fsx/<category>/`. For `raw`, the CLI first recommends
+uploading to S3 (`s3://<data-bucket>/raw/`) so the Data Repository Association
+auto-imports lazily — this avoids duplicating large files on FSx. The user can
+decline the recommendation to proceed with direct rsync.
 
 ## 5. Configuration
 
@@ -269,25 +284,38 @@ The intermediate Pyxis container uses the timestamped `BUILD_NAME` to avoid coll
 ## 8. Train / Eval / Run Workflow
 
 ```bash
+# Run default stages from config (e.g., convert → validate → train → eval → register)
+physai run --config examples/so101-gr00t/configs/so101_liftcube_gr00t.yaml \
+           --raw so101_liftcube.hdf5
+
+# Run from train onwards
+physai run --config examples/so101-gr00t/configs/so101_liftcube_gr00t.yaml \
+           --from train --dataset so101_liftcube
+
+# Single-stage shortcuts
 physai train --config examples/so101-gr00t/configs/so101_liftcube_gr00t.yaml \
-             --dataset so101_liftcube --max-steps 10000
+             --dataset so101_liftcube
+physai eval --config examples/so101-gr00t/configs/so101_liftcube_gr00t.yaml \
+            --checkpoint gr00t-n1.6-liftcube-30k
 ```
 
 ### Steps
 
 1. Read `run_config.yaml` from the local path
-2. rsync the config file and its `model.config_dir` to `/fsx/physai/sync/<run-id>/`
-3. Extract the relevant `resources` entry (e.g., `resources.train`)
-4. Generate sbatch script:
-   - Partition, gres, container from the resources entry
-   - `--container-image=/fsx/enroot/<container>.sqsh`
+2. Determine stages to run: `pipeline.stages` from config, overridden by `--from`/`--to`
+3. Validate that required CLI args are present for the starting stage
+4. rsync the config file and its `model.config_dir` to `/fsx/physai/sync/<run-id>/`
+5. For each stage, generate an sbatch script:
+   - Partition, gres, constraint, container from `stages.<name>`
+   - `--container-name=<container>` (Pyxis named container)
    - `--container-mounts=/fsx:/fsx,/tmp/.X11-unix:/tmp/.X11-unix`
    - Calls the container protocol entrypoint with resolved paths
+   - Stage parameters (max_steps, rounds) from config, overridden by CLI
    - Sets `RUN_CONFIG`, `DISPLAY`, `PYTHONUNBUFFERED=1` as needed
-5. `ssh: sbatch` → capture JOB_ID
-6. Stream log, Ctrl-C detaches
+6. Submit jobs with `--dependency=afterok` linking each stage to the previous
+7. Stream log of first job, Ctrl-C detaches
 
-`physai run` submits the full job chain (convert → validate → train → eval → register) using `--dependency=afterok`.
+`physai train` is equivalent to `physai run --from train --to train`. `physai eval` is equivalent to `physai run --from eval --to eval`.
 
 ## 9. SSH Interface
 

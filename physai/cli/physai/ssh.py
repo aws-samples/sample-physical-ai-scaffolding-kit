@@ -18,11 +18,21 @@ class Session:
         self._socket = f"{self._tmpdir}/ctrl"
         self._cache: dict = {}
         # Start ControlMaster
-        subprocess.run(
+        r = subprocess.run(
             ["ssh", "-fNM", "-S", self._socket, "-o", "ControlPersist=10m", host],
-            check=True,
             capture_output=True,
+            text=True,
         )
+        if r.returncode != 0:
+            stderr = r.stderr.strip()
+            raise SystemExit(
+                f"{stderr}\n"
+                f"{'-' * 60}\n"
+                f"Failed to connect to '{host}' via SSH.\n"
+                f"Test the connection manually: ssh {host}\n"
+                f"Common causes: host key mismatch (~/.ssh/known_hosts), "
+                f"missing entry in ~/.ssh/config, or expired credentials."
+            )
 
     def _ssh_args(self) -> list[str]:
         return ["ssh", "-S", self._socket, "-o", "ControlMaster=no", self.host]
@@ -82,7 +92,7 @@ class Session:
     def has_sacct(self) -> bool:
         if "has_sacct" not in self._cache:
             try:
-                self.run("sacct -n --parsable2 -S now-1hour -e JobID")
+                self.run("sacct -n --parsable2 -S now-1hour -o JobID")
                 self._cache["has_sacct"] = True
             except RuntimeError:
                 self._cache["has_sacct"] = False

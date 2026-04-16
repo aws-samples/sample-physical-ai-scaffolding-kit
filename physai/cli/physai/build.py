@@ -171,7 +171,7 @@ def run_build(session: Session, container_dir: str, rebuild: bool = False) -> No
     env_txt = _generate_env_txt(cfg.get("env", {}))
 
     # Ensure remote dirs
-    session.run("mkdir -p /fsx/physai/logs /fsx/physai/builds /fsx/enroot")
+    session.run("mkdir -p /fsx/physai/logs /fsx/physai/builds")
 
     if rebuild:
         session.run(f"rm -f /fsx/enroot/{name}.sqsh")

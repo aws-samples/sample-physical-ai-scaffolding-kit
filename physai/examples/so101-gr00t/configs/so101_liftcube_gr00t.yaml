@@ -1,3 +1,6 @@
+pipeline:
+  stages: [train, eval]
+
 sim:
   platform: leisaac
   environment: LeIsaac-SO101-LiftCube-v0
@@ -6,12 +9,17 @@ sim:
 
 model:
   name: gr00t-n1.6
-  config_dir: model_configs/gr00t-n1.6/so101-singlecam
+  config_dir: gr00t-n1.6/so101-singlecam
 
-resources:
-  augment:   { partition: gpu, gres: "gpu:1", container: leisaac-runtime }
-  convert:   { partition: cpu, container: so101-converter }
-  validate:  { partition: cpu, container: so101-converter }
-  train:     { partition: gpu, gres: "gpu:1", constraint: l40s, container: gr00t-trainer }
-  eval:      { partition: gpu, gres: "gpu:1", container: leisaac-runtime }
-  register:  { partition: cpu }
+stages:
+  train:
+    partition: gpu
+    gres: "gpu:1"
+    constraint: l40s
+    container: gr00t-trainer
+    max_steps: 10000
+  eval:
+    partition: gpu
+    gres: "gpu:1"
+    container: leisaac-runtime
+    rounds: 20

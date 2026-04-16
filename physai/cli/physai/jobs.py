@@ -29,6 +29,7 @@ def list_jobs(session: Session) -> None:
         active.append((job_id, jtype, name, state, elapsed, comment))
 
     completed = []
+    active_jobs = set(x[0] for x in active)
     if session.has_sacct:
         out = session.run(
             f"sacct -u $(whoami) --format={SACCT_FORMAT} --noheader --parsable2 -S now-7days"
@@ -38,7 +39,7 @@ def list_jobs(session: Session) -> None:
             if len(parts) < 5:
                 continue
             job_id, job_name, state, elapsed, comment = parts
-            if not job_name.startswith("physai/") or state in ("RUNNING", "PENDING"):
+            if not job_name.startswith("physai/") or job_id in active_jobs:
                 continue
             if "." in job_id:
                 continue

@@ -13,6 +13,7 @@ def job_is_active(job_id: str) -> bool:
         ["squeue", "-j", job_id, "-h"],
         capture_output=True,
         text=True,
+        check=False,
     )
     return bool(r.stdout.strip())
 
@@ -34,16 +35,18 @@ def stream(job_id: str) -> None:
         print(f"Log file not found: {log_path}", file=sys.stderr)
         sys.exit(1)
 
-    with open(log_path) as f:
+    with open(log_path, "rb") as f:
         while True:
             line = f.readline()
             if line:
-                print(line, end="", flush=True)
+                sys.stdout.buffer.write(line)
+                sys.stdout.buffer.flush()
             else:
                 if not job_is_active(job_id):
                     rest = f.read()
                     if rest:
-                        print(rest, end="", flush=True)
+                        sys.stdout.buffer.write(rest)
+                        sys.stdout.buffer.flush()
                     break
                 time.sleep(0.5)
 

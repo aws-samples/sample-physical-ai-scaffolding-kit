@@ -2,8 +2,9 @@
 
 import argparse
 import sys
+from pathlib import Path
 
-from . import build, clean, config, jobs, pipeline
+from . import build, clean, config, data, jobs, pipeline
 from .ssh import Session
 
 
@@ -21,45 +22,71 @@ def main():
         "--rebuild", action="store_true", help="Remove existing sqsh first"
     )
 
-    # eval
+    # run
+    p_run = sub.add_parser("run", help="Run pipeline stages")
+    p_run.add_argument("--config", required=True, help="Path to run config yaml")
+    p_run.add_argument("--from", dest="from_stage", help="Start from this stage")
+    p_run.add_argument("--to", dest="to_stage", help="Stop after this stage")
+    p_run.add_argument("--raw", help="Raw data name on cluster")
+    p_run.add_argument("--dataset", help="Dataset name on cluster")
+    p_run.add_argument("--checkpoint", help="Checkpoint name on cluster")
+    p_run.add_argument("--max-steps", type=int, help="Override stages.train.max_steps")
+    p_run.add_argument("--eval-rounds", type=int, help="Override stages.eval.rounds")
+    p_run.add_argument(
+        "--visual", action="store_true", help="Render eval to DCV display"
+    )
+    p_run.add_argument(
+        "--model-config-root",
+        action="append",
+        default=[],
+        help="Model config search path",
+    )
+
+    # train (shortcut for run --from train --to train)
+    p_train = sub.add_parser("train", help="Train a model")
+    p_train.add_argument("--config", required=True, help="Path to run config yaml")
+    p_train.add_argument("--dataset", required=True, help="Dataset name on cluster")
+    p_train.add_argument(
+        "--max-steps", type=int, help="Override stages.train.max_steps"
+    )
+    p_train.add_argument(
+        "--model-config-root",
+        action="append",
+        default=[],
+        help="Model config search path",
+    )
+
+    # eval (shortcut for run --from eval --to eval)
     p_eval = sub.add_parser("eval", help="Evaluate a checkpoint in simulation")
     p_eval.add_argument("--config", required=True, help="Path to run config yaml")
     p_eval.add_argument(
         "--checkpoint", required=True, help="Checkpoint name on cluster"
     )
-    p_eval.add_argument(
-        "--model-config-root",
-        action="append",
-        default=[],
-        help="Model config search path",
-    )
-    p_eval.add_argument(
-        "--eval-rounds",
-        type=int,
-        default=20,
-        help="Number of eval rounds (default: 20)",
-    )
     p_eval.add_argument("--visual", action="store_true", help="Render to DCV display")
-
-    # train
-    p_train = sub.add_parser("train", help="Train a model")
-    p_train.add_argument("--config", required=True, help="Path to run config yaml")
-    p_train.add_argument("--dataset", required=True, help="Dataset name on cluster")
-    p_train.add_argument(
+    p_eval.add_argument("--eval-rounds", type=int, help="Override stages.eval.rounds")
+    p_eval.add_argument(
         "--model-config-root",
         action="append",
         default=[],
         help="Model config search path",
-    )
-    p_train.add_argument(
-        "--max-steps",
-        type=int,
-        default=10000,
-        help="Max training steps (default: 10000)",
     )
 
     # list
     sub.add_parser("list", help="List physai jobs")
+
+    # ls
+    p_ls = sub.add_parser("ls", help="List remote data on the cluster")
+    p_ls.add_argument(
+        "category", choices=data.CATEGORIES, help="Data category"
+    )
+    p_ls.add_argument("path", nargs="?", help="Subpath under the category")
+
+    # upload
+    p_up = sub.add_parser("upload", help="Upload data to the cluster")
+    p_up.add_argument(
+        "category", choices=data.CATEGORIES, help="Data category"
+    )
+    p_up.add_argument("local_path", help="Local file or directory")
 
     # status
     p_status = sub.add_parser("status", help="Show job status")
@@ -107,27 +134,52 @@ def main():
 
     if args.command == "build":
         build.run_build(session, args.container_dir, args.rebuild)
+    elif args.command == "run":
+        roots = [Path(p) for p in args.model_config_root] + [
+            Path(p) for p in cfg.get("model_config_roots", [])
+        ]
+        pipeline.run_pipeline(
+            session,
+            Path(args.config),
+            roots,
+            from_stage=args.from_stage,
+            to_stage=args.to_stage,
+            raw=args.raw,
+            dataset=args.dataset,
+            checkpoint=args.checkpoint,
+            max_steps=args.max_steps,
+            eval_rounds=args.eval_rounds,
+            visual=args.visual,
+        )
+    elif args.command == "train":
+        roots = [Path(p) for p in args.model_config_root] + [
+            Path(p) for p in cfg.get("model_config_roots", [])
+        ]
+        pipeline.run_train(
+            session,
+            Path(args.config),
+            args.dataset,
+            model_config_roots=roots,
+            max_steps=args.max_steps,
+        )
     elif args.command == "eval":
-        roots = args.model_config_root + cfg.get("model_config_roots", [])
+        roots = [Path(p) for p in args.model_config_root] + [
+            Path(p) for p in cfg.get("model_config_roots", [])
+        ]
         pipeline.run_eval(
             session,
-            args.config,
+            Path(args.config),
             args.checkpoint,
             model_config_roots=roots,
             eval_rounds=args.eval_rounds,
             visual=args.visual,
         )
-    elif args.command == "train":
-        roots = args.model_config_root + cfg.get("model_config_roots", [])
-        pipeline.run_train(
-            session,
-            args.config,
-            args.dataset,
-            model_config_roots=roots,
-            max_steps=args.max_steps,
-        )
     elif args.command == "list":
         jobs.list_jobs(session)
+    elif args.command == "ls":
+        data.ls(session, args.category, args.path)
+    elif args.command == "upload":
+        data.upload(session, args.category, args.local_path)
     elif args.command == "status":
         jobs.status_job(session, args.job_id)
     elif args.command == "logs":
