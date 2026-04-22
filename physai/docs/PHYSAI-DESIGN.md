@@ -159,7 +159,7 @@ decline the recommendation to proceed with direct rsync.
 ```yaml
 host: physai-login
 model_config_roots:
-  - ~/projects/physai-pipeline-poc/examples/so101-gr00t/model_configs
+  - <path-to-physai>/examples/so101-gr00t/model_configs
 ```
 
 Cluster paths are fixed by convention:
