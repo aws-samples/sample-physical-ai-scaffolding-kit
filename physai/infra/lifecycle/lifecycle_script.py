@@ -87,7 +87,9 @@ def main():
     slurm_dir = discover_slurm_dir()
     env = {**os.environ, "SLURM_DIR": slurm_dir}
 
-    # 1. FSx mounting is handled by HyperPod via FsxLustreConfig in the API
+    # 1. Create necessary directories under /fsx/ (FSx mounting is handled by HyperPod)
+    if node_type == "controller":
+        run("./create_fsx_dirs.sh")
 
     # 2. Start Slurm
     run("./start_slurm.sh", node_type, ",".join(controller_ips), env=env)
@@ -95,6 +97,7 @@ def main():
     # 3. Configure Slurm node features (controller only — patches slurm.conf)
     if node_type == "controller":
         run("./configure_slurm_features.sh", env=env)
+        run("./configure_slurm_accounting.sh", env=env)
 
     # 3. Install Docker + Enroot + Pyxis
     run("./install_docker.sh", env=env)

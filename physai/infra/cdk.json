@@ -1,0 +1,12 @@
+{
+  "app": "npx ts-node bin/app.ts",
+  "context": {
+    "clusterName": "physai-cluster",
+    "fsxCapacityGiB": 1200,
+    "gpuWorkers": [
+      { "name": "gpu-workers", "instanceType": "ml.g6e.2xlarge", "count": 1 }
+    ],
+    "cpuWorkerType": "ml.m5.2xlarge",
+    "cpuWorkerCount": 1
+  }
+}

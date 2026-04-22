@@ -89,22 +89,63 @@ else
     echo "Pyxis ${PYXIS_VERSION} already installed, skipping"
 fi
 
-# Configure Pyxis plugin for Slurm
-mkdir -p "$SLURM_DIR/etc/plugstack.conf.d"
-if ! grep -q "plugstack.conf.d/pyxis.conf" "$SLURM_DIR/etc/plugstack.conf" 2>/dev/null; then
-  echo "include $SLURM_DIR/etc/plugstack.conf.d/pyxis.conf" >> "$SLURM_DIR/etc/plugstack.conf"
-fi
-cat > "$SLURM_DIR/etc/plugstack.conf.d/pyxis.conf" <<EOF
-required /usr/local/lib/slurm/spank_pyxis.so use_enroot_load=1
-EOF
+# Configure Pyxis plugin for Slurm.
+# Only meaningful on the controller: HyperPod uses Slurm configless mode, where
+# workers fetch plugstack.conf from the controller and cache it under
+# /var/spool/slurmd/conf-cache/. Modifying a worker's $SLURM_DIR/etc has no
+# runtime effect. The controller writes the authoritative copy and pushes it to
+# workers via `scontrol reconfigure`.
+#
+# The conventional pattern is to `include $SLURM_DIR/etc/plugstack.conf.d/*.conf`
+# from plugstack.conf so each plugin ships its own drop-in file — useful when
+# multiple packages (Pyxis, MPI wrappers, site plugins) manage independent
+# configs. We don't use it here because configless only pushes plugstack.conf
+# itself, not the files it includes. The include path (`$SLURM_DIR/etc/...`)
+# must exist on every node, but workers don't have it — so Pyxis silently fails
+# to load. Inlining the `required` line in plugstack.conf keeps the whole config
+# self-contained and correctly propagated to workers.
+if [[ "$NODE_TYPE" == "controller" ]]; then
+    PYXIS_LINE="required /usr/local/lib/slurm/spank_pyxis.so use_enroot_load=1"
+    # Remove any existing spank_pyxis entry (regardless of path or flags) so we
+    # don't accumulate duplicates or stale lines with different options. Then
+    # append the canonical line. Skip the subsequent reconfigure if the file
+    # already matched.
+    before=$(md5sum "$SLURM_DIR/etc/plugstack.conf" | cut -d' ' -f1)
+    sed -i '/spank_pyxis\.so/d' "$SLURM_DIR/etc/plugstack.conf"
+    # Ensure trailing newline before appending (HyperPod's plugstack.conf may lack one)
+    [[ -s "$SLURM_DIR/etc/plugstack.conf" && -n "$(tail -c 1 "$SLURM_DIR/etc/plugstack.conf")" ]] && echo "" >> "$SLURM_DIR/etc/plugstack.conf"
+    echo "$PYXIS_LINE" >> "$SLURM_DIR/etc/plugstack.conf"
+    after=$(md5sum "$SLURM_DIR/etc/plugstack.conf" | cut -d' ' -f1)
 
-# GPU cgroup constraint (required for correct GPU ID mapping with Pyxis)
-if [[ -f "$SLURM_DIR/etc/cgroup.conf" ]]; then
-  grep -q "^ConstrainDevices" "$SLURM_DIR/etc/cgroup.conf" || echo "ConstrainDevices=yes" >> "$SLURM_DIR/etc/cgroup.conf"
-fi
+    # GPU cgroup constraint (required for correct GPU ID mapping with Pyxis).
+    # cgroup.conf is also pushed to workers via configless (like slurm.conf and
+    # plugstack.conf), so editing it only on the controller is sufficient.
+    cgroup_changed=false
+    if [[ -f "$SLURM_DIR/etc/cgroup.conf" ]] && ! grep -q "^ConstrainDevices" "$SLURM_DIR/etc/cgroup.conf"; then
+      echo "ConstrainDevices=yes" >> "$SLURM_DIR/etc/cgroup.conf"
+      cgroup_changed=true
+    fi
 
-# Restart Slurm to pick up Pyxis plugin
-systemctl is-active --quiet slurmctld && systemctl restart slurmctld || true
-systemctl is-active --quiet slurmd && systemctl restart slurmd || true
+    # Push updated plugstack to workers via the configless mechanism only if
+    # something actually changed. slurmctld is already running so a single
+    # reconfigure is sufficient.
+    if [[ "$before" != "$after" ]] || $cgroup_changed; then
+        scontrol reconfigure
+    fi
+else
+    # On workers (compute/login), restart slurmd so it re-fetches the latest
+    # config from the controller. Together with the controller's `scontrol
+    # reconfigure` above, this covers both orderings:
+    #   - Controller writes pyxis BEFORE the worker restarts here:
+    #     the restart fetches the pyxis-included config.
+    #   - Controller writes pyxis AFTER the worker restarts here:
+    #     the worker is already registered, so the controller's reconfigure
+    #     pushes the pyxis-included config to it.
+    # Skip the restart if the cached config already has pyxis.
+    if systemctl is-active --quiet slurmd \
+       && ! grep -q 'spank_pyxis' /var/spool/slurmd/conf-cache/plugstack.conf 2>/dev/null; then
+        systemctl restart slurmd
+    fi
+fi
 
 echo "Enroot + Pyxis installed"

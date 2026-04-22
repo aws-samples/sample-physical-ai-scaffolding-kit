@@ -14,3 +14,7 @@ __pycache__/
 # Node
 node_modules/
 cli/physai.egg-info/
+
+# CDK
+infra/cdk.out/
+infra/dist/

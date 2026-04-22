@@ -16,14 +16,20 @@ fi
 
 SLURM_DIR="${SLURM_DIR:-/opt/slurm}"
 
-# Update or append a key=value in a config file
+# Update or append a key=value in a config file. Sets CHANGED=true if the file
+# was modified.
+CHANGED=false
 set_conf() {
-    local file="$3" key="$1" val="$2"
+    local key="$1" val="$2" file="$3"
+    if grep -q "^${key}=${val}$" "$file" 2>/dev/null; then
+        return  # already set to this value
+    fi
     if grep -q "^${key}=" "$file" 2>/dev/null; then
         sed -i "s|^${key}=.*|${key}=${val}|" "$file"
     else
         printf '\n%s=%s\n' "$key" "$val" >> "$file"
     fi
+    CHANGED=true
 }
 
 if [ "$NODE_TYPE" = "controller" ]; then
@@ -35,12 +41,10 @@ if [ "$NODE_TYPE" = "controller" ]; then
         exit 1
     fi
 
-    cp "$SLURM_CONF" "${SLURM_CONF}.pre-cgroup"
-
     set_conf ProctrackType proctrack/cgroup "$SLURM_CONF"
     set_conf PrologFlags Contain "$SLURM_CONF"
 
-    cat > "$CGROUP_CONF" <<EOF
+    NEW_CGROUP_CONF=$(cat <<EOF
 CgroupPlugin=autodetect
 ConstrainDevices=yes
 ConstrainRAMSpace=yes
@@ -48,11 +52,43 @@ ConstrainSwapSpace=yes
 SignalChildrenProcesses=yes
 MaxRAMPercent=99
 EOF
+)
+    if [ ! -f "$CGROUP_CONF" ] || ! diff -q <(echo "$NEW_CGROUP_CONF") "$CGROUP_CONF" >/dev/null 2>&1; then
+        echo "$NEW_CGROUP_CONF" > "$CGROUP_CONF"
+        CHANGED=true
+    fi
 
-    systemctl restart slurmctld
-    echo "Controller: cgroup config applied, slurmctld restarted"
+    if $CHANGED; then
+        # ProctrackType changes require a full restart; a reconfigure alone
+        # won't pick them up.
+        systemctl restart slurmctld
+        # Wait for slurmctld to come back, then issue a final reconfigure to
+        # push the complete config (including pyxis plugstack written by
+        # install_enroot_pyxis.sh) to all registered workers. Without this,
+        # the restart interrupts any in-flight reconfigure from earlier
+        # scripts and Slurm (pre-25.11) does not auto-push on slurmctld
+        # restart.
+        for attempt in 1 2 3 4 5 6; do
+            sleep 5
+            if scontrol reconfigure 2>&1; then
+                echo "Post-restart reconfigure OK on attempt $attempt"
+                break
+            fi
+        done
+        echo "Controller: cgroup config applied, slurmctld restarted and reconfigured"
+    else
+        echo "Controller: cgroup config already up-to-date, nothing to do"
+    fi
 
 elif [ "$NODE_TYPE" = "compute" ]; then
-    systemctl restart slurmd
-    echo "Compute: slurmd restarted to pick up cgroup config"
+    # Compute nodes fetch cgroup.conf from the controller via configless. A
+    # restart here is only needed if we think the cached config is stale. The
+    # controller's reconfigure (above) triggers a SIGHUP push to all slurmd
+    # instances, which is sufficient. Restart only if slurmd isn't running.
+    if ! systemctl is-active --quiet slurmd; then
+        systemctl start slurmd
+        echo "Compute: slurmd started"
+    else
+        echo "Compute: slurmd already running, nothing to do"
+    fi
 fi
