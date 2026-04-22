@@ -4,26 +4,38 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import build, clean, config, data, jobs, pipeline
+from . import build, clean, config, data, doctor, jobs, pipeline
 from .ssh import Session
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        prog="physai", description="Physical AI Pipeline CLI"
+    # Parent parser: flags that every subcommand accepts.
+    # `default=SUPPRESS` so that when --host is only given at the top level,
+    # the subparser doesn't overwrite it with None.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--host", default=argparse.SUPPRESS, help="SSH host (overrides config)"
     )
-    parser.add_argument("--host", help="SSH host (overrides config)")
+
+    parser = argparse.ArgumentParser(
+        prog="physai",
+        description="Physical AI Pipeline CLI",
+        parents=[common],
+    )
     sub = parser.add_subparsers(dest="command")
 
     # build
-    p_build = sub.add_parser("build", help="Build a container")
+    p_build = sub.add_parser("build", parents=[common], help="Build a container")
     p_build.add_argument("container_dir", help="Path to container folder")
     p_build.add_argument(
         "--rebuild", action="store_true", help="Remove existing sqsh first"
     )
+    p_build.add_argument(
+        "-n", "--no-stream", action="store_true", help="Submit without streaming logs"
+    )
 
     # run
-    p_run = sub.add_parser("run", help="Run pipeline stages")
+    p_run = sub.add_parser("run", parents=[common], help="Run pipeline stages")
     p_run.add_argument("--config", required=True, help="Path to run config yaml")
     p_run.add_argument("--from", dest="from_stage", help="Start from this stage")
     p_run.add_argument("--to", dest="to_stage", help="Stop after this stage")
@@ -41,9 +53,12 @@ def main():
         default=[],
         help="Model config search path",
     )
+    p_run.add_argument(
+        "-n", "--no-stream", action="store_true", help="Submit without streaming logs"
+    )
 
     # train (shortcut for run --from train --to train)
-    p_train = sub.add_parser("train", help="Train a model")
+    p_train = sub.add_parser("train", parents=[common], help="Train a model")
     p_train.add_argument("--config", required=True, help="Path to run config yaml")
     p_train.add_argument("--dataset", required=True, help="Dataset name on cluster")
     p_train.add_argument(
@@ -55,9 +70,14 @@ def main():
         default=[],
         help="Model config search path",
     )
+    p_train.add_argument(
+        "-n", "--no-stream", action="store_true", help="Submit without streaming logs"
+    )
 
     # eval (shortcut for run --from eval --to eval)
-    p_eval = sub.add_parser("eval", help="Evaluate a checkpoint in simulation")
+    p_eval = sub.add_parser(
+        "eval", parents=[common], help="Evaluate a checkpoint in simulation"
+    )
     p_eval.add_argument("--config", required=True, help="Path to run config yaml")
     p_eval.add_argument(
         "--checkpoint", required=True, help="Checkpoint name on cluster"
@@ -70,38 +90,41 @@ def main():
         default=[],
         help="Model config search path",
     )
+    p_eval.add_argument(
+        "-n", "--no-stream", action="store_true", help="Submit without streaming logs"
+    )
 
     # list
-    sub.add_parser("list", help="List physai jobs")
+    sub.add_parser("list", parents=[common], help="List physai jobs")
 
     # ls
-    p_ls = sub.add_parser("ls", help="List remote data on the cluster")
-    p_ls.add_argument(
-        "category", choices=data.CATEGORIES, help="Data category"
+    p_ls = sub.add_parser(
+        "ls", parents=[common], help="List remote data on the cluster"
     )
+    p_ls.add_argument("category", choices=data.CATEGORIES, help="Data category")
     p_ls.add_argument("path", nargs="?", help="Subpath under the category")
 
     # upload
-    p_up = sub.add_parser("upload", help="Upload data to the cluster")
-    p_up.add_argument(
-        "category", choices=data.CATEGORIES, help="Data category"
-    )
+    p_up = sub.add_parser("upload", parents=[common], help="Upload data to the cluster")
+    p_up.add_argument("category", choices=data.CATEGORIES, help="Data category")
     p_up.add_argument("local_path", help="Local file or directory")
 
     # status
-    p_status = sub.add_parser("status", help="Show job status")
+    p_status = sub.add_parser("status", parents=[common], help="Show job status")
     p_status.add_argument("job_id", help="Slurm job ID")
 
     # logs
-    p_logs = sub.add_parser("logs", help="Tail job log")
+    p_logs = sub.add_parser("logs", parents=[common], help="Tail job log")
     p_logs.add_argument("job_id", help="Slurm job ID")
 
     # cancel
-    p_cancel = sub.add_parser("cancel", help="Cancel a job")
+    p_cancel = sub.add_parser("cancel", parents=[common], help="Cancel a job")
     p_cancel.add_argument("job_id", help="Slurm job ID")
 
     # clean
-    p_clean = sub.add_parser("clean", help="Remove old build dirs and logs")
+    p_clean = sub.add_parser(
+        "clean", parents=[common], help="Remove old build dirs and logs"
+    )
     p_clean.add_argument(
         "--older-than",
         type=int,
@@ -124,16 +147,23 @@ def main():
         help="Remove stale enroot containers from worker nodes",
     )
 
+    # doctor
+    sub.add_parser(
+        "doctor", parents=[common], help="Check cluster health and offer fixes"
+    )
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
         sys.exit(1)
 
-    cfg = config.load(args.host)
+    cfg = config.load(getattr(args, "host", None))
     session = Session(cfg["host"])
 
     if args.command == "build":
-        build.run_build(session, args.container_dir, args.rebuild)
+        build.run_build(
+            session, args.container_dir, args.rebuild, stream=not args.no_stream
+        )
     elif args.command == "run":
         roots = [Path(p) for p in args.model_config_root] + [
             Path(p) for p in cfg.get("model_config_roots", [])
@@ -150,6 +180,7 @@ def main():
             max_steps=args.max_steps,
             eval_rounds=args.eval_rounds,
             visual=args.visual,
+            stream=not args.no_stream,
         )
     elif args.command == "train":
         roots = [Path(p) for p in args.model_config_root] + [
@@ -161,6 +192,7 @@ def main():
             args.dataset,
             model_config_roots=roots,
             max_steps=args.max_steps,
+            stream=not args.no_stream,
         )
     elif args.command == "eval":
         roots = [Path(p) for p in args.model_config_root] + [
@@ -173,6 +205,7 @@ def main():
             model_config_roots=roots,
             eval_rounds=args.eval_rounds,
             visual=args.visual,
+            stream=not args.no_stream,
         )
     elif args.command == "list":
         jobs.list_jobs(session)
@@ -194,3 +227,5 @@ def main():
             force=args.force,
             enroot=args.enroot,
         )
+    elif args.command == "doctor":
+        doctor.run_doctor(session)

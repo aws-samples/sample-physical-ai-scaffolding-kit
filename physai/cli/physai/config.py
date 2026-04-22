@@ -8,7 +8,6 @@ CONFIG_PATH = Path.home() / ".physai" / "config.yaml"
 
 DEFAULTS = {
     "host": None,
-    "s3_bucket": None,
     "model_config_roots": [],
 }
 

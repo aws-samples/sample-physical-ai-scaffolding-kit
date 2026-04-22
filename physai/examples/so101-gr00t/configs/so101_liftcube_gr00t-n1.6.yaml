@@ -16,10 +16,10 @@ stages:
     partition: gpu
     gres: "gpu:1"
     constraint: l40s
-    container: gr00t-trainer
+    container: gr00t-n1.6-trainer
     max_steps: 10000
   eval:
     partition: gpu
     gres: "gpu:1"
-    container: leisaac-runtime
+    container: leisaac-gr00t-n1.6
     rounds: 20

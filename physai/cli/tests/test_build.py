@@ -1,9 +1,12 @@
 """Tests for physai build system."""
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from physai.build import (
     _discover_hooks,
+    _find_active_build_job,
     _find_project_yaml,
     _generate_env_txt,
     _generate_sbatch,
@@ -35,11 +38,33 @@ def test_merge_non_dict_replaces():
     assert _merge_configs(p, c)["gres"] == "gpu:2"
 
 
+def test_merge_base_container_drops_project_base_image():
+    """Container's base_container wholly overrides project's base_image."""
+    p = {"base_image": "nvcr.io/foo", "partition": "cpu"}
+    c = {"name": "t", "base_container": "parent"}
+    m = _merge_configs(p, c)
+    assert "base_image" not in m
+    assert m["base_container"] == "parent"
+
+
+def test_merge_base_image_drops_project_base_container():
+    """Container's base_image wholly overrides project's base_container."""
+    p = {"base_container": "parent"}
+    c = {"name": "t", "base_image": "nvcr.io/foo"}
+    m = _merge_configs(p, c)
+    assert "base_container" not in m
+    assert m["base_image"] == "nvcr.io/foo"
+
+
 # ── _validate_config ──
 
 
-def test_validate_passes():
+def test_validate_passes_base_image():
     _validate_config({"name": "test", "base_image": "img"})
+
+
+def test_validate_passes_base_container():
+    _validate_config({"name": "test", "base_container": "parent"})
 
 
 def test_validate_missing_name():
@@ -47,9 +72,14 @@ def test_validate_missing_name():
         _validate_config({"base_image": "img"})
 
 
-def test_validate_missing_base_image():
-    with pytest.raises(SystemExit, match="base_image"):
+def test_validate_missing_base():
+    with pytest.raises(SystemExit, match="base_image or base_container"):
         _validate_config({"name": "test"})
+
+
+def test_validate_both_bases_rejected():
+    with pytest.raises(SystemExit, match="not both"):
+        _validate_config({"name": "t", "base_image": "img", "base_container": "parent"})
 
 
 # ── _discover_hooks ──
@@ -147,3 +177,78 @@ enroot remove -f pyxis_${BUILD_NAME}
 echo "Build complete: $SQSH (${SECONDS}s)"
 """
     assert sbatch == expected
+
+
+def test_generate_sbatch_base_container(tmp_path):
+    """base_container resolves to /fsx/enroot/<name>.sqsh in the --container-image arg."""
+    (tmp_path / "10-x.sh").write_text("")
+    cfg = {
+        "name": "child",
+        "base_container": "parent",
+        "partition": "gpu",
+        "gres": "gpu:1",
+        "_local_hooks_dir": str(tmp_path),
+    }
+    sbatch = _generate_sbatch(cfg, "/fsx/physai/builds/child-1", "child-1")
+    assert "--container-image=/fsx/enroot/parent.sqsh" in sbatch
+    assert "base=/fsx/enroot/parent.sqsh" in sbatch
+
+
+def test_generate_sbatch_rebuild(tmp_path):
+    """--rebuild removes the sqsh at job start instead of aborting."""
+    (tmp_path / "10-x.sh").write_text("")
+    cfg = {
+        "name": "c",
+        "base_image": "nvcr.io/foo",
+        "partition": "gpu",
+        "gres": "gpu:1",
+        "_local_hooks_dir": str(tmp_path),
+    }
+    sbatch = _generate_sbatch(cfg, "/fsx/physai/builds/c-1", "c-1", rebuild=True)
+    assert "--rebuild: removing $SQSH" in sbatch
+    assert 'rm -f "$SQSH"' in sbatch
+    assert "ERROR: $SQSH exists" not in sbatch
+
+
+def test_generate_sbatch_no_rebuild(tmp_path):
+    """Without --rebuild, the sbatch aborts if sqsh already exists."""
+    (tmp_path / "10-x.sh").write_text("")
+    cfg = {
+        "name": "c",
+        "base_image": "nvcr.io/foo",
+        "partition": "gpu",
+        "gres": "gpu:1",
+        "_local_hooks_dir": str(tmp_path),
+    }
+    sbatch = _generate_sbatch(cfg, "/fsx/physai/builds/c-1", "c-1")
+    assert "ERROR: $SQSH exists" in sbatch
+    assert "--rebuild: removing" not in sbatch
+
+
+# ── _find_active_build_job ──
+
+
+def test_find_active_build_job_none():
+    session = MagicMock()
+    session.run.return_value = ""
+    assert _find_active_build_job(session, "foo") is None
+
+
+def test_find_active_build_job_one():
+    session = MagicMock()
+    session.run.return_value = "123\n"
+    assert _find_active_build_job(session, "foo") == "123"
+
+
+def test_find_active_build_job_picks_highest():
+    session = MagicMock()
+    session.run.return_value = "100\n200\n150\n"
+    assert _find_active_build_job(session, "foo") == "200"
+
+
+def test_find_active_build_job_queries_by_name():
+    session = MagicMock()
+    session.run.return_value = ""
+    _find_active_build_job(session, "leisaac-runtime")
+    cmd = session.run.call_args[0][0]
+    assert '-n "physai/build/leisaac-runtime"' in cmd

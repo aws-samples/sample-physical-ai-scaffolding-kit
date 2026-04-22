@@ -144,7 +144,11 @@ def test_get_stage_config_missing_container():
 def _make_stage(
     cls, cfg=None, run_id="run-test", remote_config="/cfg", remote_mc="/mc"
 ):
-    cfg = cfg or {"partition": "gpu", "gres": "gpu:1", "container": "gr00t-trainer"}
+    cfg = cfg or {
+        "partition": "gpu",
+        "gres": "gpu:1",
+        "container": "gr00t-n1.6-trainer",
+    }
     return cls(cfg, run_id, remote_config, remote_mc)
 
 
@@ -168,7 +172,7 @@ def test_train_stage_sbatch():
     sbatch = stage.generate_sbatch(ctx)
     assert "#SBATCH --job-name=physai/run/run-20260415-100000/train" in sbatch
     assert "#SBATCH --partition=gpu" in sbatch
-    assert "--container-image=/fsx/enroot/gr00t-trainer.sqsh" in sbatch
+    assert "--container-image=/fsx/enroot/gr00t-n1.6-trainer.sqsh" in sbatch
     assert "/fsx/datasets/my-ds" in sbatch
     assert "10000\n" in sbatch  # default max_steps
 
@@ -218,7 +222,7 @@ def test_eval_stage_sbatch():
         cfg={
             "partition": "gpu",
             "gres": "gpu:1",
-            "container": "leisaac-runtime",
+            "container": "leisaac-gr00t-n1.6",
             "rounds": 20,
         },
         run_id="run-20260414-090000",
@@ -229,7 +233,7 @@ def test_eval_stage_sbatch():
     }
     sbatch = stage.generate_sbatch(ctx)
     assert "#SBATCH --job-name=physai/run/run-20260414-090000/eval" in sbatch
-    assert "--container-image=/fsx/enroot/leisaac-runtime.sqsh" in sbatch
+    assert "--container-image=/fsx/enroot/leisaac-gr00t-n1.6.sqsh" in sbatch
     assert "/fsx/checkpoints/my-ckpt" in sbatch
     assert "20\n" in sbatch
     assert "--visual" not in sbatch

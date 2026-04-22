@@ -22,6 +22,7 @@ class Session:
             ["ssh", "-fNM", "-S", self._socket, "-o", "ControlPersist=10m", host],
             capture_output=True,
             text=True,
+            check=False,
         )
         if r.returncode != 0:
             stderr = r.stderr.strip()
@@ -39,7 +40,9 @@ class Session:
 
     def run(self, cmd: str) -> str:
         """Run a command and return stdout."""
-        r = subprocess.run(self._ssh_args() + [cmd], capture_output=True, text=True)
+        r = subprocess.run(
+            self._ssh_args() + [cmd], capture_output=True, text=True, check=False
+        )
         if r.returncode != 0:
             raise RuntimeError(f"ssh {self.host}: {r.stderr.strip()}")
         return r.stdout.strip()
@@ -57,6 +60,7 @@ class Session:
             ],
             capture_output=True,
             text=True,
+            check=False,
         )
         if r.returncode != 0:
             raise RuntimeError(f"rsync to {self.host}:{dst}: {r.stderr.strip()}")
@@ -68,25 +72,27 @@ class Session:
             input=content,
             capture_output=True,
             text=True,
+            check=False,
         )
         if r.returncode != 0:
             raise RuntimeError(f"write {self.host}:{path}: {r.stderr.strip()}")
 
     def stream_log(self, job_id: str) -> None:
         """Stream a job's log via the remote helper script. Ctrl-C detaches cleanly."""
-        proc = subprocess.Popen(
-            self._ssh_args() + [f"python3 - {job_id}"],
-            stdin=open(LOG_STREAMER),
-        )
-        try:
-            proc.wait()
-        except KeyboardInterrupt:
-            proc.send_signal(signal.SIGTERM)
-            proc.wait()
-            print(
-                f"\nDetached. Job may still be running. Reconnect: physai logs {job_id}"
+        with open(LOG_STREAMER) as f:
+            proc = subprocess.Popen(
+                self._ssh_args() + [f"python3 - {job_id}"],
+                stdin=f,
             )
-            sys.exit(0)
+            try:
+                proc.wait()
+            except KeyboardInterrupt:
+                proc.send_signal(signal.SIGTERM)
+                proc.wait()
+                print(
+                    f"\nDetached. Job may still be running. Reconnect: physai logs {job_id}"
+                )
+                sys.exit(0)
 
     @property
     def has_sacct(self) -> bool:
@@ -111,4 +117,5 @@ class Session:
         subprocess.run(
             ["ssh", "-S", self._socket, "-O", "exit", self.host],
             capture_output=True,
+            check=False,
         )

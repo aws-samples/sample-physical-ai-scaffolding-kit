@@ -1,0 +1,4 @@
+name: leisaac-gr00t-n1.6
+base_container: leisaac-runtime
+partition: gpu
+gres: "gpu:1"

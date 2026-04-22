@@ -1,7 +1,7 @@
 """Container build: read project/container yaml, generate sbatch, submit."""
 
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -9,6 +9,26 @@ import yaml
 from .ssh import Session
 
 BUILD_SCRIPTS_DIR = Path(__file__).parent / "build-scripts"
+
+
+def _container_sqsh_exists(session: Session, container_name: str) -> bool:
+    """Whether /fsx/enroot/<name>.sqsh exists on the cluster."""
+    try:
+        session.run(f"test -f /fsx/enroot/{container_name}.sqsh")
+    except RuntimeError:
+        return False
+    return True
+
+
+def _find_active_build_job(session: Session, container_name: str) -> str | None:
+    """Return the job ID of an active build for the container, or None.
+
+    ``squeue`` only lists non-terminal jobs, so no state filter is needed.
+    Picks the highest job ID if multiple exist.
+    """
+    out = session.run(f'squeue -h -o "%i" -n "physai/build/{container_name}"')
+    ids = [line.strip() for line in out.splitlines() if line.strip()]
+    return max(ids, key=int) if ids else None
 
 
 def _find_project_yaml(container_dir: Path) -> Path | None:
@@ -23,8 +43,15 @@ def _find_project_yaml(container_dir: Path) -> Path | None:
 
 
 def _merge_configs(project: dict, container: dict) -> dict:
-    """Merge project and container configs. Container overrides project. Dicts are deep-merged."""
+    """Merge project and container configs. Container overrides project. Dicts are deep-merged.
+
+    ``base_image`` and ``base_container`` are mutually exclusive. If the container
+    specifies either, it wholly overrides the project's choice of base.
+    """
     merged = dict(project)
+    if "base_image" in container or "base_container" in container:
+        merged.pop("base_image", None)
+        merged.pop("base_container", None)
     for k, v in container.items():
         if k in merged and isinstance(merged[k], dict) and isinstance(v, dict):
             merged[k] = {**merged[k], **v}
@@ -33,13 +60,20 @@ def _merge_configs(project: dict, container: dict) -> dict:
     return merged
 
 
-REQUIRED_FIELDS = ["name", "base_image"]
+REQUIRED_FIELDS = ["name"]
 
 
 def _validate_config(cfg: dict) -> None:
-    missing = [f for f in REQUIRED_FIELDS if not cfg.get(f)]
-    if missing:
-        raise SystemExit(f"Missing required config fields: {', '.join(missing)}")
+    if not cfg.get("name"):
+        raise SystemExit("container.yaml: missing required field 'name'")
+    has_image = bool(cfg.get("base_image"))
+    has_container = bool(cfg.get("base_container"))
+    if has_image and has_container:
+        raise SystemExit(
+            "container.yaml: set either base_image or base_container, not both"
+        )
+    if not (has_image or has_container):
+        raise SystemExit("container.yaml: must set base_image or base_container")
 
 
 def _discover_hooks(hooks_dir: Path) -> list[dict]:
@@ -63,10 +97,19 @@ def _generate_env_txt(env: dict) -> str:
     return "\n".join(f"{k}={v}" for k, v in env.items()) + "\n" if env else ""
 
 
-def _generate_sbatch(cfg: dict, build_dir: str, build_name: str) -> str:
+def _resolve_base(cfg: dict) -> str:
+    """Return the --container-image argument for the base."""
+    if cfg.get("base_container"):
+        return f"/fsx/enroot/{cfg['base_container']}.sqsh"
+    return cfg["base_image"]
+
+
+def _generate_sbatch(
+    cfg: dict, build_dir: str, build_name: str, rebuild: bool = False
+) -> str:
     """Generate the build.sbatch script content."""
     name = cfg["name"]
-    base_image = cfg["base_image"]
+    base_image = _resolve_base(cfg)
     partition = cfg.get("partition", "gpu")
     gres = cfg.get("gres", "gpu:1")
     hooks_dir = f"{build_dir}/setup-hooks"
@@ -88,18 +131,39 @@ def _generate_sbatch(cfg: dict, build_dir: str, build_name: str) -> str:
         f"BUILD_NAME={build_name}",
         f"SQSH=/fsx/enroot/{name}.sqsh",
         "",
-        'if [ -f "$SQSH" ]; then',
-        '  echo "ERROR: $SQSH exists. Use --rebuild to replace."',
-        "  exit 1",
-        "fi",
-        "",
-        # Init: create container + write env vars
-        'echo "=== init (${SECONDS}s) ==="',
-        f"srun --container-image={base_image} --container-name=$BUILD_NAME"
-        f" --container-mounts=/fsx:/fsx --container-remap-root"
-        f' bash "{prelude}/init-env.root.sh"',
-        "",
     ]
+
+    if rebuild:
+        lines.extend(
+            [
+                'if [ -f "$SQSH" ]; then',
+                '  echo "--rebuild: removing $SQSH"',
+                '  rm -f "$SQSH"',
+                "fi",
+                "",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                'if [ -f "$SQSH" ]; then',
+                '  echo "ERROR: $SQSH exists. Use --rebuild to replace."',
+                "  exit 1",
+                "fi",
+                "",
+            ]
+        )
+
+    lines.extend(
+        [
+            # Init: create container + write env vars
+            'echo "=== init (${SECONDS}s) ==="',
+            f"srun --container-image={base_image} --container-name=$BUILD_NAME"
+            f" --container-mounts=/fsx:/fsx --container-remap-root"
+            f' bash "{prelude}/init-env.root.sh"',
+            "",
+        ]
+    )
 
     # Setup hooks
     for hook in hooks:
@@ -134,7 +198,9 @@ def _generate_sbatch(cfg: dict, build_dir: str, build_name: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def run_build(session: Session, container_dir: str, rebuild: bool = False) -> None:
+def run_build(
+    session: Session, container_dir: str, rebuild: bool = False, stream: bool = True
+) -> None:
     """Execute a container build."""
     container_path = Path(container_dir).resolve()
     container_yaml = container_path / "container.yaml"
@@ -161,20 +227,47 @@ def run_build(session: Session, container_dir: str, rebuild: bool = False) -> No
     cfg = _merge_configs(project_cfg, container_cfg)
     _validate_config(cfg)
     name = cfg["name"]
-    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     build_name = f"{name}-{ts}"
     build_dir = f"/fsx/physai/builds/{build_name}"
 
     cfg["_local_hooks_dir"] = str(hooks_dir)
 
-    sbatch_content = _generate_sbatch(cfg, build_dir, build_name)
+    # Preflight: without --rebuild, fail early if another build is active
+    # for this container (our sbatch would hit "sqsh exists" at run time) or
+    # the sqsh already exists on disk.
+    if not rebuild:
+        active = _find_active_build_job(session, name)
+        if active:
+            raise SystemExit(
+                f"Build job {active} is already active for '{name}'. "
+                "Re-run with --rebuild to replace its output, "
+                f"or cancel it first: physai cancel {active}"
+            )
+        if _container_sqsh_exists(session, name):
+            raise SystemExit(
+                f"/fsx/enroot/{name}.sqsh already exists. Use --rebuild to replace."
+            )
+
+    # Preflight: if base_container, verify it's either on disk OR has an
+    # in-flight build job we can depend on.
+    dep_job_id: str | None = None
+    if cfg.get("base_container"):
+        base_name = cfg["base_container"]
+        dep_job_id = _find_active_build_job(session, base_name)
+        if dep_job_id:
+            print(f"Depends on build job {dep_job_id} ({base_name})")
+        elif not _container_sqsh_exists(session, base_name):
+            raise SystemExit(
+                f"Base container '{base_name}' not found at /fsx/enroot/{base_name}.sqsh. "
+                "Build it first."
+            )
+
+    sbatch_content = _generate_sbatch(cfg, build_dir, build_name, rebuild=rebuild)
     env_txt = _generate_env_txt(cfg.get("env", {}))
 
     # Ensure remote dirs
     session.run("mkdir -p /fsx/physai/logs /fsx/physai/builds")
-
-    if rebuild:
-        session.run(f"rm -f /fsx/enroot/{name}.sqsh")
 
     # Sync files
     print(f"Syncing {container_path.name} to {session.host}:{build_dir}/")
@@ -188,8 +281,15 @@ def run_build(session: Session, container_dir: str, rebuild: bool = False) -> No
     session.write_file(f"{build_dir}/build.sbatch", sbatch_content)
 
     # Submit
-    job_id = session.run(f"sbatch --parsable {build_dir}/build.sbatch")
+    dep = (
+        f" --dependency=afterok:{dep_job_id} --kill-on-invalid-dep=yes"
+        if dep_job_id
+        else ""
+    )
+    job_id = session.run(f"sbatch --parsable{dep} {build_dir}/build.sbatch")
     print(f"Submitted build job {job_id} for {name}")
+    if not stream:
+        return
     print(f"Reconnect: physai logs {job_id}", flush=True)
 
     session.stream_log(job_id)

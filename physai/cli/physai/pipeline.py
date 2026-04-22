@@ -10,6 +10,7 @@ from pathlib import Path
 
 import yaml
 
+from .build import _container_sqsh_exists, _find_active_build_job
 from .ssh import Session
 
 # Ordered list of all pipeline stages
@@ -239,6 +240,7 @@ def run_pipeline(
     max_steps: int | None = None,
     eval_rounds: int | None = None,
     visual: bool = False,
+    stream: bool = True,
 ) -> None:
     """Submit a pipeline run (one or more stages)."""
     run_cfg = _load_run_config(config_path)
@@ -294,9 +296,26 @@ def run_pipeline(
         sbatch_path = f"{sync_dir}/{stage.name}.sbatch"
         session.write_file(sbatch_path, content)
 
+        # Collect dependencies: previous stage + in-flight build for this container.
+        deps: list[str] = []
+        if prev_job_id:
+            deps.append(prev_job_id)
+        container_name = stage.cfg["container"]
+        build_job = _find_active_build_job(session, container_name)
+        if build_job:
+            deps.append(build_job)
+            print(
+                f"  {stage.name}: depends on build job {build_job} ({container_name})"
+            )
+        elif not _container_sqsh_exists(session, container_name):
+            raise SystemExit(
+                f"Container '{container_name}' not found at /fsx/enroot/{container_name}.sqsh. "
+                "Build it first."
+            )
+
         dep = (
-            f" --dependency=afterok:{prev_job_id} --kill-on-invalid-dep=yes"
-            if prev_job_id
+            f" --dependency=afterok:{':'.join(deps)} --kill-on-invalid-dep=yes"
+            if deps
             else ""
         )
         job_id = session.run(f"sbatch --parsable{dep} {sbatch_path}")
@@ -306,6 +325,8 @@ def run_pipeline(
 
     print(f"\nSubmitted {len(stages)} stage(s): {' → '.join(stage_names)}")
     print(f"  Run ID:     {run_id}")
+    if not stream:
+        return
     print(f"  Reconnect:  physai logs {job_ids[0]}")
     print(flush=True)
 
@@ -329,6 +350,7 @@ def run_train(
     dataset: str,
     model_config_roots: list[Path],
     max_steps: int | None = None,
+    stream: bool = True,
 ) -> None:
     """Shortcut: physai train ≡ physai run --from train --to train."""
     run_pipeline(
@@ -339,6 +361,7 @@ def run_train(
         to_stage="train",
         dataset=dataset,
         max_steps=max_steps,
+        stream=stream,
     )
 
 
@@ -349,6 +372,7 @@ def run_eval(
     model_config_roots: list[Path],
     eval_rounds: int | None = None,
     visual: bool = False,
+    stream: bool = True,
 ) -> None:
     """Shortcut: physai eval ≡ physai run --from eval --to eval."""
     run_pipeline(
@@ -360,4 +384,5 @@ def run_eval(
         checkpoint=checkpoint,
         eval_rounds=eval_rounds,
         visual=visual,
+        stream=stream,
     )
