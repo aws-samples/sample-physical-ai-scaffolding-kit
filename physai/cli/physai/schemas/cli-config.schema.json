@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cli-config.schema.json",
+  "title": "physai CLI config",
+  "description": "Schema for ~/.physai/config.yaml — global CLI configuration. The 'host' field is required at runtime unless overridden by the --host flag.",
+  "type": "object",
+  "properties": {
+    "host": {
+      "type": "string",
+      "description": "SSH host alias or address for the HyperPod login node. Required at runtime unless --host is passed."
+    },
+    "model_config_roots": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "List of local directory paths to search for model config directories referenced by run_config.yaml model.config_dir."
+    }
+  },
+  "additionalProperties": false
+}
