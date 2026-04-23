@@ -11,6 +11,7 @@ from pathlib import Path
 import yaml
 
 from .build import _container_sqsh_exists, _find_active_build_job
+from .schema import validate
 from .ssh import Session
 
 # Ordered list of all pipeline stages
@@ -160,7 +161,8 @@ def _load_run_config(config_path: Path) -> dict:
     if not config_path.exists():
         raise SystemExit(f"Config not found: {config_path}")
     with open(config_path) as f:
-        cfg = yaml.safe_load(f)
+        cfg = yaml.safe_load(f) or {}
+    validate(cfg, "run-config", str(config_path))
     if "model" not in cfg:
         raise SystemExit(f"Missing 'model' in {config_path}")
     if "config_dir" not in cfg.get("model", {}):

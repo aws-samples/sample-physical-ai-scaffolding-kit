@@ -19,7 +19,7 @@ from physai.pipeline import (
 def test_load_run_config(tmp_path):
     cfg_file = tmp_path / "run.yaml"
     cfg_file.write_text(
-        "model:\n  config_dir: gr00t/so101\nstages:\n  train:\n    container: tr\n"
+        "pipeline:\n  stages: [train]\nmodel:\n  name: gr00t\n  config_dir: gr00t/so101\nstages:\n  train:\n    container: tr\n"
     )
     cfg = _load_run_config(cfg_file)
     assert cfg["model"]["config_dir"] == "gr00t/so101"
@@ -33,14 +33,18 @@ def test_load_run_config_missing_file():
 
 def test_load_run_config_missing_model(tmp_path):
     cfg_file = tmp_path / "run.yaml"
-    cfg_file.write_text("stages:\n  train:\n    container: tr\n")
+    cfg_file.write_text(
+        "pipeline:\n  stages: [train]\nstages:\n  train:\n    container: tr\n"
+    )
     with pytest.raises(SystemExit, match="model"):
         _load_run_config(cfg_file)
 
 
 def test_load_run_config_missing_stages(tmp_path):
     cfg_file = tmp_path / "run.yaml"
-    cfg_file.write_text("model:\n  config_dir: gr00t/so101\n")
+    cfg_file.write_text(
+        "pipeline:\n  stages: [train]\nmodel:\n  name: gr00t\n  config_dir: gr00t/so101\n"
+    )
     with pytest.raises(SystemExit, match="stages"):
         _load_run_config(cfg_file)
 

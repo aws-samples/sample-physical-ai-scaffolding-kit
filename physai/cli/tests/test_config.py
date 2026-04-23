@@ -13,11 +13,10 @@ def test_load_with_host_override(tmp_path, monkeypatch):
 
 def test_load_from_file(tmp_path, monkeypatch):
     config_file = tmp_path / "config.yaml"
-    config_file.write_text("host: filehost\ns3_bucket: mybucket\n")
+    config_file.write_text("host: filehost\n")
     monkeypatch.setattr("physai.config.CONFIG_PATH", config_file)
     cfg = load()
     assert cfg["host"] == "filehost"
-    assert cfg["s3_bucket"] == "mybucket"
 
 
 def test_load_override_beats_file(tmp_path, monkeypatch):
