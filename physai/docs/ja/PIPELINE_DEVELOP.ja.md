@@ -122,7 +122,7 @@ my-container/
 
 ### 3.2 project.yaml と container.yaml
 
-`project.yaml` は親ディレクトリに配置し、同じプロジェクト内の全コンテナの共通デフォルトを定義します。ビルダーはコンテナフォルダから上方向に探索し、最初に見つかった `project.yaml` を使用します。
+`project.yaml` は親ディレクトリに配置し、同じプロジェクト内の全コンテナの共通デフォルトを定義します。ビルダーはコンテナフォルダから上方向に探索し、最初に見つかった `project.yaml` を使用します。プロジェクト側で `base_image` または `base_container` を指定することで、そのプロジェクト内のコンテナ全体のデフォルトベースを設定できます。
 
 ```yaml
 # project.yaml — 共通デフォルト
@@ -131,6 +131,8 @@ env:
   PIP_CONSTRAINT: ""
   NVIDIA_VISIBLE_DEVICES: all
 ```
+
+> **スキーマ**: [`project.schema.json`](../../cli/physai/schemas/project.schema.json)
 
 `container.yaml` は `project.yaml` を上書き・拡張します。スカラー値は上書きされ、`env` 辞書はマージされます。
 
@@ -142,6 +144,8 @@ gres: "gpu:1"
 env:
   MY_CUSTOM_VAR: "value"    # project.yaml の env にマージ
 ```
+
+> **スキーマ**: [`container.schema.json`](../../cli/physai/schemas/container.schema.json)
 
 `base_image` と `base_container` のいずれか一方のみを設定する必要があります（排他的）。既にビルド済みの別のコンテナの上に構築する場合：
 
@@ -363,6 +367,8 @@ stages:
     partition: cpu
     container: <register_container>
 ```
+
+> **スキーマ**: [`run-config.schema.json`](../../cli/physai/schemas/run-config.schema.json)
 
 **主要フィールド:**
 

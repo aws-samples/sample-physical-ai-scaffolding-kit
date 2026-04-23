@@ -29,6 +29,8 @@ model_config_roots:
   - <path-to-physai>/examples/so101-gr00t/model_configs
 ```
 
+> **Schema**: [`cli-config.schema.json`](../../cli/physai/schemas/cli-config.schema.json)
+
 Cluster paths are fixed by convention:
 
 | Path | Purpose |

@@ -122,7 +122,7 @@ my-container/
 
 ### 3.2 project.yaml and container.yaml
 
-`project.yaml` in a parent directory defines shared defaults for all containers in the same project. The builder walks up from the container folder and uses the nearest `project.yaml` it finds.
+`project.yaml` in a parent directory defines shared defaults for all containers in the same project. The builder walks up from the container folder and uses the nearest `project.yaml` it finds. A project can set `base_image` or `base_container` as the default base for all its containers.
 
 ```yaml
 # project.yaml — shared defaults
@@ -131,6 +131,8 @@ env:
   PIP_CONSTRAINT: ""
   NVIDIA_VISIBLE_DEVICES: all
 ```
+
+> **Schema**: [`project.schema.json`](../../cli/physai/schemas/project.schema.json)
 
 `container.yaml` overrides and extends `project.yaml`. Scalars override; `env` dicts merge.
 
@@ -142,6 +144,8 @@ gres: "gpu:1"
 env:
   MY_CUSTOM_VAR: "value"    # merged into project.yaml env
 ```
+
+> **Schema**: [`container.schema.json`](../../cli/physai/schemas/container.schema.json)
 
 Exactly one of `base_image` or `base_container` must be set (mutually exclusive). To layer on another container you've already built:
 
@@ -363,6 +367,8 @@ stages:
     partition: cpu
     container: <register_container>
 ```
+
+> **Schema**: [`run-config.schema.json`](../../cli/physai/schemas/run-config.schema.json)
 
 **Key fields:**
 

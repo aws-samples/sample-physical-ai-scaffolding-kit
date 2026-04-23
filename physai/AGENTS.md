@@ -159,5 +159,5 @@ commit conventions across all workstreams.
 
 - No tests or linter configured for `infra/` (TypeScript)
 - No shellcheck for `infra/lifecycle/` shell scripts
-- No JSON schema or automated validation for `container.yaml`, `project.yaml`, `run_config.yaml`
+- JSON schemas in `cli/physai/schemas/` validate `container.yaml`, `project.yaml`, `run_config.yaml`, and `~/.physai/config.yaml` at load time via `jsonschema`
 - No multi-session agent progress tracking (checkpoint files, feature JSON) yet

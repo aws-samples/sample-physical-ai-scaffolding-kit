@@ -29,6 +29,8 @@ model_config_roots:
   - <path-to-physai>/examples/so101-gr00t/model_configs
 ```
 
+> **スキーマ**: [`cli-config.schema.json`](../../cli/physai/schemas/cli-config.schema.json)
+
 クラスター上のパスは規約により固定されています。
 
 | パス | 用途 |
