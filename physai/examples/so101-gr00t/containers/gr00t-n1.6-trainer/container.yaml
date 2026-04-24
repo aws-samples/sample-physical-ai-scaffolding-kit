@@ -1,0 +1,3 @@
+name: gr00t-n1.6-trainer
+partition: gpu
+gres: "gpu:1"

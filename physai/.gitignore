@@ -1,0 +1,20 @@
+# Build artifacts
+*.pdf
+__pycache__/
+.mypy_cache/
+
+# Editor
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# Node
+node_modules/
+cli/physai.egg-info/
+
+# CDK
+infra/cdk.out/
+infra/dist/
