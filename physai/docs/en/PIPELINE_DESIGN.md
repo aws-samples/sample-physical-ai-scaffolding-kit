@@ -92,13 +92,13 @@ Fast local storage on GPU worker nodes (`/opt/dlami/nvme`). Used for temporary a
 
 ### Data flow
 
-1. User uploads raw HDF5 to `s3://bucket/raw/` → auto-imported to `/fsx/raw/` (lazy-load on first access)
+1. User uploads raw demo directory to `s3://bucket/raw/<name>/` → auto-imported to `/fsx/raw/<name>/` (lazy-load on first access)
 2. Pipeline stages read/write on `/fsx` at Lustre speed
 3. Registration stage publishes final results to S3 via explicit `aws s3 cp`
 4. Raw HDF5 deleted from `/fsx/raw/` after conversion. User can re-import from S3 if needed.
 5. For retraining from a published dataset, `physai train` stages it from S3 to `/fsx/datasets/`
 
-`/fsx/raw/` has a Data Repository Association (auto-import only) linked to `s3://bucket/raw/`. Users upload HDF5 to S3; it appears on `/fsx/raw/` via lazy-load on first access. All other `/fsx/` directories have no S3 link. The registration stage publishes final results from `/fsx` to S3 via explicit `aws s3 cp`.
+`/fsx/raw/` has a Data Repository Association (auto-import only) linked to `s3://bucket/raw/`. Users upload demo directories to S3 (each demo set is a directory of HDF5 files); contents appear under `/fsx/raw/<name>/` via lazy-load on first access. All other `/fsx/` directories have no S3 link. The registration stage publishes final results from `/fsx` to S3 via explicit `aws s3 cp`.
 
 ### Storage budget per run
 

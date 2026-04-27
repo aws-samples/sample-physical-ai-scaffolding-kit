@@ -1,16 +1,24 @@
 """Tests for physai pipeline (run, train, eval)."""
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
 from physai.pipeline import (
+    Artifact,
+    ConvertStage,
+    Dir,
     EvalStage,
+    File,
+    JobMetadata,
     TrainStage,
+    _format_produces,
     _get_stage_config,
     _load_run_config,
     _resolve_model_config,
     _resolve_stages,
+    _sbatch_header,
+    _validate_artifact_name,
 )
 
 # ── _load_run_config ──
@@ -266,3 +274,224 @@ def test_eval_stage_sbatch_constraint():
     ctx = {"checkpoint_dir": "/ckpt", "eval_dir": "/out"}
     sbatch = stage.generate_sbatch(ctx)
     assert "#SBATCH --constraint=l40s" in sbatch
+
+
+# ── ConvertStage ──
+
+
+def test_convert_stage_validate_ok():
+    stage = _make_stage(
+        ConvertStage, cfg={"partition": "cpu", "container": "so101-converter"}
+    )
+    stage.validate({"raw_dir": "/fsx/raw/my-demos"})  # no error
+
+
+def test_convert_stage_validate_missing():
+    stage = _make_stage(
+        ConvertStage, cfg={"partition": "cpu", "container": "so101-converter"}
+    )
+    with pytest.raises(SystemExit, match="--raw"):
+        stage.validate({})
+
+
+def test_convert_stage_sbatch():
+    stage = _make_stage(
+        ConvertStage,
+        cfg={"partition": "cpu", "container": "so101-converter"},
+        run_id="run-20260415-100000",
+    )
+    ctx = {
+        "raw_dir": Dir(PurePosixPath("/fsx/raw/leisaac-pick-orange")),
+        "dataset_dir": Dir(PurePosixPath("/fsx/datasets/leisaac-pick-orange")),
+    }
+    sbatch = stage.generate_sbatch(ctx)
+    assert "#SBATCH --job-name=physai/run/run-20260415-100000/convert" in sbatch
+    assert "#SBATCH --partition=cpu" in sbatch
+    assert "--gres" not in sbatch  # no GPU for CPU converter
+    assert "--container-image=/fsx/enroot/so101-converter.sqsh" in sbatch
+    assert "bash /app/convert.sh" in sbatch
+    assert "/fsx/raw/leisaac-pick-orange" in sbatch
+    assert "/fsx/datasets/leisaac-pick-orange" in sbatch
+
+
+# ── inputs()/outputs() API ──
+
+
+def test_convert_stage_declares_inputs_outputs():
+    stage = _make_stage(
+        ConvertStage, cfg={"partition": "cpu", "container": "so101-converter"}
+    )
+    ctx = {"raw_dir": Dir(PurePosixPath("/fsx/raw/my-demos"))}
+    assert stage.inputs(ctx) == [Dir(PurePosixPath("/fsx/raw/my-demos"))]
+    assert stage.outputs(ctx) == [Dir(PurePosixPath("/fsx/datasets/my-demos"))]
+
+
+def test_train_stage_declares_inputs_outputs():
+    stage = _make_stage(TrainStage, run_id="run-20260415-100000")
+    ctx = {"dataset_dir": Dir(PurePosixPath("/fsx/datasets/my-ds"))}
+    assert stage.inputs(ctx) == [Dir(PurePosixPath("/fsx/datasets/my-ds"))]
+    assert stage.outputs(ctx) == [
+        Dir(PurePosixPath("/fsx/checkpoints/run-20260415-100000"))
+    ]
+
+
+def test_eval_stage_declares_inputs_outputs():
+    stage = _make_stage(
+        EvalStage,
+        cfg={"partition": "gpu", "gres": "gpu:1", "container": "rt"},
+        run_id="run-20260415-100000",
+    )
+    ctx = {"checkpoint_dir": Dir(PurePosixPath("/fsx/checkpoints/ckpt"))}
+    assert stage.inputs(ctx) == [Dir(PurePosixPath("/fsx/checkpoints/ckpt"))]
+    assert stage.outputs(ctx) == [
+        Dir(PurePosixPath("/fsx/evaluations/run-20260415-100000"))
+    ]
+
+
+# ── produces= serialization round-trip ──
+
+
+def _extract_comment(sbatch: str) -> str:
+    for line in sbatch.splitlines():
+        if line.startswith("#SBATCH --comment="):
+            return line.split("=", 1)[1].strip('"')
+    raise AssertionError("no --comment line in sbatch")
+
+
+def _round_trip(outputs: list) -> list[bool]:
+    """Build an sbatch header for `outputs`, then parse tokens back and check
+    each original artifact is recoverable as a produces=<path> token."""
+    sbatch = _sbatch_header(JobMetadata(name="physai/run/x/y", outputs=outputs))
+    tokens = _extract_comment(sbatch).split()
+    return [_format_produces(p) in tokens for p in outputs]
+
+
+def test_produces_round_trip_directory():
+    artifacts = [Dir(PurePosixPath("/fsx/datasets/my-demos"))]
+    assert _round_trip(artifacts) == [True]
+
+
+def test_produces_round_trip_file():
+    artifacts = [File(PurePosixPath("/fsx/results/run-42/metrics.json"))]
+    assert _round_trip(artifacts) == [True]
+
+
+def test_produces_round_trip_mixed_file_and_directory():
+    artifacts = [
+        Dir(PurePosixPath("/fsx/datasets/my-demos")),
+        Dir(PurePosixPath("/fsx/checkpoints/run-1")),
+        File(PurePosixPath("/fsx/results/run-1/metrics.json")),
+    ]
+    assert _round_trip(artifacts) == [True, True, True]
+
+
+def test_produces_distinguishes_file_and_dir_at_same_path():
+    """File(/x) and Dir(/x) must serialize to distinct tokens."""
+    shared = PurePosixPath("/fsx/shared/name")
+    assert _format_produces(File(shared)) != _format_produces(Dir(shared))
+    # And exact-token match must discriminate them
+    file_token = _format_produces(File(shared))
+    dir_token = _format_produces(Dir(shared))
+    assert file_token not in dir_token.split()
+    assert dir_token not in file_token.split()
+
+
+def test_produces_no_prefix_collision():
+    """A path that's a strict prefix of another must not match it as a token."""
+    long_path = Dir(PurePosixPath("/fsx/checkpoints/run-10"))
+    short_path = Dir(PurePosixPath("/fsx/checkpoints/run-1"))
+    comment = _format_produces(long_path)
+    # exact-token match (comment.split()) must NOT find the short path
+    assert _format_produces(short_path) not in comment.split()
+
+
+def test_produces_rejects_whitespace_in_path():
+    with pytest.raises(SystemExit, match="whitespace"):
+        _format_produces(Dir(PurePosixPath("/fsx/datasets/bad name")))
+
+
+def test_artifact_from_token_inverse_of_as_token():
+    """from_token(as_token(x)) == x for both File and Dir."""
+    cases = [
+        File(PurePosixPath("/fsx/results/run-1/metrics.json")),
+        Dir(PurePosixPath("/fsx/datasets/my-demos")),
+        Dir(PurePosixPath("/fsx/checkpoints/run-10")),
+    ]
+    for original in cases:
+        assert Artifact.from_token(original.as_token()) == original
+
+
+# ── ConvertStage dataset-name override ──
+
+
+def test_convert_outputs_default_to_raw_name():
+    """Without ctx['dataset_dir'], convert derives output name from --raw."""
+    stage = _make_stage(
+        ConvertStage, cfg={"partition": "cpu", "container": "so101-converter"}
+    )
+    ctx = {"raw_dir": Dir(PurePosixPath("/fsx/raw/my-demos"))}
+    assert stage.outputs(ctx) == [Dir(PurePosixPath("/fsx/datasets/my-demos"))]
+
+
+def test_convert_outputs_honor_dataset_override():
+    """When ctx['dataset_dir'] is set (user passed --dataset), convert uses it."""
+    stage = _make_stage(
+        ConvertStage, cfg={"partition": "cpu", "container": "so101-converter"}
+    )
+    ctx = {
+        "raw_dir": Dir(PurePosixPath("/fsx/raw/ugly-raw-name")),
+        "dataset_dir": Dir(PurePosixPath("/fsx/datasets/clean-name")),
+    }
+    assert stage.outputs(ctx) == [Dir(PurePosixPath("/fsx/datasets/clean-name"))]
+
+
+def test_convert_prepare_does_not_clobber_existing_dataset_dir():
+    """prepare() must leave ctx['dataset_dir'] alone if the user set it."""
+    stage = _make_stage(
+        ConvertStage, cfg={"partition": "cpu", "container": "so101-converter"}
+    )
+    user_choice = Dir(PurePosixPath("/fsx/datasets/user-choice"))
+    ctx = {
+        "raw_dir": Dir(PurePosixPath("/fsx/raw/ugly-raw-name")),
+        "dataset_dir": user_choice,
+    }
+    stage.prepare(ctx)
+    assert ctx["dataset_dir"] == user_choice
+
+
+def test_convert_prepare_populates_when_absent():
+    """prepare() fills in dataset_dir when the user didn't pass --dataset."""
+    stage = _make_stage(
+        ConvertStage, cfg={"partition": "cpu", "container": "so101-converter"}
+    )
+    ctx = {"raw_dir": Dir(PurePosixPath("/fsx/raw/my-demos"))}
+    stage.prepare(ctx)
+    assert ctx["dataset_dir"] == Dir(PurePosixPath("/fsx/datasets/my-demos"))
+
+
+# ── _validate_artifact_name ──
+
+
+def test_validate_artifact_name_ok():
+    _validate_artifact_name("clean-name", "dataset")  # no exception
+    _validate_artifact_name("run-20260429-154500", "checkpoint")
+
+
+def test_validate_artifact_name_rejects_slash():
+    with pytest.raises(SystemExit, match="Invalid dataset name"):
+        _validate_artifact_name("a/b", "dataset")
+
+
+def test_validate_artifact_name_rejects_dot():
+    with pytest.raises(SystemExit, match="Invalid raw data name"):
+        _validate_artifact_name("..", "raw data")
+
+
+def test_validate_artifact_name_rejects_whitespace():
+    with pytest.raises(SystemExit, match="whitespace"):
+        _validate_artifact_name("bad name", "dataset")
+
+
+def test_validate_artifact_name_rejects_empty():
+    with pytest.raises(SystemExit, match="Invalid dataset name"):
+        _validate_artifact_name("", "dataset")

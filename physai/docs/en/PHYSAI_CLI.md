@@ -156,7 +156,7 @@ Upload data to the cluster:
 
 ```bash
 # Raw demos — prompts to recommend uploading to S3 first, then rsyncs to /fsx/raw/
-physai upload raw /path/to/demos.hdf5
+physai upload raw /path/to/my-demo-dir/
 
 # Pre-converted dataset → /fsx/datasets/ directly
 physai upload datasets /path/to/so101_liftcube/
@@ -202,9 +202,7 @@ aws cloudformation describe-stacks --stack-name PhysaiInfraStack \
 Then upload:
 
 ```bash
-aws s3 cp /path/to/demos.hdf5 s3://<data-bucket>/raw/
-# directories:
-aws s3 cp --recursive /path/to/dir/ s3://<data-bucket>/raw/
+aws s3 cp --recursive /path/to/my-demo-dir/ s3://<data-bucket>/raw/my-demo-dir/
 
 # verify it's visible on the cluster
 physai ls raw
@@ -232,9 +230,9 @@ The CLI uses two kinds of references:
 |----------|--------|------------|
 | `--config <path>` | Local file | rsynced to cluster |
 | `model.config_dir` (in yaml) | Relative name | Resolved via model config search paths, then rsynced |
-| `--raw <name>` | Name | → `/fsx/raw/<name>` |
-| `--dataset <name>` | Name | → `/fsx/datasets/<name>` |
-| `--checkpoint <name>` | Name | → `/fsx/checkpoints/<name>` |
+| `--raw <name>` | Directory name | → `/fsx/raw/<name>/` |
+| `--dataset <name>` | Directory name | → `/fsx/datasets/<name>/` |
+| `--checkpoint <name>` | Directory name | → `/fsx/checkpoints/<name>/` |
 | `<container-folder>` | Local directory | rsynced to cluster |
 
 #### 3.3.2. Model config resolution
@@ -369,7 +367,7 @@ Run default stages from config (e.g., convert → validate → train → eval �
 
 ```bash
 physai run --config examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml \
-           --raw so101_liftcube.hdf5
+           --raw so101_liftcube
 ```
 
 Run from train onwards

@@ -51,7 +51,8 @@ def upload(session: Session, category: str, local_path: str) -> None:
         print(
             "Recommendation: upload raw data to S3 instead — the Data Repository\n"
             "Association will auto-import it to /fsx/raw/ on first access.\n"
-            "  aws s3 cp --recursive <path> s3://<data-bucket>/raw/\n"
+            "Raw data is expected to be a directory of demo files (e.g., HDF5).\n"
+            "  aws s3 cp --recursive <local-dir>/ s3://<data-bucket>/raw/<name>/\n"
         )
         answer = input(f"Proceed with rsync to {session.host}:/fsx/raw/ ? [y/N] ")
         if answer.lower() != "y":

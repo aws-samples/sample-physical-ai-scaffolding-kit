@@ -156,7 +156,7 @@ pickorange.hdf5          580G
 
 ```bash
 # Raw demos — prompts to recommend uploading to S3 first, then rsyncs to /fsx/raw/
-physai upload raw /path/to/demos.hdf5
+physai upload raw /path/to/my-demo-dir/
 
 # Pre-converted dataset → /fsx/datasets/ directly
 physai upload datasets /path/to/so101_liftcube/
@@ -188,9 +188,7 @@ aws cloudformation describe-stacks --stack-name PhysaiInfraStack \
 その後、アップロードします。
 
 ```bash
-aws s3 cp /path/to/demos.hdf5 s3://<data-bucket>/raw/
-# directories:
-aws s3 cp --recursive /path/to/dir/ s3://<data-bucket>/raw/
+aws s3 cp --recursive /path/to/my-demo-dir/ s3://<data-bucket>/raw/my-demo-dir/
 
 # verify it's visible on the cluster
 physai ls raw
@@ -218,9 +216,9 @@ CLI は 2 種類の参照を使用します。
 |------|--------|----------|
 | `--config <path>` | ローカルファイル | クラスターへ rsync |
 | `model.config_dir`（YAML 内） | 相対名 | モデル設定の検索パスで解決後、rsync |
-| `--raw <name>` | 名前 | → `/fsx/raw/<name>` |
-| `--dataset <name>` | 名前 | → `/fsx/datasets/<name>` |
-| `--checkpoint <name>` | 名前 | → `/fsx/checkpoints/<name>` |
+| `--raw <name>` | ディレクトリ名 | → `/fsx/raw/<name>/` |
+| `--dataset <name>` | ディレクトリ名 | → `/fsx/datasets/<name>/` |
+| `--checkpoint <name>` | ディレクトリ名 | → `/fsx/checkpoints/<name>/` |
 | `<container-folder>` | ローカルディレクトリ | クラスターへ rsync |
 
 #### 3.3.2. モデル設定の解決
@@ -348,7 +346,7 @@ init ステップでは `env.txt` から環境変数を Pyxis の名前付きコ
 
 ```bash
 physai run --config examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml \
-           --raw so101_liftcube.hdf5
+           --raw so101_liftcube
 ```
 
 train 以降を実行する場合

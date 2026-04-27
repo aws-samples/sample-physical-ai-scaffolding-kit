@@ -35,6 +35,7 @@ def cli_env(monkeypatch):
         "run_pipeline": MagicMock(name="pipeline.run_pipeline"),
         "run_train": MagicMock(name="pipeline.run_train"),
         "run_eval": MagicMock(name="pipeline.run_eval"),
+        "run_convert": MagicMock(name="pipeline.run_convert"),
         "list_jobs": MagicMock(name="jobs.list_jobs"),
         "status_job": MagicMock(name="jobs.status_job"),
         "logs_job": MagicMock(name="jobs.logs_job"),
@@ -48,6 +49,7 @@ def cli_env(monkeypatch):
     monkeypatch.setattr(cli.pipeline, "run_pipeline", stubs["run_pipeline"])
     monkeypatch.setattr(cli.pipeline, "run_train", stubs["run_train"])
     monkeypatch.setattr(cli.pipeline, "run_eval", stubs["run_eval"])
+    monkeypatch.setattr(cli.pipeline, "run_convert", stubs["run_convert"])
     monkeypatch.setattr(cli.jobs, "list_jobs", stubs["list_jobs"])
     monkeypatch.setattr(cli.jobs, "status_job", stubs["status_job"])
     monkeypatch.setattr(cli.jobs, "logs_job", stubs["logs_job"])
@@ -198,6 +200,23 @@ def test_eval_shortcut(cli_env, monkeypatch):
     args, kwargs = cli_env["run_eval"].call_args
     assert args[2] == "ckpt"
     assert kwargs["visual"] is True
+    assert kwargs["stream"] is False
+
+
+def test_convert_shortcut(cli_env, monkeypatch):
+    run_cli(
+        monkeypatch,
+        "convert",
+        "--config",
+        "cfg.yaml",
+        "--raw",
+        "my-raw-data",
+        "-n",
+    )
+    cli_env["run_convert"].assert_called_once()
+    args, kwargs = cli_env["run_convert"].call_args
+    assert args[0] is cli_env["session"]
+    assert args[2] == "my-raw-data"
     assert kwargs["stream"] is False
 
 

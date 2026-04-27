@@ -39,7 +39,9 @@ def main():
     p_run.add_argument("--config", required=True, help="Path to run config yaml")
     p_run.add_argument("--from", dest="from_stage", help="Start from this stage")
     p_run.add_argument("--to", dest="to_stage", help="Stop after this stage")
-    p_run.add_argument("--raw", help="Raw data name on cluster")
+    p_run.add_argument(
+        "--raw", help="Raw data directory name on cluster (under /fsx/raw/)"
+    )
     p_run.add_argument("--dataset", help="Dataset name on cluster")
     p_run.add_argument("--checkpoint", help="Checkpoint name on cluster")
     p_run.add_argument("--max-steps", type=int, help="Override stages.train.max_steps")
@@ -91,6 +93,30 @@ def main():
         help="Model config search path",
     )
     p_eval.add_argument(
+        "-n", "--no-stream", action="store_true", help="Submit without streaming logs"
+    )
+
+    # convert (shortcut for run --from convert --to convert)
+    p_convert = sub.add_parser(
+        "convert", parents=[common], help="Convert raw data to training format"
+    )
+    p_convert.add_argument("--config", required=True, help="Path to run config yaml")
+    p_convert.add_argument(
+        "--raw",
+        required=True,
+        help="Raw data directory name on cluster (under /fsx/raw/)",
+    )
+    p_convert.add_argument(
+        "--dataset",
+        help="Output dataset name (default: same as --raw). Writes to /fsx/datasets/<name>.",
+    )
+    p_convert.add_argument(
+        "--model-config-root",
+        action="append",
+        default=[],
+        help="Model config search path",
+    )
+    p_convert.add_argument(
         "-n", "--no-stream", action="store_true", help="Submit without streaming logs"
     )
 
@@ -205,6 +231,18 @@ def main():
             model_config_roots=roots,
             eval_rounds=args.eval_rounds,
             visual=args.visual,
+            stream=not args.no_stream,
+        )
+    elif args.command == "convert":
+        roots = [Path(p) for p in args.model_config_root] + [
+            Path(p) for p in cfg.get("model_config_roots", [])
+        ]
+        pipeline.run_convert(
+            session,
+            Path(args.config),
+            args.raw,
+            model_config_roots=roots,
+            dataset=args.dataset,
             stream=not args.no_stream,
         )
     elif args.command == "list":
