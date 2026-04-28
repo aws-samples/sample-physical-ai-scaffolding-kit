@@ -17,3 +17,4 @@ Amazon SageMaker HyperPod eliminates the undifferentiated heavy lifting associat
 
 1. [π0 Sample](samples/openpi-sample/README.md)
 2. [NVIDIA Isaac GR00T Sample](/samples/gr00t/README.md)
+3. [NVIDIA Isaac Lab Newton RL Sample](/samples/isaac-lab-newton/README.md)
