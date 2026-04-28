@@ -7,4 +7,5 @@ env:
   LEISAAC_DIR: /workspace/leisaac
   GR00T_DIR: /workspace/gr00t
   GR00T_REF: "n1.6-release"
+  GR00T_N15_REF: "n1.5-release"
   LEISAAC_REF: "d2cbfd2e33517f2094e1904ff817aa17de6e8939"
