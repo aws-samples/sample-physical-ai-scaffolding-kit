@@ -246,11 +246,21 @@ Before deleting, `rm`:
 These commands are used to manage the pipline.
 
 ```bash
-physai build <container-folder> [--rebuild] [-n|--no-stream] [--host HOST]
-physai run   --config <local-yaml> [--from STAGE] [--to STAGE] [--raw NAME] [--dataset NAME] [--checkpoint NAME] [--max-steps N] [--eval-rounds N] [--visual] [--model-config-root PATH] [-n|--no-stream] [--host HOST]
-physai train --config <local-yaml> --dataset <name> [--max-steps N] [--model-config-root PATH] [-n|--no-stream] [--host HOST]
-physai eval  --config <local-yaml> --checkpoint <name> [--eval-rounds N] [--visual] [--model-config-root PATH] [-n|--no-stream] [--host HOST]
+physai build   <container-folder> [--rebuild] [-n|--no-stream] [--host HOST]
+physai run     --config <local-yaml> [--from STAGE] [--to STAGE] [--raw NAME] [--dataset NAME] [--checkpoint NAME] [--max-steps N] [--eval-rounds N] [--visual] [--model-config-root PATH] [-n|--no-stream] [--host HOST]
+physai convert --config <local-yaml> --raw <name> [--dataset <name>] [--model-config-root PATH] [-n|--no-stream] [--host HOST]
+physai train   --config <local-yaml> --dataset <name> [--max-steps N] [--model-config-root PATH] [-n|--no-stream] [--host HOST]
+physai eval    --config <local-yaml> --checkpoint <name> [--eval-rounds N] [--visual] [--model-config-root PATH] [-n|--no-stream] [--host HOST]
 ```
+
+`physai run` executes the stages listed in `pipeline.stages` from the config. `--from`/`--to` narrow that list to a contiguous subrange. `physai convert`, `physai train`, and `physai eval` are shortcuts for single-stage runs.
+
+`--dataset` has two roles depending on the starting stage:
+
+- When `convert` is the first stage to run, `--dataset <name>` sets the **output** dataset name (written to `/fsx/datasets/<name>`). If omitted, the convert stage mirrors the `--raw` name.
+- When `train` or `validate` is the first stage, `--dataset <name>` names the **input** dataset at `/fsx/datasets/<name>` (which must already exist).
+
+The runner validates each case separately via its preflight input/output checks; the same flag carries different semantics based on the stage range.
 
 #### 3.3.1. Path Resolution
 
@@ -381,18 +391,18 @@ The init step loads env vars from `env.txt` into the Pyxis named container. With
 
 #### 3.3.4. Run Workflow(Train / Eval)
 
-`physai run` executes the stages listed in `pipeline.stages` from the config. `--from`/`--to` narrow that list to a contiguous subrange. `physai train` and `physai eval` are shortcuts for single-stage runs.
+`physai run` executes the stages listed in `pipeline.stages` from the config. `--from`/`--to` narrow that list to a contiguous subrange. `physai convert`, `physai train`, and `physai eval` are shortcuts for single-stage runs.
 
-Stages in order: `augment`, `convert`, `validate`, `train`, `eval`, `register`
+Stages in order: `augment`, `convert`, `validate`, `train`, `eval`, `register`. Currently implemented: `convert`, `train`, `eval`. The runner rejects pipelines that include any other stage.
 
-| `--from` | Required args | Resolves to |
-|----------|--------------|-------------|
-| `augment` | `--raw` | `/fsx/raw/<name>` |
-| `convert` | `--raw` | `/fsx/raw/<name>` |
-| `validate` | `--dataset` | `/fsx/datasets/<name>` |
-| `train` | `--dataset` | `/fsx/datasets/<name>` |
-| `eval` | `--checkpoint` | `/fsx/checkpoints/<name>` |
-| `register` | (none — reads from previous stage outputs) | |
+| `--from` | Required args | Resolves to | Implemented? |
+|----------|--------------|-------------|--------------|
+| `augment` | `--raw` | `/fsx/raw/<name>/` | No (planned) |
+| `convert` | `--raw` | `/fsx/raw/<name>/` | Yes |
+| `validate` | `--dataset` | `/fsx/datasets/<name>/` | No (planned) |
+| `train` | `--dataset` | `/fsx/datasets/<name>/` | Yes |
+| `eval` | `--checkpoint` | `/fsx/checkpoints/<name>/` | Yes |
+| `register` | (none — reads from previous stage outputs) | | No (planned) |
 
 Stage-specific parameters (e.g., `max_steps`, `rounds`) come from the config's `stages.<name>` section. `--max-steps` on the CLI overrides `stages.train.max_steps`. `--eval-rounds` overrides `stages.eval.rounds`.
 
@@ -413,8 +423,14 @@ physai run --config examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml 
 Single-stage shortcuts
 
 ```bash
+# Just convert (shortcut for `run --from convert --to convert`)
+physai convert --config ... --raw so101_liftcube_raw
+
+# Just train (shortcut for `run --from train --to train`)
 physai train --config examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml \
              --dataset so101_liftcube
+
+# Just eval (shortcut for `run --from eval --to eval`)
 physai eval --config examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml \
             --checkpoint gr00t-n1.6-liftcube-30k
 ```
@@ -435,7 +451,7 @@ physai eval --config examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml
 6. Submit each stage with `sbatch --dependency=afterok:<deps> --kill-on-invalid-dep=yes`, where `<deps>` is the previous stage's job id colon-separated with the job id of any active build for this stage's container. If the container has neither a live sqsh nor an active build, fail before submitting.
 7. Unless `-n` / `--no-stream`, stream each submitted job's log to the terminal in order (moving on to the next when the current one finishes). Ctrl-C detaches from the current stream (all submitted jobs keep running).
 
-`physai train` is equivalent to `physai run --from train --to train`. `physai eval` is equivalent to `physai run --from eval --to eval`.
+`physai convert` is equivalent to `physai run --from convert --to convert`. `physai train` is equivalent to `physai run --from train --to train`. `physai eval` is equivalent to `physai run --from eval --to eval`.
 
 ## 4.Error Handling
 
@@ -459,7 +475,9 @@ All cluster interaction goes through a multiplexed SSH `Session` in `ssh.py`:
 class Session:
     def __init__(self, host: str)         # starts a ControlMaster (ControlPersist=10m)
     def run(self, cmd: str) -> str        # one-shot command, returns stdout
-    def rsync(self, src: str, dst: str)   # rsync -az over the control socket
+    def rsync(self, src: str, dst: str, show_progress: bool = False)
+                                          # rsync -az over the control socket;
+                                          # show_progress=True streams `--info=progress2` live
     def write_file(self, path, content)   # cat > <path> on remote
     def stream_log(self, job_id: str)     # streams /fsx/physai/logs/<id>.out via a Python helper
     def clone(self) -> "Session"          # reuses the same control socket
@@ -477,6 +495,8 @@ cli/
 └── physai/
     ├── cli.py            # argparse dispatch
     ├── config.py         # load ~/.physai/config.yaml + --host override
+    ├── schema.py         # JSON Schema validation helper
+    ├── schemas/          # JSON schemas for cli-config, project, container, run-config
     ├── ssh.py            # Session (ControlMaster), rsync, stream_log
     ├── log_streamer.py   # piped to remote `python3 -` to tail job logs
     ├── build.py          # read project/container yaml, generate build.sbatch
@@ -486,12 +506,12 @@ cli/
     │   └── copy-app.sh
     ├── clean.py          # remove old build dirs, logs, stale enroot containers
     ├── doctor.py          # cluster health checks with interactive fixes
-    ├── pipeline.py       # read run_config, generate train/eval/run sbatch
-    ├── data.py           # ls, upload
+    ├── pipeline.py       # read run_config, generate convert/train/eval/run sbatch
+    ├── data.py           # ls, upload, rm
     └── jobs.py           # list, status, logs, cancel (squeue/sacct wrappers)
 ```
 
-Dependencies: `pyyaml`. No other external dependencies.
+Dependencies: `pyyaml`, `jsonschema`.
 
 Install: `pip install -e cli/`
 

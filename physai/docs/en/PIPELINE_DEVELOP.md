@@ -282,12 +282,12 @@ json.dump(metrics, open('$OUTPUT_DIR/metrics.json', 'w'))
 "
 ```
 
-#### convert.sh (planned — not yet implemented)
+#### convert.sh
 
 | Item | Description |
 |------|-------------|
-| **Arguments** | `<input_hdf5> <output_dir>` |
-| **Contract** | Convert source format to a dataset the trainer can consume. |
+| **Arguments** | `<input_dir> <output_dir>` |
+| **Contract** | Read source-format files (e.g. HDF5) from `<input_dir>` and write a dataset the trainer can consume to `<output_dir>`. The container glob-iterates `<input_dir>`'s contents — callers pass a directory, not an individual file. |
 
 #### validate.sh (planned — not yet implemented)
 
@@ -313,7 +313,7 @@ json.dump(metrics, open('$OUTPUT_DIR/metrics.json', 'w'))
    c. Copy `app/` contents into `/app/` in the container.
    d. Export to squashfs: `/fsx/enroot/<name>.sqsh`.
 
-See PHYSAI-DESIGN.md §7 for CLI-side details (preflight checks, in-flight-build dependencies, `--rebuild` semantics).
+See [`PHYSAI_CLI.md` §3.3.3](PHYSAI_CLI.md#333-build-workflow) for CLI-side details (preflight checks, in-flight-build dependencies, `--rebuild` semantics).
 
 ---
 
@@ -396,15 +396,15 @@ Slurm supports boolean expressions: `l40s` (exact), `l40s|h100` (OR), `!a10g` (N
 
 ### 4.3 Required arguments per starting stage
 
-Only `train` and `eval` are implemented today. Other stages are listed for forward reference.
+`convert`, `train`, and `eval` are implemented today. Other stages are listed for forward reference.
 
 | `--from` | Required CLI arg | Resolves to | Implemented? |
 |----------|------------------|-------------|--------------|
-| `augment` | `--raw <name>` | `/fsx/raw/<name>` | No (planned) |
-| `convert` | `--raw <name>` | `/fsx/raw/<name>` | No (planned) |
-| `validate` | `--dataset <name>` | `/fsx/datasets/<name>` | No (planned) |
-| `train` | `--dataset <name>` | `/fsx/datasets/<name>` | Yes |
-| `eval` | `--checkpoint <name>` | `/fsx/checkpoints/<name>` | Yes |
+| `augment` | `--raw <name>` | `/fsx/raw/<name>/` | No (planned) |
+| `convert` | `--raw <name>` | `/fsx/raw/<name>/` | Yes |
+| `validate` | `--dataset <name>` | `/fsx/datasets/<name>/` | No (planned) |
+| `train` | `--dataset <name>` | `/fsx/datasets/<name>/` | Yes |
+| `eval` | `--checkpoint <name>` | `/fsx/checkpoints/<name>/` | Yes |
 | `register` | (none) | | No (planned) |
 
 ### 4.4 CLI overrides for stage parameters
@@ -509,7 +509,7 @@ env:
 ```yaml
 # configs/so101_pickorange_gr00t-n1.6.yaml
 pipeline:
-  stages: [train, eval]    # Only implemented stages listed
+  stages: [convert, train, eval]
 
 sim:
   platform: leisaac
@@ -522,6 +522,9 @@ model:
   config_dir: gr00t-n1.6/so101-dualcam
 
 stages:
+  convert:
+    partition: cpu
+    container: so101-converter
   train:
     partition: gpu
     gres: "gpu:1"

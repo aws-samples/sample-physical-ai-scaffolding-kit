@@ -50,7 +50,7 @@ PhysaiInfraStack resources are long-lived — they persist across cluster rebuil
 
 ### Outputs
 
-- `DataBucketName` — the S3 data bucket. Users query it when uploading raw data via S3 (see USER_MANUAL.md → Raw Data & S3 Auto-import). Exported as `${stackName}-DataBucketName`.
+- `DataBucketName` — the S3 data bucket. Users query it when uploading raw data via S3 (see [`PHYSAI_CLI.md` → Raw Data & S3 Auto-import](PHYSAI_CLI.md#raw-data--s3-auto-import)). Exported as `${stackName}-DataBucketName`.
 
 ## PhysaiClusterStack
 

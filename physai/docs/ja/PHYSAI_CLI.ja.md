@@ -65,8 +65,8 @@ physai doctor [--host HOST]
 
 ジョブは完全に Slurm で追跡されます。外部データベースは使用しません。
 
-- `--job-name`: 種別と名前をエンコードします — `physai/<type>/<name>`（例: `physai/build/leisaac-runtime`、`physai/train/so101-liftcube-gr00t`）
-- `--comment`: 256 文字以内の自由記述です（例: `produces=/fsx/checkpoints/run-20260415-155400`）。`pipeline.py` の `_find_active_job_producing` が、現在のランが必要とするアーティファクトを生成中の待機中／実行中ジョブを検出するために利用します。後述の永続化に関する注意点も参照してください。
+- `--job-name`: 種別と名前を埋め込みます — `physai/<type>/<name>`（例: `physai/build/leisaac-runtime`、`physai/train/so101-liftcube-gr00t`）
+- `--comment`: 256 文字以内の任意文字列です（例: `produces=/fsx/checkpoints/run-20260415-155400`）。`pipeline.py` の `_find_active_job_producing` が、現在のランが必要とするアーティファクトを生成中の待機中／実行中ジョブを検出するために利用します。後述の永続化に関する注意点も参照してください。
 - `--output`: 常に `/fsx/physai/logs/%j.out` です
 
 `physai list` はジョブ名をパースして種別と名前を抽出します。
@@ -121,7 +121,7 @@ physai clean -f                 # skip confirmation
 現在のチェック項目:
 
 - **FSx ディレクトリ**: `/fsx/{raw,datasets,checkpoints,evaluations,enroot,physai}` の各パスに対して `stat` を実行します。ディレクトリの存在と、エントリごとの正確なパーミッションを確認します（`/fsx/enroot` は 1777、それ以外は 0777）。修復: `mkdir -p` + ディレクトリごとの `chmod` を単一のリモートコマンドにまとめて実行します。
-- **ワーカー間の Slurm 設定のずれ**: `sinfo -h -o "%N" -N | sort -u` で全ノードを取得し、各ノードで `srun -N1 -w <node> --overlap --time=0:00:30 md5sum /var/spool/slurmd/conf-cache/{slurm,cgroup,plugstack,gres,accounting}.conf` を実行します。到達可能なすべてのノードが同一のハッシュを返す必要があります。到達不能なノードは WARN として扱います（ずれとはカウントしません）。修復: ログインノードで `scontrol reconfigure` を実行します（slurmctld が全ワーカーに設定をプッシュします）。**制限事項**: コントローラーのディスク上の `/opt/slurm*/etc/slurm.conf` が編集済みだが reconfigure が未実行のケースは検出できません（コントローラーへの SSM アクセスが必要であり、doctor はそれを行いません）。
+- **ワーカー間の Slurm 設定の不整合**: `sinfo -h -o "%N" -N | sort -u` で全ノードを取得し、各ノードで `srun -N1 -w <node> --overlap --time=0:00:30 md5sum /var/spool/slurmd/conf-cache/{slurm,cgroup,plugstack,gres,accounting}.conf` を実行します。到達可能なすべてのノードが同一のハッシュを返す必要があります。到達不能なノードは WARN として扱います（不整合としてはカウントしません）。修復: ログインノードで `scontrol reconfigure` を実行します（slurmctld が全ワーカーに設定をプッシュします）。**制限事項**: コントローラーのディスク上の `/opt/slurm*/etc/slurm.conf` が編集済みだが reconfigure が未実行のケースは検出できません（コントローラーへの SSM アクセスが必要であり、doctor はそれを行いません）。
 - **slurmdbd への到達性**: `sacct -n --parsable2 -S now-1hour -o JobID` が終了コード 0 で完了するかを確認します。自動修復なし。FAIL メッセージには RDS インスタンス、Secrets Manager 内の slurmdbd 認証情報、コントローラー上の slurmdbd を調査するための SSM コマンドが示されます。
 
 いずれかのチェックが修復の機会を経てもなお FAIL の場合、コマンドは非ゼロで終了します。
@@ -227,6 +227,7 @@ physai rm datasets foo -f   # 確認プロンプトをスキップ
 ```bash
 physai build <container-folder> [--rebuild] [-n|--no-stream] [--host HOST]
 physai run   --config <local-yaml> [--from STAGE] [--to STAGE] [--raw NAME] [--dataset NAME] [--checkpoint NAME] [--max-steps N] [--eval-rounds N] [--visual] [--model-config-root PATH] [-n|--no-stream] [--host HOST]
+physai convert --config <local-yaml> --raw <name> [--dataset <name>] [--model-config-root PATH] [-n|--no-stream] [--host HOST]
 physai train --config <local-yaml> --dataset <name> [--max-steps N] [--model-config-root PATH] [-n|--no-stream] [--host HOST]
 physai eval  --config <local-yaml> --checkpoint <name> [--eval-rounds N] [--visual] [--model-config-root PATH] [-n|--no-stream] [--host HOST]
 ```
@@ -353,18 +354,18 @@ init ステップでは `env.txt` から環境変数を Pyxis の名前付きコ
 
 #### 3.3.4. 実行ワークフロー（Train / Eval）
 
-`physai run` は設定ファイルの `pipeline.stages` に記載されたステージを実行します。`--from` / `--to` でそのリストの連続する部分範囲に絞り込みます。`physai train` と `physai eval` は単一ステージ実行のショートカットです。
+`physai run` は設定ファイルの `pipeline.stages` に記載されたステージを実行します。`--from` / `--to` でそのリストの連続する部分範囲に絞り込みます。`physai convert`、`physai train`、`physai eval` は単一ステージ実行のショートカットです。
 
-ステージの順序: `augment`、`convert`、`validate`、`train`、`eval`、`register`
+ステージの順序: `augment`、`convert`、`validate`、`train`、`eval`、`register`。実装済みは `convert`、`train`、`eval` の 3 つです。それ以外のステージを含むパイプラインはランナーが拒否します。
 
-| `--from` | 必須引数 | 解決先 |
-|----------|----------|--------|
-| `augment` | `--raw` | `/fsx/raw/<name>` |
-| `convert` | `--raw` | `/fsx/raw/<name>` |
-| `validate` | `--dataset` | `/fsx/datasets/<name>` |
-| `train` | `--dataset` | `/fsx/datasets/<name>` |
-| `eval` | `--checkpoint` | `/fsx/checkpoints/<name>` |
-| `register` | （なし — 前のステージの出力を参照） | |
+| `--from` | 必須引数 | 解決先 | 実装済み? |
+|----------|----------|--------|----------|
+| `augment` | `--raw` | `/fsx/raw/<name>/` | いいえ (計画中) |
+| `convert` | `--raw` | `/fsx/raw/<name>/` | はい |
+| `validate` | `--dataset` | `/fsx/datasets/<name>/` | いいえ (計画中) |
+| `train` | `--dataset` | `/fsx/datasets/<name>/` | はい |
+| `eval` | `--checkpoint` | `/fsx/checkpoints/<name>/` | はい |
+| `register` | （なし — 前のステージの出力を参照） | | いいえ (計画中) |
 
 ステージ固有のパラメータ（例: `max_steps`、`rounds`）は設定ファイルの `stages.<name>` セクションから取得します。CLI の `--max-steps` は `stages.train.max_steps` を上書きし、`--eval-rounds` は `stages.eval.rounds` を上書きします。
 
@@ -385,8 +386,14 @@ physai run --config examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml 
 単一ステージのショートカット
 
 ```bash
+# convert のみ（`run --from convert --to convert` のショートカット）
+physai convert --config ... --raw so101_liftcube_raw
+
+# train のみ（`run --from train --to train` のショートカット）
 physai train --config examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml \
              --dataset so101_liftcube
+
+# eval のみ（`run --from eval --to eval` のショートカット）
 physai eval --config examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml \
             --checkpoint gr00t-n1.6-liftcube-30k
 ```
@@ -407,7 +414,7 @@ physai eval --config examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml
 6. 各ステージを `sbatch --dependency=afterok:<deps> --kill-on-invalid-dep=yes` で投入します。`<deps>` は前のステージのジョブ ID と、そのステージのコンテナのアクティブなビルドジョブ ID をコロン区切りで結合したものです。コンテナに sqsh もアクティブなビルドもない場合、投入前にエラーとなります。
 7. `-n` / `--no-stream` が指定されていなければ、投入された各ジョブのログを順番にターミナルにストリーミングします（現在のジョブが終了したら次へ進みます）。Ctrl-C で現在のストリームから切断します（投入済みのすべてのジョブは継続します）。
 
-`physai train` は `physai run --from train --to train` と同等です。`physai eval` は `physai run --from eval --to eval` と同等です。
+`physai convert` は `physai run --from convert --to convert` と同等です。`physai train` は `physai run --from train --to train` と同等です。`physai eval` は `physai run --from eval --to eval` と同等です。
 
 ## 4. エラー処理
 
@@ -425,13 +432,15 @@ physai eval --config examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml
 
 ## 5. SSH インターフェース
 
-クラスターとのすべての通信は `ssh.py` 内のマルチプレクス化された SSH `Session` を通じて行われます。
+クラスターとのすべての通信は `ssh.py` の多重化された SSH `Session` を経由します。
 
 ```python
 class Session:
     def __init__(self, host: str)         # starts a ControlMaster (ControlPersist=10m)
     def run(self, cmd: str) -> str        # one-shot command, returns stdout
-    def rsync(self, src: str, dst: str)   # rsync -az over the control socket
+    def rsync(self, src: str, dst: str, show_progress: bool = False)
+                                          # rsync -az over the control socket;
+                                          # show_progress=True streams `--info=progress2` live
     def write_file(self, path, content)   # cat > <path> on remote
     def stream_log(self, job_id: str)     # streams /fsx/physai/logs/<id>.out via a Python helper
     def clone(self) -> "Session"          # reuses the same control socket
@@ -449,6 +458,8 @@ cli/
 └── physai/
     ├── cli.py            # argparse dispatch
     ├── config.py         # load ~/.physai/config.yaml + --host override
+    ├── schema.py         # JSON Schema validation helper
+    ├── schemas/          # JSON schemas for cli-config, project, container, run-config
     ├── ssh.py            # Session (ControlMaster), rsync, stream_log
     ├── log_streamer.py   # piped to remote `python3 -` to tail job logs
     ├── build.py          # read project/container yaml, generate build.sbatch
@@ -458,12 +469,12 @@ cli/
     │   └── copy-app.sh
     ├── clean.py          # remove old build dirs, logs, stale enroot containers
     ├── doctor.py          # cluster health checks with interactive fixes
-    ├── pipeline.py       # read run_config, generate train/eval/run sbatch
-    ├── data.py           # ls, upload
+    ├── pipeline.py       # read run_config, generate convert/train/eval/run sbatch
+    ├── data.py           # ls, upload, rm
     └── jobs.py           # list, status, logs, cancel (squeue/sacct wrappers)
 ```
 
-依存パッケージ: `pyyaml` のみです。その他の外部依存はありません。
+依存パッケージ: `pyyaml`、`jsonschema`。
 
 インストール: `pip install -e cli/`
 

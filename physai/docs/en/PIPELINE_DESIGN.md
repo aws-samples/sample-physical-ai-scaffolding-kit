@@ -118,12 +118,14 @@ FSx starts at 1.2TB. Supports live capacity increases in 2.4TB increments (no do
 
 ```bash
 RUN_ID=run-20260415-155400
-JOB1=$(sbatch --parsable --job-name=physai/run/$RUN_ID/train    train.sh)
-JOB2=$(sbatch --parsable --job-name=physai/run/$RUN_ID/eval     --dependency=afterok:$JOB1 eval.sh)
-JOB3=$(sbatch --parsable --job-name=physai/run/$RUN_ID/register --dependency=afterok:$JOB2 register.sh)
+JOB1=$(sbatch --parsable --job-name=physai/run/$RUN_ID/convert  convert.sh)
+JOB2=$(sbatch --parsable --job-name=physai/run/$RUN_ID/train    --dependency=afterok:$JOB1 train.sh)
+JOB3=$(sbatch --parsable --job-name=physai/run/$RUN_ID/eval     --dependency=afterok:$JOB2 eval.sh)
 ```
 
 All jobs share a run ID. If any step fails, downstream jobs are cancelled. `physai cancel` on any job cancels all jobs sharing the run ID.
+
+The `register` stage shown elsewhere in this document is planned but not yet implemented; current pipelines stop after `eval`.
 
 If a container image is currently being built (`physai build` in progress), the pipeline automatically adds the build job as a dependency — you can kick off `physai run` immediately after starting `physai build`.
 
@@ -131,7 +133,9 @@ If a container image is currently being built (`physai build` in progress), the 
 
 When augmentation is enabled, the orchestrator runs augmentation and conversion as a single Slurm job on the same GPU node. The augmented HDF5 is written to local NVMe (not `/fsx`), then conversion reads from local NVMe and writes to `/fsx`. The augmented HDF5 — which can be 600GB+ — never touches shared storage and is automatically cleaned up when the job ends.
 
-## 5. Visual Evaluation via DCV — planned, not yet implemented
+## 5. Visual Evaluation via DCV — partially implemented
+
+The CLI accepts `--visual` and forwards it to `eval.sh` (which omits `--headless` so Isaac Sim renders), but the surrounding session management — allocating a DCV session on the GPU node, printing the SSM port-forward command, cleaning up on job exit — is not yet automated. The end-to-end UX described below is the target.
 
 `physai eval --visual` streams a rendered simulation viewport to the developer's browser via NICE DCV:
 

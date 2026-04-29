@@ -228,7 +228,7 @@ Until run-lifecycle.sh is updated, you can still apply lifecycle changes by:
       (FSx, RDS, S3 data bucket) is untouched.
 
 Both paths use the S3 bucket, which has no such size cap. See
-docs/USER_MANUAL.md for the full workflow.
+docs/en/DEPLOYMENT.md for the full workflow.
 EOF
     exit 1
 fi

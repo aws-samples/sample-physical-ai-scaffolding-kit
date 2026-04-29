@@ -93,7 +93,7 @@ npx cdk deploy PhysaiClusterStack
 │   ├── Private subnets                                                │
 │   └── S3 gateway VPC endpoint                                        │
 │                                                                      │
-│   S3 data bucket     s3://<clusterName>-data-<account>               │
+│   S3 data bucket     s3://<clusterName>-data-<account>-<region>      │
 │   FSx for Lustre     1.2 TB PERSISTENT_2, DRA → s3://.../raw/        │
 │   RDS MariaDB        db.t4g.small  (Slurm accounting)                │
 │   Secrets Manager    DB credentials                                  │
@@ -119,7 +119,7 @@ npx cdk deploy PhysaiClusterStack
 S3 layout used by the pipeline:
 
 ```
-s3://<clusterName>-data-<account>/
+s3://<clusterName>-data-<account>-<region>/
 └── raw/        # Raw HDF5 demos. Auto-imported to /fsx/raw/ on access via DRA.
 ```
 

@@ -2,7 +2,7 @@
 
 このドキュメントでは、physai プラットフォームの内部アーキテクチャ（ストレージ設計、ジョブオーケストレーション、インフラストラクチャ、コストモデル）について説明します。プラットフォームのメンテナーおよびオペレーター向けです。
 
-独自のパイプラインの開発（コンテナ定義、設定フォーマット、エントリポイント仕様）については [PIPELINE_DEVELOP.ja.md](PIPELINE_DEVELOP.ja.md) を参照してください。CLI コマンドリファレンスは [PHYSAI_CLI.ja.md](../ja/PHYSAI_CLI.ja.md)、CDK スタックの詳細は [INFRA.ja.md](../ja/INFRA.ja.md) を参照してください。
+独自のパイプラインの開発（コンテナ定義、設定フォーマット、エントリポイント仕様）については [PIPELINE_DEVELOP.ja.md](PIPELINE_DEVELOP.ja.md) を参照してください。CLI コマンドリファレンスは [PHYSAI_CLI.ja.md](PHYSAI_CLI.ja.md)、CDK スタックの詳細は [INFRA.ja.md](INFRA.ja.md) を参照してください。
 
 ## 1. システム概要
 
@@ -55,7 +55,7 @@ CLI はセッション開始時に単一の SSH ControlMaster 接続を確立し
 
 ## 2. ストレージアーキテクチャ
 
-2 層モデルです：**S3** が永続ストア、**FSx for Lustre** が高速作業用ストレージです。
+2 層モデル：**S3** を永続ストア、**FSx for Lustre** を高速作業用ストレージとして使用します。
 
 ### S3 (永続)
 
@@ -71,7 +71,7 @@ s3://<bucket>/
 
 ### FSx for Lustre (作業用)
 
-全クラスターノードで GB/s スループットで共有されます。一時的なもので、各実行後にクリーンアップされます。
+全クラスターノードで GB/s のスループットで共有されます。一時的なもので、各実行後にクリーンアップされます。
 
 ```
 /fsx/
@@ -88,17 +88,17 @@ s3://<bucket>/
 
 ### ローカル NVMe
 
-GPU ワーカーノード上の高速ローカルストレージ (`/opt/dlami/nvme`) です。`/fsx` に書き込まない一時的な拡張 HDF5 (600GB 以上) に使用されます。
+GPU ワーカーノード上の高速ローカルストレージ（`/opt/dlami/nvme`）。`/fsx` に書き込まない一時的な拡張 HDF5（600GB 以上）に使用します。
 
 ### データフロー
 
 1. ユーザーが生のデモディレクトリを `s3://bucket/raw/<name>/` にアップロードすると、`/fsx/raw/<name>/` に自動インポートされます（初回アクセス時に遅延ロード）
 2. パイプラインステージが `/fsx` 上で Lustre 速度で読み書きします
-3. 登録ステージが最終結果を明示的な `aws s3 cp` で S3 に公開します
+3. 登録ステージが `aws s3 cp` を明示的に実行して最終結果を S3 に公開します
 4. 生の HDF5 は変換後に `/fsx/raw/` から削除されます。必要に応じて S3 から再インポートできます
 5. 公開済みデータセットからの再学習時、`physai train` が S3 から `/fsx/datasets/` にステージングします
 
-`/fsx/raw/` は `s3://bucket/raw/` にリンクされた Data Repository Association (自動インポートのみ) を持ちます。ユーザーはデモディレクトリを S3 にアップロードし（各デモセットは HDF5 ファイルのディレクトリです）、内容は初回アクセス時の遅延ロードにより `/fsx/raw/<name>/` 配下に出現します。その他の `/fsx/` ディレクトリには S3 リンクはありません。登録ステージが `/fsx` から S3 へ明示的な `aws s3 cp` で最終結果を公開します。
+`/fsx/raw/` は `s3://bucket/raw/` にリンクされた Data Repository Association（自動インポートのみ）を持ちます。ユーザーがデモディレクトリ（各デモセットは HDF5 ファイルのディレクトリ）を S3 にアップロードすると、内容は初回アクセス時の遅延ロードで `/fsx/raw/<name>/` 配下に出現します。その他の `/fsx/` ディレクトリに S3 リンクはありません。登録ステージは `aws s3 cp` を明示的に実行し、`/fsx` から S3 に最終結果を公開します。
 
 ### 実行ごとのストレージ予算
 
@@ -118,12 +118,14 @@ FSx は 1.2TB で開始します。2.4TB 単位でのライブ容量増加をサ
 
 ```bash
 RUN_ID=run-20260415-155400
-JOB1=$(sbatch --parsable --job-name=physai/run/$RUN_ID/train    train.sh)
-JOB2=$(sbatch --parsable --job-name=physai/run/$RUN_ID/eval     --dependency=afterok:$JOB1 eval.sh)
-JOB3=$(sbatch --parsable --job-name=physai/run/$RUN_ID/register --dependency=afterok:$JOB2 register.sh)
+JOB1=$(sbatch --parsable --job-name=physai/run/$RUN_ID/convert  convert.sh)
+JOB2=$(sbatch --parsable --job-name=physai/run/$RUN_ID/train    --dependency=afterok:$JOB1 train.sh)
+JOB3=$(sbatch --parsable --job-name=physai/run/$RUN_ID/eval     --dependency=afterok:$JOB2 eval.sh)
 ```
 
 すべてのジョブは run ID を共有します。いずれかのステップが失敗すると、下流のジョブはキャンセルされます。`physai cancel` でいずれかのジョブをキャンセルすると、同じ run ID を共有するすべてのジョブがキャンセルされます。
+
+このドキュメント内の他の箇所で言及している `register` ステージは計画中で未実装です。現在のパイプラインは `eval` で終了します。
 
 コンテナイメージが現在ビルド中 (`physai build` が進行中) の場合、パイプラインは自動的にビルドジョブを依存関係として追加します。`physai build` の開始直後に `physai run` を実行できます。
 
@@ -131,7 +133,9 @@ JOB3=$(sbatch --parsable --job-name=physai/run/$RUN_ID/register --dependency=aft
 
 データ拡張が有効な場合、オーケストレーターは拡張と変換を同一 GPU ノード上の単一 Slurm ジョブとして実行します。拡張された HDF5 はローカル NVMe (`/fsx` ではなく) に書き込まれ、変換はローカル NVMe から読み取って `/fsx` に書き込みます。拡張された HDF5 (600GB 以上になる可能性あり) は共有ストレージに触れることなく、ジョブ終了時に自動的にクリーンアップされます。
 
-## 5. DCV によるビジュアル評価 — 計画中、未実装
+## 5. DCV によるビジュアル評価 — 部分実装
+
+CLI は `--visual` を受け付けて `eval.sh` に渡します（`eval.sh` は `--headless` を外して Isaac Sim をレンダリングさせます）が、その周辺のセッション管理 — GPU ノードでの DCV セッション割り当て、SSM ポートフォワードコマンドの出力、ジョブ終了時のクリーンアップ — はまだ自動化されていません。下記のエンドツーエンド UX が目標となります。
 
 `physai eval --visual` は、NICE DCV を介して開発者のブラウザにレンダリングされたシミュレーションビューポートをストリーミングします：
 
@@ -176,7 +180,7 @@ Streaming eval log (Ctrl-C to detach)...
 | GPU ワーカー | ml.g6e.2xlarge (1x L40S 48GB) | データ拡張、学習、評価 |
 | CPU ワーカー | ml.m5.2xlarge | 変換、バリデーション、登録 |
 
-GPU および CPU パーティションは `infra/cdk.json` で設定された固定ワーカー数で動作します ([INFRA.ja.md](../ja/INFRA.ja.md) 参照)。HyperPod はオートスケールしません。ワーカーの追加・削除はワーカー数を変更して `PhysaiClusterStack` を再デプロイしてください。
+GPU および CPU パーティションは `infra/cdk.json` で設定された固定ワーカー数で動作します ([INFRA.ja.md](INFRA.ja.md) 参照)。HyperPod はオートスケールしません。ワーカーの追加・削除はワーカー数を変更して `PhysaiClusterStack` を再デプロイしてください。
 
 **実行中のノードにシステムレベルの変更を適用する手順**：ライフサイクルスクリプトはノードの初回プロビジョニング時にのみ実行されるため、既存のノードは `infra/lifecycle/` の編集を自動的には取り込みません。影響度の小さい順に 3 つの選択肢があります：
 
