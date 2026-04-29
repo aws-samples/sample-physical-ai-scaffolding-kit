@@ -33,7 +33,7 @@ Prescriptive rules for all workstreams. Follow these when writing or modifying c
   ```
   Plain `pytest` resolves `import physai` through whatever package is on `sys.path` — which, with an editable install pointing at a different worktree, is *not* this worktree's source. `python -m pytest` prepends the cwd to `sys.path`, so you always test the worktree you're sitting in.
 - MUST use `unittest.mock` for SSH session mocking — DO NOT make real SSH calls in tests
-- DO NOT use `from __future__ import annotations`
+- Use `from __future__ import annotations` only in modules that actually need it — i.e. those with forward references (types referring to a not-yet-defined class in the same module). On Python <3.14 those modules won't import without it (or without manually string-quoting each forward-ref annotation); on 3.14+ it's a harmless no-op (PEP 649 makes annotations lazy by default).
 - Entry point is `physai.cli:main` registered as a console_script in `pyproject.toml`
 - Ruff config lives in `cli/pyproject.toml` — check there before adding ignore rules
 
