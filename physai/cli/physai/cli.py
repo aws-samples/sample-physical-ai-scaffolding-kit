@@ -135,6 +135,16 @@ def main():
     p_up.add_argument("category", choices=data.CATEGORIES, help="Data category")
     p_up.add_argument("local_path", help="Local file or directory")
 
+    # rm
+    p_rm = sub.add_parser(
+        "rm", parents=[common], help="Remove a named artifact from /fsx/<category>/"
+    )
+    p_rm.add_argument("category", choices=data.RM_CATEGORIES, help="Data category")
+    p_rm.add_argument("name", help="Artifact name (no slashes)")
+    p_rm.add_argument(
+        "-f", "--force", action="store_true", help="Skip confirmation prompt"
+    )
+
     # status
     p_status = sub.add_parser("status", parents=[common], help="Show job status")
     p_status.add_argument("job_id", help="Slurm job ID")
@@ -251,6 +261,8 @@ def main():
         data.ls(session, args.category, args.path)
     elif args.command == "upload":
         data.upload(session, args.category, args.local_path)
+    elif args.command == "rm":
+        data.rm(session, args.category, args.name, force=args.force)
     elif args.command == "status":
         jobs.status_job(session, args.job_id)
     elif args.command == "logs":

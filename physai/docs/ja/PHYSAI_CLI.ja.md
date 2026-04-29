@@ -66,20 +66,24 @@ physai doctor [--host HOST]
 ジョブは完全に Slurm で追跡されます。外部データベースは使用しません。
 
 - `--job-name`: 種別と名前をエンコードします — `physai/<type>/<name>`（例: `physai/build/leisaac-runtime`、`physai/train/so101-liftcube-gr00t`）
-- `--comment`: 256 文字以内の自由記述です（例: `dataset=so101_liftcube steps=10000`）
+- `--comment`: 256 文字以内の自由記述です（例: `produces=/fsx/checkpoints/run-20260415-155400`）。`pipeline.py` の `_find_active_job_producing` が、現在のランが必要とするアーティファクトを生成中の待機中／実行中ジョブを検出するために利用します。後述の永続化に関する注意点も参照してください。
 - `--output`: 常に `/fsx/physai/logs/%j.out` です
 
 `physai list` はジョブ名をパースして種別と名前を抽出します。
+
+**`--comment` の永続化に関する注意:** Slurm は `--comment` を `slurmctld` のメモリ上で保持し（`squeue` / `scontrol show job` で表示可能）、デフォルトでは `slurmdbd` の accounting には**永続化しません**。そのため `sacct` は完了したジョブの Comment カラムを空で返します。これは HyperPod の標準挙動です（`slurm.conf` に `AccountingStoreFlags=job_comment` が設定されていないため）。アクティブジョブ検出は `squeue` のみを参照するため、パイプライン依存関係の検出にはデフォルト設定で十分です。将来的に完了済みジョブが生成したアーティファクトを参照したい機能（例: 「どの過去のジョブが `/fsx/checkpoints/X` を生成したか？」）が必要になった場合は、クラスターの `slurm.conf` に `AccountingStoreFlags=job_comment` を追加し、`scontrol reconfigure` を実行してください。
 
 #### 3.1.2. sacct が利用可能な場合（完了済みジョブも表示）
 
 ```bash
 $ physai list
 JOB_ID  TYPE   NAME                    STATE      ELAPSED  COMMENT
-238     build  leisaac-runtime         RUNNING    12:34    --rebuild
-237     eval   so101-liftcube-gr00t    COMPLETED  16:22    checkpoint=gr00t-n1.6-liftcube-30k
-236     train  so101-liftcube-gr00t    COMPLETED  3:42:10  dataset=so101_liftcube steps=10000
+238     build  leisaac-runtime         RUNNING    12:34    base=nvcr.io/nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+237     eval   so101-liftcube-gr00t    COMPLETED  16:22
+236     train  so101-liftcube-gr00t    COMPLETED  3:42:10
 ```
+
+COMMENT カラムは待機中／実行中のジョブ（`squeue` 由来）に対してのみ表示されます。完了済みの行は `sacct` 由来で、クラスターに `AccountingStoreFlags=job_comment` が設定されていない限り空欄となります（上記の注意事項を参照）。
 
 #### 3.1.3. sacct が利用不可の場合（キュー中 / 実行中のジョブのみ）
 
@@ -129,6 +133,7 @@ physai clean -f                 # skip confirmation
 ```
 physai ls <category> [<path>] [--host HOST]     # list remote data
 physai upload <category> <local-path> [--host HOST]  # upload data to cluster
+physai rm <category> <name> [-f] [--host HOST]  # remove a remote artifact
 ```
 
 #### 3.2.1. physai ls
@@ -193,6 +198,27 @@ aws s3 cp --recursive /path/to/my-demo-dir/ s3://<data-bucket>/raw/my-demo-dir/
 # verify it's visible on the cluster
 physai ls raw
 ```
+
+#### 3.2.3. physai rm
+
+指定した名前のアーティファクトをクラスターから削除します:
+
+```bash
+physai rm datasets so101_liftcube
+physai rm checkpoints gr00t-n1.6-liftcube-30k
+physai rm raw my-demo-dir
+physai rm evaluations run-20260429-154500
+physai rm datasets foo -f   # 確認プロンプトをスキップ
+```
+
+カテゴリ: `raw`、`datasets`、`checkpoints`、`evaluations`。パスは `/fsx/<category>/<name>` に解決されます（`<name>` にスラッシュが含まれる場合はパスエスケープ防止のため拒否されます）。
+
+削除前に `rm` は次の処理を行います:
+
+- パスの種別（ファイル／ディレクトリ／存在しない）を確認します。存在しない場合は明示的なエラーで失敗します。
+- `_find_active_job_producing` に対して、同じパスを生成中のアクティブなパイプラインジョブがあるかを問い合わせます。該当するジョブがある場合は削除を拒否し、ジョブ ID を表示します（ユーザーは先に `physai cancel` で取り消す必要があります）。
+- 解決されたパス、種別、`du -sh` で算出したサイズを表示し、`[y/N]` のプロンプトを出します。`-f` / `--force` でプロンプトをスキップできます。
+- `raw` の場合は、`/fsx/raw/` が S3 からの DRA キャッシュである旨も表示します — ローカルの退避は非破壊的であり、オブジェクトは遅延再インポートによって引き続き利用可能です。
 
 ### 3.3. パイプラインコマンド
 

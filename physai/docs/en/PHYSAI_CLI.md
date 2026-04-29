@@ -66,20 +66,24 @@ physai doctor [--host HOST]
 Jobs are tracked entirely through Slurm. No external database.
 
 - `--job-name`: Encodes type and name — `physai/<type>/<name>` (e.g., `physai/build/leisaac-runtime`, `physai/train/so101-liftcube-gr00t`)
-- `--comment`: Free-form description up to 256 chars (e.g., `dataset=so101_liftcube steps=10000`)
+- `--comment`: Free-form description up to 256 chars (e.g., `produces=/fsx/checkpoints/run-20260415-155400`). Used by `_find_active_job_producing` in `pipeline.py` to detect pending/running jobs that will create an artifact our current run needs. See the persistence caveat below.
 - `--output`: Always `/fsx/physai/logs/%j.out`
 
 `physai list` parses the job name to extract type and name.
+
+**`--comment` persistence caveat:** Slurm keeps `--comment` in `slurmctld` memory (visible via `squeue` / `scontrol show job`) but does **not** persist it to `slurmdbd` accounting by default — so `sacct` returns an empty Comment column for completed jobs. This is the stock HyperPod behavior (no `AccountingStoreFlags=job_comment` in `slurm.conf`). Our active-job-producing check only queries `squeue`, so the default is fine for pipeline dependency detection. If a future feature needs to look up artifacts produced by completed jobs (e.g., "which past job produced `/fsx/checkpoints/X`?"), add `AccountingStoreFlags=job_comment` to the cluster's `slurm.conf` and run `scontrol reconfigure`.
 
 #### 3.1.2. With sacct (completed jobs visible)
 
 ```bash
 $ physai list
 JOB_ID  TYPE   NAME                    STATE      ELAPSED  COMMENT
-238     build  leisaac-runtime         RUNNING    12:34    --rebuild
-237     eval   so101-liftcube-gr00t    COMPLETED  16:22    checkpoint=gr00t-n1.6-liftcube-30k
-236     train  so101-liftcube-gr00t    COMPLETED  3:42:10  dataset=so101_liftcube steps=10000
+238     build  leisaac-runtime         RUNNING    12:34    base=nvcr.io/nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+237     eval   so101-liftcube-gr00t    COMPLETED  16:22
+236     train  so101-liftcube-gr00t    COMPLETED  3:42:10
 ```
+
+The COMMENT column is populated only for pending/running jobs (from `squeue`); completed rows come from `sacct` and leave it blank unless the cluster sets `AccountingStoreFlags=job_comment` (see caveat above).
 
 #### 3.1.3. Without sacct (only queued/running jobs)
 
@@ -129,6 +133,7 @@ These commands are used to manage the data.
 ```
 physai ls <category> [<path>] [--host HOST]     # list remote data
 physai upload <category> <local-path> [--host HOST]  # upload data to cluster
+physai rm <category> <name> [-f] [--host HOST]  # remove a remote artifact
 ```
 
 #### 3.2.1. physai ls
@@ -207,6 +212,34 @@ aws s3 cp --recursive /path/to/my-demo-dir/ s3://<data-bucket>/raw/my-demo-dir/
 # verify it's visible on the cluster
 physai ls raw
 ```
+
+#### 3.2.3. physai rm
+
+Remove a named artifact from the cluster:
+
+```bash
+physai rm datasets so101_liftcube
+physai rm checkpoints gr00t-n1.6-liftcube-30k
+physai rm raw my-demo-dir
+physai rm evaluations run-20260429-154500
+physai rm datasets foo -f   # skip confirmation
+```
+
+Categories: `raw`, `datasets`, `checkpoints`, `evaluations`. Resolves to
+`/fsx/<category>/<name>` (slashes in `<name>` are rejected to prevent path
+escape).
+
+Before deleting, `rm`:
+
+- Probes the path: file, directory, or missing. Missing fails with a clear error.
+- Asks `_find_active_job_producing` whether an active pipeline job is producing
+  the same path; if yes, refuses and prints the job id so the user can
+  `physai cancel` it first.
+- Prints the resolved path, kind, and `du -sh` size, then prompts `[y/N]`.
+  `-f` / `--force` skips the prompt.
+- For `raw`, also prints a note that `/fsx/raw/` is a DRA cache from S3 — the
+  local eviction is non-destructive, and the object remains available via
+  lazy-reimport.
 
 ### 3.3. Pipeline commands
 
