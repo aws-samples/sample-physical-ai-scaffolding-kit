@@ -5,7 +5,17 @@ demos to evaluated policies. Developers submit pipeline jobs from their laptop
 via the `physai` CLI, which orchestrates containerized workloads on a SageMaker
 HyperPod Slurm cluster.
 
-## Scope
+## What physai Does
+
+physai is a CLI that runs on your laptop. It submits containerized robot-
+learning pipelines — data conversion, validation, training, evaluation — to a
+SageMaker HyperPod Slurm cluster over SSH. The cluster holds persistent shared
+storage (FSx for Lustre) and long-lived accounting history (RDS). By default
+the submitted job's log streams to your terminal and survives Ctrl-C (the
+remote job keeps running and you can reconnect). Pass `-n` / `--no-stream` to
+submit and return immediately.
+
+## Sample
 
 - Robot: SO-101
 - Sim environment: LeIsaac (PickOrange, LiftCube)
@@ -34,11 +44,12 @@ See the design docs below for the full story.
 physai/
 ├── README.md                     # You are here
 ├── docs/
-│   ├── USER_MANUAL.md            # ▶ How to use the platform (start here)
+│   ├── DEPLOYMENT.md             # ▶ How to deploy (start here)
+│   ├── USER_MANUAL.md            # How to use the platform
 │   ├── PIPELINE-DESIGN.md        # Architecture & design (developers)
 │   ├── PHYSAI-DESIGN.md          # CLI internals (developers)
 │   └── INFRA.md                  # CDK stacks (developers)
-├── infra/                        # CDK deployment (TypeScript)
+├── infra/                        # CDK project
 │   ├── bin/app.ts                # Entry point
 │   ├── lib/
 │   │   ├── infra-stack.ts        # VPC, S3, FSx, RDS, Secrets Manager
@@ -62,82 +73,43 @@ physai/
 │       └── model_configs/        # Per-model, per-robot config files
 ```
 
-| Directory | Deployed to |
-|-----------|-------------|
-| `infra/` | AWS (CloudFormation) |
-| `cli/` | Developer's local machine |
-| `examples/so101-gr00t/` | Built on the cluster; squashfs images land on `/fsx/enroot/` |
-
-## Quick Start
-
-Prerequisites: AWS credentials configured, Node.js, Python 3.12+, AWS CLI,
-Session Manager plugin for AWS CLI, rsync.
-
-```bash
-# 1. Deploy infrastructure (takes ~20 min). CDK is the only step that runs
-#    from infra/; all subsequent commands run from the repo root.
-cd infra
-npm install
-npx cdk bootstrap        # first time only, per account+region
-npx cdk deploy --all --require-approval never
-cd ..
-
-# 2. Grant yourself SSH access to the login node
-infra/scripts/setup-ssh.sh   # uploads ~/.ssh/id_*.pub via SSM, prints SSH config snippet
-# Add the snippet to ~/.ssh/config, then test: ssh physai-login
-
-# 3. Install the physai CLI
-pip install -e cli
-
-# 4. Point the CLI at the cluster
-mkdir -p ~/.physai && cat > ~/.physai/config.yaml <<EOF
-host: physai-login
-model_config_roots:
-  - $(pwd)/examples/so101-gr00t/model_configs
-EOF
-
-# 5. Download the public Pick Orange dataset, build containers, and submit
-#    the pipeline. `-n` submits without streaming logs so the commands return
-#    immediately; use `physai list` / `physai logs <job-id>` to check on them.
-pip install -U huggingface_hub
-hf download LightwheelAI/leisaac-pick-orange \
-  --repo-type dataset --local-dir /tmp/leisaac-pick-orange
-
-physai build -n examples/so101-gr00t/containers/leisaac-runtime
-physai build -n examples/so101-gr00t/containers/leisaac-gr00t-n1.6
-physai build -n examples/so101-gr00t/containers/gr00t-n1.6-trainer
-physai upload datasets /tmp/leisaac-pick-orange/
-physai run -n --config examples/so101-gr00t/configs/so101_pickorange_gr00t-n1.6.yaml \
-           --dataset leisaac-pick-orange
-```
-
-The Pick Orange dataset is a public LeRobot v2.1 dataset (60 episodes,
-~698 MB) published alongside the LeIsaac simulation environment. See
-[docs/USER_MANUAL.md](docs/USER_MANUAL.md#getting-a-dataset) for details and
-citation.
-
-For the full user guide, see **[docs/USER_MANUAL.md](docs/USER_MANUAL.md)**.
-
-## Tearing Down
-
-```bash
-infra/scripts/cleanup.sh            # prints the exact commands to run
-# ...review and run each command...
-```
-
-If a deployment failed mid-create and left a stack in `ROLLBACK_COMPLETE` or
-`ROLLBACK_FAILED`:
-
-```bash
-infra/scripts/cleanup-failed-stacks.sh   # interactive cleanup
-```
-
 ## Documentation
 
 | Doc | For |
 |-----|-----|
-| [docs/USER_MANUAL.md](docs/USER_MANUAL.md) | End users — how to use the CLI, run pipelines, manage data |
-| [docs/STATUS.md](docs/STATUS.md) | Phase 1 scope (LeIsaac + SO-101 + GR00T N1.6) and implementation status |
-| [docs/PIPELINE-DESIGN.md](docs/PIPELINE-DESIGN.md) | Developers — platform architecture and design rationale |
-| [docs/PHYSAI-DESIGN.md](docs/PHYSAI-DESIGN.md) | Developers — CLI internals |
-| [docs/INFRA.md](docs/INFRA.md) | Developers — CDK stack layout and lifecycle scripts |
+| [docs/en/DEPLOYMENT.md](docs/en/DEPLOYMENT.md) | Step by step deployment |
+| [docs/en/RUN_SAMPLE.md](docs/en/RUN_SAMPLE.md) | Execute the sample project |
+| [docs/en/PHYSAI_CLI.md](docs/en/PHYSAI_CLI.md) | Model Developers — CLI reference |
+| [docs/en/PIPELINE_DEVELOP.md](docs/en/PIPELINE_DEVELOP.md) | Model Developers — Build your own pipeline project |
+| [docs/en/PIPELINE-DESIGN.md](docs/en/PIPELINE_DESIGN.md) | Platform Developers — Project structure for pipeline |
+| [docs/en/INFRA.md](docs/en/INFRA.md) | Platform Developers — CDK stack layout and lifecycle scripts |
+| [docs/en/STATUS.md](docs/en/STATUS.md) | Phase 1 scope (LeIsaac + SO-101 + GR00T N1.6) and implementation status |
+
+## Costs
+
+The default deployment runs these resources 24/7 — SageMaker HyperPod does
+NOT stop idle nodes. Figures are for **us-west-2** at on-demand rates, 730 h
+per month.
+
+| Resource | Configuration | Monthly |
+|----------|---------------|---------|
+| HyperPod controller | 1× `ml.c5.large` | ~$74 |
+| HyperPod login | 1× `ml.c5.large` | ~$74 |
+| HyperPod GPU worker | 1× `ml.g6e.2xlarge` (L40S) | ~$2,044 |
+| HyperPod CPU worker | 1× `ml.m5.2xlarge` | ~$337 |
+| FSx for Lustre | 1.2 TB PERSISTENT_2 SSD, 125 MB/s/TiB | ~$174 |
+| RDS MariaDB | `db.t4g.small` + 20 GiB gp3 | ~$26 |
+| NAT Gateway | 1× (hourly; no data transfer) | ~$33 |
+| Secrets Manager, CloudWatch alarm | — | ~$1 |
+| **Total (always-on)** | | **~$2,763** |
+
+The GPU worker dominates the bill. To pause compute without destroying the
+cluster, set `cpuWorkerCount` and/or `gpuWorkers[*].count` to `0` in
+`infra/cdk.json` and redeploy `PhysaiClusterStack`; bring them back by
+restoring the counts and redeploying.
+
+Verify current pricing for your region at:
+[SageMaker](https://aws.amazon.com/sagemaker/ai/pricing/) ·
+[FSx Lustre](https://aws.amazon.com/fsx/lustre/pricing/) ·
+[RDS MariaDB](https://aws.amazon.com/rds/mariadb/pricing/) ·
+[VPC](https://aws.amazon.com/vpc/pricing/)

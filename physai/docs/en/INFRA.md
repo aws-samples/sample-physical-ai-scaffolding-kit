@@ -23,7 +23,7 @@ PhysaiInfraStack resources are long-lived — they persist across cluster rebuil
 
 ### S3
 
-- **Data bucket** (`<clusterName>-data-<account>`): permanent storage for raw demos, datasets, checkpoints, results
+- **Data bucket** (`<clusterName>-data-<account>-<region>`): permanent storage for raw demos, datasets, checkpoints, results
 
 ### FSx for Lustre
 
@@ -58,7 +58,7 @@ Depends on PhysaiInfraStack.
 
 ### Lifecycle Scripts
 
-- **Lifecycle scripts bucket** (`<clusterName>-lifecycle-<account>`): populated via `BucketDeployment` from `infra/lifecycle/`
+- **Lifecycle scripts bucket** (`<clusterName>-lifecycle-<account>-<region>`): populated via `BucketDeployment` from `infra/lifecycle/`
 - CDK generates `physai-config.json` at deploy time (RDS endpoint, Secrets Manager ARN from PhysaiInfraStack) and deploys it alongside the scripts
 - HyperPod downloads scripts from this bucket during node provisioning
 
