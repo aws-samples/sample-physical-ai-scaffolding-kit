@@ -10,11 +10,12 @@ set -euo pipefail
 
 AWS_ARGS=()
 AWS_ARGS_STR=" --no-cli-pager"
+REGION=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --profile) AWS_ARGS+=(--profile "$2"); AWS_ARGS_STR+=" --profile $2"; shift 2 ;;
-    --region)  AWS_ARGS+=(--region  "$2"); AWS_ARGS_STR+=" --region $2";  shift 2 ;;
+    --region)  REGION="$2"; AWS_ARGS+=(--region "$2"); AWS_ARGS_STR+=" --region $2"; shift 2 ;;
     -h|--help)
       sed -n 's/^# \{0,1\}//p' "$0" | head -7
       exit 0
@@ -22,6 +23,12 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
+
+REGION="${REGION:-${AWS_DEFAULT_REGION:-}}"
+if [[ -z "$REGION" ]]; then
+  echo "Error: --region not specified and AWS_DEFAULT_REGION is not set." >&2
+  exit 1
+fi
 
 # Resolve resource names from the current stacks
 resource() {  # stack, resource_type
@@ -85,8 +92,8 @@ aws rds describe-db-instances --db-instance-identifier ${RDS_ID:-<RDS_ID>}${AWS_
 
 # 3. Empty and delete the retained S3 data bucket (no VPC dependency, but also
 #    needs manual cleanup since it's RETAIN).
-aws s3 rm s3://${DATA_BUCKET:-<DATA_BUCKET>} --recursive${AWS_ARGS_STR}
-aws s3 rb s3://${DATA_BUCKET:-<DATA_BUCKET>}${AWS_ARGS_STR}
+aws s3 rm s3://${DATA_BUCKET:-<DATA_BUCKET>-<REGION>} --recursive ${AWS_ARGS_STR}
+aws s3 rb s3://${DATA_BUCKET:-<DATA_BUCKET>-<REGION>} ${AWS_ARGS_STR}
 
 # 4. Disable termination protection on PhysaiInfraStack.
 aws cloudformation update-termination-protection \\
