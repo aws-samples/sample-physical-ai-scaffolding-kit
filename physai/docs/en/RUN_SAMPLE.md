@@ -4,6 +4,8 @@ This document walks you through using a sample project to learn how to use the p
 
 ## Installing and Configuring the physai CLI
 
+We recommend using Python in a virtual environment using tools like [uv venv](https://docs.astral.sh/uv/pip/environments/) rather than installing it in your system environment.
+
 ```bash
 # cd into physai/ first:
 

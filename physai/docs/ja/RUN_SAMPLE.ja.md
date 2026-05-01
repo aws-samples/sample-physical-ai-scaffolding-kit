@@ -4,6 +4,8 @@
 
 ## physai CLI のインストールと設定
 
+Pythonはシステム環境にインストールするのではなく、[uv venv](https://docs.astral.sh/uv/pip/environments/) などを利用して仮想環境で利用することをお勧めします。
+
 ```bash
 # まず physai/ ディレクトリに移動してください:
 
