@@ -98,6 +98,35 @@ def upload_file_to_s3(
     )
 
 
+def upload_local_overrides(s3_client, bucket, bucket_path):
+    """Upload local lifecycle script overrides after the upstream scripts."""
+    overrides_dir = os.path.join(os.path.dirname(__file__), "overrides")
+    if not os.path.isdir(overrides_dir):
+        logger.info("No local lifecycle overrides found")
+        return
+
+    for root, _, files in os.walk(overrides_dir):
+        rel_dir = os.path.relpath(root, overrides_dir)
+        for file_name in files:
+            file_path = os.path.join(root, file_name)
+            if rel_dir == ".":
+                s3_key = file_name
+            else:
+                s3_key = f"{rel_dir}/{file_name}"
+
+            logger.info(f"Uploading local override {s3_key}")
+            with open(file_path, "rb") as f:
+                file_content = f.read()
+            upload_file_to_s3(
+                s3_client,
+                bucket,
+                bucket_path,
+                file_content,
+                s3_key,
+                determine_content_type(file_name),
+            )
+
+
 def download_github_file(download_url):
     """Download file content from GitHub."""
     file_req = urllib.request.Request(download_url)
@@ -226,6 +255,7 @@ def handle_create_update(event, context):
                     f"{path}/{dir_name}",
                     dir_name,
                 )
+        upload_local_overrides(s3, bucket, bucket_path)
         return True, "Files uploaded successfully"
 
     except s3.exceptions.NoSuchBucket:
