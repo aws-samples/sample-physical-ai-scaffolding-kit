@@ -57,7 +57,7 @@ git clone https://github.com/aws-samples/sample-physical-ai-scaffolding-kit.git
 ### 2. コンテナのビルドと ECR への push
 
 ```bash
-cd ~/sample-physical-ai-scaffolding-kit/samples/isaac-lab-newton/training
+cd ~/sample-physical-ai-scaffolding-kit/samples/newton-rl/training
 ACCEPT_EULA=Y PRIVACY_CONSENT=Y sbatch slurm_build_docker.sh
 ```
 
@@ -85,7 +85,7 @@ tail -f /fsx/ubuntu/isaac-lab-newton/logs/docker_build_<JOB_ID>.out
 Docker イメージを ECR に push した後、ログインノードで実行します。
 
 ```bash
-cd ~/sample-physical-ai-scaffolding-kit/samples/isaac-lab-newton/training
+cd ~/sample-physical-ai-scaffolding-kit/samples/newton-rl/training
 bash ./hyperpod_import_container.sh
 ```
 
