@@ -1,4 +1,4 @@
-[日本語](./README.ja.md) | English
+[日本語](./README.ja.md) | English | [한국어](./README.ko.md)
 
 # Building a Slurm Cluster with Amazon SageMaker HyperPod
 
