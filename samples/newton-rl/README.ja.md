@@ -1,4 +1,4 @@
-日本語 | [English](./README.md)
+日本語 | [English](./README.md) | [한국어](./README.ko.md)
 
 # NVIDIA Isaac Lab Newton RL on Amazon SageMaker HyperPod
 
