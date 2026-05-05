@@ -146,20 +146,23 @@ Controller and login nodes are fixed at ml.c5.large × 1 each.
 
 ## Lifecycle Scripts
 
-The `infra/lifecycle/` directory is deployed to S3 via `BucketDeployment`. Scripts run during node provisioning:
+The `infra/lifecycle/` directory is deployed to S3 via `BucketDeployment`. Scripts run during node provisioning.
+
+Every lifecycle script sources `_lib.sh`, which auto-detects the node type from `/opt/ml/config/resource_config.json` (populates `$NODE_TYPE` as `controller` / `login` / `compute`) and exposes `require_node_type <type>` for scripts that only apply to specific node types. The orchestrator runs every script on every node; each script self-guards.
 
 | Script | Runs on | Purpose |
 |--------|---------|---------|
 | `on_create.sh` | All | Entry point, calls `lifecycle_script.py` |
-| `lifecycle_script.py` | All | Orchestrator: detects node type, runs scripts in order |
-| `start_slurm.sh` | All | Start Slurm daemons |
-| `create_fsx_dirs.sh` | Controller | Create `/fsx/{raw,datasets,checkpoints,evaluations,enroot,physai}` directories |
+| `lifecycle_script.py` | All | Orchestrator: runs every lifecycle script in order (each self-guards by node type) |
+| `_lib.sh` | All | Shared helpers: node-type detection + `require_node_type` guard |
+| `create_fsx_dirs.sh` | Controller | Create `/fsx/{raw,datasets,checkpoints,evaluations,physai}` directories |
+| `start_slurm.sh` | All | Start `slurmctld` (controller) or `slurmd` (compute/login), disable the other |
+| `configure_slurm_accounting.sh` | Controller | Set up `slurmdbd` + RDS connection for `sacct` |
 | `install_docker.sh` | All | Docker with containerd on NVMe |
 | `install_enroot_pyxis.sh` | All | Enroot + Pyxis + Vulkan ICD hook + NGX patch |
-| `configure_slurm_cgroup.sh` | Controller | Enable cgroup process tracking |
-| `configure_slurm_features.sh` | Controller | Map instance types to Slurm features |
-| `configure_slurm_accounting.sh` | Controller | Set up slurmdbd + RDS connection for sacct |
-| `install_xorg.sh` | GPU compute | Xorg for IsaacSim headless rendering |
+| `configure_slurm_cgroup.sh` | Controller + Compute | Enable cgroup process tracking for `scancel` |
+| `register_slurm_features.sh` | Compute | Install systemd `.service` + `.path` units that self-register the node's Slurm `Feature` (e.g. `l40s`) via `scontrol update`. The `.path` unit watches `/var/spool/slurmd/conf-cache/slurm.conf` (rewritten by slurmd on every `scontrol reconfigure` in configless mode), so features are re-applied after any reconfigure — necessary because `scontrol update` features don't survive reconfigure in slurmctld's memory. |
+| `install_xorg.sh` | Compute (GPU only) | Xorg for IsaacSim headless rendering |
 
 ### Slurm Accounting Setup
 
@@ -183,11 +186,36 @@ npx cdk bootstrap   # first time only
 npx cdk deploy --all
 ```
 
-To update lifecycle scripts on worker and login nodes:
+To update lifecycle scripts on existing nodes **without replacing them**, use
+`infra/scripts/run-lifecycle.sh`:
+
+```bash
+# Re-run the full lifecycle on all cluster nodes
+infra/scripts/run-lifecycle.sh --all
+
+# Just one node type
+infra/scripts/run-lifecycle.sh --group gpu-workers
+
+# One specific script on one node
+infra/scripts/run-lifecycle.sh --node ip-10-0-2-124 --script register_slurm_features.sh
+
+# Dry run
+infra/scripts/run-lifecycle.sh --all --dry-run
+```
+
+The script packages `infra/lifecycle/` into a base64 tarball and dispatches
+via SSM (`AWS-StartNonInteractiveCommand`) to each node, so it works even if
+SSH, Slurm, or `/fsx` is broken. Each lifecycle script self-guards by node
+type, so running "all scripts on all nodes" is safe — the ones that don't
+apply exit 0 with a clear "skipped" message. Per-node logs are written under
+`/tmp/physai-lifecycle-runs/<timestamp>/`.
+
+For a full redeploy (e.g., to upload new lifecycle scripts to S3 so
+newly-replaced nodes pick them up):
 
 ```bash
 npx cdk deploy PhysaiClusterStack   # re-uploads scripts to S3 under a new hashed prefix and calls UpdateCluster
-# Then on the cluster, for each node to refresh:
+# Then on the cluster, for each compute/login node to refresh:
 # scontrol update node=<node> state=fail reason="Action:Replace"
 ```
 
@@ -197,4 +225,4 @@ The lifecycle scripts are deployed to S3 under a content-hashed prefix (e.g.,
 `UpdateCluster`. Without this, replaced nodes would pull the previously cached
 scripts — HyperPod does not re-fetch from S3 on node replacement alone.
 
-**Note**: The controller node cannot be replaced via `scontrol update ... state=fail`. To apply updated lifecycle scripts to the controller, SSH/SSM in and re-run the relevant script manually (e.g., `bash configure_slurm_accounting.sh`).
+**Note**: The controller node cannot be replaced via `scontrol update ... state=fail`. Use `run-lifecycle.sh --node <controller-hostname>` to re-run the lifecycle on the controller in place.

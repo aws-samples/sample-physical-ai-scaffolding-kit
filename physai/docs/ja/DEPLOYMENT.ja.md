@@ -137,16 +137,69 @@ FSx レイアウト（全クラスターノードで `/fsx/` にマウント）:
 
 ### 稼働中のクラスターへのライフサイクルスクリプト変更の適用（上級者向け）
 
-`npx cdk deploy PhysaiClusterStack` を実行すると、`infra/lifecycle/` 配下の編集内容が S3 にアップロードされます。ライフサイクルスクリプトはノードの初回作成時にのみ実行されるため、既存のノードにはアップロードしただけでは反映されません。worker ノードや login ノードに新しいスクリプトを適用するには、ノードを置き換えます:
+`infra/lifecycle/` 配下のライフサイクルスクリプトは、HyperPod がノードを初めてプロビジョニングするときに実行されます。スクリプトを編集したり（上流の変更を取り込んだり）しても、**既存のノードは新しいスクリプトを自動的には取り込みません** — HyperPod は既に「初回プロビジョニング」ステップを通過しているためです。
+
+対応したいことは次の 2 つです：
+
+1. **既存のノードに今すぐ新しいスクリプトを適用する。**
+2. **今後のノード置換やスケールアウトでも新しいスクリプトが使われるようにする。**
+
+必要に応じてどちらか、あるいは両方を実施してください。
+
+#### 既存ノードでスクリプトをその場で再実行する
+
+`infra/scripts/run-lifecycle.sh` を使います。`infra/lifecycle/` をパッケージして SSM 経由で対象ノードに配信するため、Slurm、SSH、`/fsx` のいずれかが壊れていても動作します。
 
 ```bash
-# login ノードから実行（Slurm 管理者権限が必要）
+# 全ノード（controller、login、すべての worker）でライフサイクル全体を再実行
+infra/scripts/run-lifecycle.sh --all
+
+# 実行せずにターゲットだけプレビュー
+infra/scripts/run-lifecycle.sh --all --dry-run
+
+# 特定のインスタンスグループのみ
+infra/scripts/run-lifecycle.sh --group gpu-workers
+
+# 特定のノードで特定のスクリプトだけ実行（スクリプト編集中の最速イテレーションループ）
+infra/scripts/run-lifecycle.sh --node ip-10-0-2-124 --script register_slurm_features.sh
+```
+
+各ライフサイクルスクリプトはノードタイプを自動検出し、適用可否を自動的に判定します。「全スクリプトを全ノードで実行」しても安全であり、対象外のノードでは exit 0 で終了し、「skipped」という明示的なメッセージを出力します。また、スクリプトは冪等であるため、再実行時には「インストール済み」のファストパスが適用され、通常の `--all` 実行も数秒で完了します。
+
+ノードごとのログは `/tmp/physai-lifecycle-runs/<timestamp>/` 配下に記録されます。各実行の末尾の要約にそのパスが表示されます。
+
+#### 将来の置換のために S3 も更新する
+
+`run-lifecycle.sh` はローカルの `infra/lifecycle/` のコピーをノードに転送しますが、HyperPod が *新しい* ノードに使う S3 上のコピーは更新しません。変更内容に満足したら、次のコマンドも実行してください：
+
+```bash
+npx cdk deploy PhysaiClusterStack   # 新しいハッシュプレフィックスでスクリプトを S3 に再アップロード
+```
+
+これにより、ノードが後で置換されたとき（例えば `scontrol update node=<name> state=fail reason="Action:Replace"` を実行した、HyperPod が不健全なノードを自動置換した、スケールアップした等）、新しいノードが更新後のスクリプトでプロビジョニングされます。
+
+#### その場で再実行する代わりにノードを置換する
+
+HyperPod に新しいノードをゼロからプロビジョニングしてもらう方が好みの場合、置換ワークフローも引き続き使えます — ただし新しいノードに変更内容を反映させるため、先に `cdk deploy` が必要です：
+
+```bash
+npx cdk deploy PhysaiClusterStack
+# login ノードから実行（Slurm 管理者権限が必要）:
 scontrol update node=<node-name> state=fail reason="Action:Replace"
 ```
 
-HyperPod が該当ノードを破棄し、更新されたライフサイクルスクリプトを実行する新しいインスタンスをプロビジョニングします。
+これは worker と login ノードで動作します。**controller はこの方法では置き換えられません** — その場合は `run-lifecycle.sh --group controller-machine` を使ってライフサイクルスクリプトをその場で再実行してください。
 
-controller ノードはこの方法では置き換えられません。controller にライフサイクルスクリプトの変更を適用するには、SSH/SSM で controller に接続し、該当スクリプトを手動で再実行します（スクリプトは冪等であり再実行しても安全です）。それが不可能な場合は、最終手段として `PhysaiClusterStack` を破棄して再デプロイします。
+#### 最終手段: `PhysaiClusterStack` の破棄と再デプロイ
+
+クラスターが `run-lifecycle.sh` でもノード置換でも良い状態に戻せないほど深刻に詰まっている場合 — あるいは `infra/lifecycle/` が SSM のペイロード上限を超えて `run-lifecycle.sh` が実行を拒否した場合 — `PhysaiClusterStack` を破棄して再デプロイします：
+
+```bash
+npx cdk destroy PhysaiClusterStack     # 約 10 分
+npx cdk deploy PhysaiClusterStack      # 約 15 分
+```
+
+遅く（合計約 25 分）、実行中のジョブはすべて失われます。しかし安全です： `PhysaiClusterStack` は設計上ステートレス（IAM ロール、HyperPod クラスター、ライフサイクルバケット）で、永続状態をすべて保持する `PhysaiInfraStack`（FSx、RDS、S3 データバケット）は変更されません。
 
 ## クラスターへのアクセス
 

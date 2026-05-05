@@ -140,20 +140,23 @@ PhysaiInfraStack に依存します。
 
 ## ライフサイクルスクリプト
 
-`infra/lifecycle/` ディレクトリが `BucketDeployment` で S3 にデプロイされます。スクリプトはノードプロビジョニング時に実行されます:
+`infra/lifecycle/` ディレクトリが `BucketDeployment` で S3 にデプロイされます。スクリプトはノードプロビジョニング時に実行されます。
+
+ライフサイクルスクリプトはすべて `_lib.sh` を source します。`_lib.sh` は `/opt/ml/config/resource_config.json` からノードタイプを自動検出し（`$NODE_TYPE` を `controller` / `login` / `compute` に設定）、特定のノードタイプだけに適用するスクリプト向けに `require_node_type <type>` ガードを公開します。オーケストレーターはすべてのスクリプトをすべてのノードで実行し、各スクリプトが自身で適用可否を判定します。
 
 | スクリプト | 実行対象 | 用途 |
 |--------|---------|---------|
 | `on_create.sh` | 全ノード | エントリポイント、`lifecycle_script.py` を呼び出します |
-| `lifecycle_script.py` | 全ノード | オーケストレーター: ノードタイプを検出し、スクリプトを順番に実行します |
-| `start_slurm.sh` | 全ノード | Slurm デーモンを起動します |
-| `create_fsx_dirs.sh` | コントローラー | `/fsx/{raw,datasets,checkpoints,evaluations,enroot,physai}` ディレクトリを作成します |
+| `lifecycle_script.py` | 全ノード | オーケストレーター: ライフサイクルスクリプトを順番に実行します（各スクリプトがノードタイプに基づき自身で適用可否を判定） |
+| `_lib.sh` | 全ノード | 共有ヘルパー: ノードタイプ検出と `require_node_type` ガード |
+| `create_fsx_dirs.sh` | コントローラー | `/fsx/{raw,datasets,checkpoints,evaluations,physai}` ディレクトリを作成します |
+| `start_slurm.sh` | 全ノード | `slurmctld`（コントローラー）または `slurmd`（compute/login）を起動し、他方は無効化します |
+| `configure_slurm_accounting.sh` | コントローラー | `sacct` 用の `slurmdbd` + RDS 接続を設定します |
 | `install_docker.sh` | 全ノード | NVMe 上に containerd を使用した Docker をインストールします |
 | `install_enroot_pyxis.sh` | 全ノード | Enroot + Pyxis + Vulkan ICD フック + NGX パッチをインストールします |
-| `configure_slurm_cgroup.sh` | コントローラー | cgroup プロセストラッキングを有効化します |
-| `configure_slurm_features.sh` | コントローラー | インスタンスタイプと Slurm フィーチャーを対応付けます |
-| `configure_slurm_accounting.sh` | コントローラー | slurmdbd + RDS 接続による sacct を設定します |
-| `install_xorg.sh` | GPU コンピュートノード | IsaacSim ヘッドレスレンダリング用 Xorg をインストールします |
+| `configure_slurm_cgroup.sh` | コントローラー + Compute | `scancel` 用の cgroup プロセストラッキングを有効化します |
+| `register_slurm_features.sh` | Compute | ノードの Slurm `Feature`（例: `l40s`）を `scontrol update` で自己登録する systemd `.service` + `.path` ユニットをインストールします。`.path` ユニットは `/var/spool/slurmd/conf-cache/slurm.conf`（configless モードで `scontrol reconfigure` ごとに slurmd が書き直す）を監視するため、features は reconfigure の後に再適用されます — `scontrol update` で設定した features は slurmctld のメモリ上で reconfigure を生き延びないため必要です。 |
+| `install_xorg.sh` | Compute (GPU のみ) | IsaacSim ヘッドレスレンダリング用 Xorg をインストールします |
 
 ### Slurm アカウンティングのセットアップ
 
@@ -177,14 +180,32 @@ npx cdk bootstrap   # 初回のみ
 npx cdk deploy --all
 ```
 
-ワーカーノードおよびログインノードのライフサイクルスクリプトを更新するには:
+ワーカーノードおよびログインノードのライフサイクルスクリプトを既存ノードで**置換せずに**更新するには、`infra/scripts/run-lifecycle.sh` を使います:
+
+```bash
+# 全クラスターノードでライフサイクル全体を再実行
+infra/scripts/run-lifecycle.sh --all
+
+# 特定のノードタイプのみ
+infra/scripts/run-lifecycle.sh --group gpu-workers
+
+# 特定のノードで特定のスクリプトだけ実行
+infra/scripts/run-lifecycle.sh --node ip-10-0-2-124 --script register_slurm_features.sh
+
+# ドライラン
+infra/scripts/run-lifecycle.sh --all --dry-run
+```
+
+このスクリプトは `infra/lifecycle/` を base64 tarball にパッケージして SSM（`AWS-StartNonInteractiveCommand`）で各ノードに配信するため、SSH、Slurm、`/fsx` のいずれかが壊れていても動作します。各ライフサイクルスクリプトはノードタイプに基づき自身で適用可否を判定するため、「全スクリプトを全ノードで実行」しても安全です — 適用外のノードでは exit 0 で終了し、「skipped」という明示的なメッセージを出力します。ノードごとのログは `/tmp/physai-lifecycle-runs/<timestamp>/` 配下に記録されます。
+
+フル再デプロイを行う場合（例: 新しく置換されたノードが取り込めるよう S3 にライフサイクルスクリプトをアップロードしたい場合）:
 
 ```bash
 npx cdk deploy PhysaiClusterStack   # スクリプトを新しいハッシュプレフィックスで S3 に再アップロードし、UpdateCluster を呼び出す
-# その後、クラスター上で更新対象の各ノードに対して:
+# その後、クラスター上で更新対象の各 compute/login ノードに対して:
 # scontrol update node=<node> state=fail reason="Action:Replace"
 ```
 
 ライフサイクルスクリプトはコンテンツハッシュ付きプレフィックス (例: `s3://bucket/lifecycle/<hash>/`) で S3 にデプロイされるため、スクリプトに変更があると `SourceS3Uri` が変わり、CloudFormation が `UpdateCluster` を呼び出します。これがないと、置換されたノードは以前のキャッシュ済みスクリプトを取得してしまいます。HyperPod はノード置換だけでは S3 から再取得を行いません。
 
-**注意**: コントローラーノードは `scontrol update ... state=fail` で置換できません。コントローラーに更新されたライフサイクルスクリプトを適用するには、SSH/SSM で接続し、該当スクリプトを手動で再実行してください (例: `bash configure_slurm_accounting.sh`)。
+**注意**: コントローラーノードは `scontrol update ... state=fail` で置換できません。コントローラー上でライフサイクルをその場で再実行するには `run-lifecycle.sh --node <controller-hostname>` を使用します。

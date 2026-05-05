@@ -23,6 +23,9 @@ Reference for every command an agent might run. Check here before executing anyt
 | `pip install -e cli` | ~5 s | local | yes | YES |
 | `physai list` | seconds | local (SSH) | yes | YES |
 | `physai logs <job-id>` | seconds | local (SSH) | yes | YES |
+| `infra/scripts/run-lifecycle.sh --dry-run ...` | seconds | local (+ AWS read-only) | yes | YES |
+| `infra/scripts/run-lifecycle.sh --node ... --script ...` | seconds–minutes | cluster (via SSM) | yes | **ASK** — modifies node state (but idempotent) |
+| `infra/scripts/run-lifecycle.sh --all` | ~1 min (no-op) to 10+ min (first install) | cluster (via SSM) | yes | **ASK** — modifies every node |
 | ⚠️ `npx cdk bootstrap` | **~2 min** | AWS account | yes | **NO** — modifies account state |
 | ⚠️ `npx cdk deploy --all` | **~20 min** | AWS | yes | **NO** — creates/modifies AWS resources |
 | ⚠️ `physai build <container>` | **10–30+ min** | HyperPod cluster | yes (without `-n`) | **NO** — submits Slurm job |
@@ -40,7 +43,7 @@ repo root (`physai/`) unless they include an explicit `cd`.
 - **Changed `infra/` TypeScript?**
   → Run `cd infra && npm run build` then `npm run synth` (both from `infra/`). Safe and fast.
 - **Changed `infra/lifecycle/` shell scripts?**
-  → No automated verification available. Describe your changes and ask the user for review.
+  → Run `shellcheck -x infra/lifecycle/*.sh` for a local lint pass (not in CI, run manually). To apply on the live cluster, use `infra/scripts/run-lifecycle.sh` — ASK the user first, since it modifies node state. `--dry-run` is always safe.
 - **Changed `examples/*/containers/*/setup-hooks/`?**
   → No local verification possible. Ask the user before running `physai build`.
 - **Need to deploy infra to AWS?**
@@ -49,6 +52,8 @@ repo root (`physai/`) unless they include an explicit `cd`.
   → ⚠️ **STOP.** Ask the user. `physai build` submits a Slurm job on the cluster.
 - **Need to run a pipeline?**
   → ⚠️ **STOP.** Ask the user. `physai run` can take hours.
+- **Need to re-run lifecycle scripts on the cluster?**
+  → ⚠️ **STOP.** Ask the user. `run-lifecycle.sh` is idempotent and safe, but it modifies live node state. Use `--dry-run` freely to preview.
 
 ---
 

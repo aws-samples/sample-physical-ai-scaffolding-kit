@@ -178,13 +178,13 @@ Streaming eval log (Ctrl-C to detach)...
 
 GPU および CPU パーティションは `infra/cdk.json` で設定された固定ワーカー数で動作します ([INFRA.ja.md](../ja/INFRA.ja.md) 参照)。HyperPod はオートスケールしません。ワーカーの追加・削除はワーカー数を変更して `PhysaiClusterStack` を再デプロイしてください。
 
-**実行中のノードにシステムレベルの変更を適用する手順**：
+**実行中のノードにシステムレベルの変更を適用する手順**：ライフサイクルスクリプトはノードの初回プロビジョニング時にのみ実行されるため、既存のノードは `infra/lifecycle/` の編集を自動的には取り込みません。影響度の小さい順に 3 つの選択肢があります：
 
-1. S3 上のライフサイクルスクリプトを更新します
-2. 対象ノードをドレインします: `scontrol update node=X state=drain` (実行中のジョブを完了させ、新しいジョブを受け付けません)
-3. ドレイン完了後、置換します: `scontrol update node=X state=fail reason="Action:Replace"` (HyperPod が更新されたライフサイクルスクリプトで新しいインスタンスをプロビジョニングします)
+- **その場で再実行**: `infra/scripts/run-lifecycle.sh --all` が更新されたスクリプトをパッケージし、controller を含む全ノードへ SSM 経由で配信します。各スクリプトはノードタイプに基づき自身で適用可否を判定し、冪等に動作します。多くの場合はこの方法で対応でき、また controller（置換不可）に変更を適用する唯一の方法です。
+- **置換**: worker／login ノードのみ対象。`npx cdk deploy PhysaiClusterStack`（新しいスクリプトを S3 にアップロード）の後、login ノードで `scontrol update node=X state=fail reason="Action:Replace"` を実行すると、HyperPod が新しいスクリプトでノードを再プロビジョニングします。
+- **クラスタースタック全体の再デプロイ**（最終手段）: `npx cdk destroy PhysaiClusterStack && npx cdk deploy PhysaiClusterStack`。遅く（約 25 分）、実行中のジョブは失われますが、安全です — `PhysaiClusterStack` は設計上ステートレスで、`PhysaiInfraStack`（FSx、RDS、S3 データバケット）は変更されません。上記 2 つでは回復できないほどクラスターが詰まっている場合や、ライフサイクルの tarball が `run-lifecycle.sh` が依存する SSM サイズ上限を超えた場合に使用します。
 
-注意: コントローラーノードはこの方法では置換できません。ワーカーノードとログインノードのみが対象です。`UpdateClusterSoftware` は AMI が変更された場合にのみ再プロビジョニングします。既存の AMI 上でライフサイクルスクリプトの再実行を強制するためには使用できません。コントローラーのみの設定変更 (例: Slurm 設定) は SSM 経由で手動で適用してください。
+`UpdateClusterSoftware` は AMI が変更された場合にのみ再プロビジョニングし、既存の AMI 上でライフサイクルスクリプトの再実行を強制するためには使用できません。詳細なワークフローは [DEPLOYMENT.ja.md](DEPLOYMENT.ja.md#稼働中のクラスターへのライフサイクルスクリプト変更の適用上級者向け) を参照してください。
 
 ## 8. コストモデル
 

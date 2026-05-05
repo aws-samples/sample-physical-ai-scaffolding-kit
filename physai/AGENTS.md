@@ -23,6 +23,7 @@ Do NOT run these commands without explicit user approval:
 - **`physai build <container>`** — 10–30+ min, submits Slurm job on cluster
 - **`physai run --config ...`** — hours, submits training/eval pipeline
 - **`npx cdk bootstrap`** — ~2 min, modifies AWS account state
+- **`infra/scripts/run-lifecycle.sh --all` (or `--node`/`--group` without `--dry-run`)** — modifies live node state on the cluster via SSM. Idempotent and safe, but still a state change — confirm before running. `--dry-run` is always safe.
 
 Never run these autonomously. Always ask the user first.
 See [docs/TIMINGS.md](docs/TIMINGS.md) for the full decision guide.
@@ -85,8 +86,10 @@ cd infra && npm install       # installs CDK dependencies
 | `infra/bin/app.ts` | CDK app entry point |
 | `infra/lib/infra-stack.ts` | VPC, S3, FSx, RDS, Secrets Manager |
 | `infra/lib/cluster-stack.ts` | HyperPod cluster, IAM, lifecycle bucket |
-| `infra/lifecycle/on_create.sh` | Node bootstrap entry point |
-| `infra/lifecycle/lifecycle_script.py` | Lifecycle orchestrator |
+| `infra/lifecycle/on_create.sh` | Node bootstrap entry point (called by HyperPod) |
+| `infra/lifecycle/lifecycle_script.py` | Lifecycle orchestrator (Python, runs all scripts in order) |
+| `infra/lifecycle/_lib.sh` | Shared node-type detection + `require_node_type` guard |
+| `infra/scripts/run-lifecycle.sh` | Re-run lifecycle scripts on existing nodes via SSM |
 
 ### `examples/` — Container Definitions
 
@@ -95,6 +98,52 @@ cd infra && npm install       # installs CDK dependencies
 | `examples/so101-gr00t/project.yaml` | Shared container config (base image, env vars) |
 | `examples/so101-gr00t/containers/*/container.yaml` | Per-container build spec (name, partition, gres) |
 | `examples/so101-gr00t/configs/*.yaml` | Run configs for pipeline jobs |
+
+---
+
+## Gotchas: Running Commands on HyperPod via SSM
+
+HyperPod cluster nodes use `sagemaker-cluster:<cluster-id>_<group>-<node-id>`
+SSM targets, not regular EC2 instance IDs. This has several non-obvious
+consequences that apply to anything in `infra/scripts/` talking to the
+cluster:
+
+1. **`aws ssm send-command` does NOT work.** The `sagemaker-cluster:` target
+   format is only accepted by `aws ssm start-session`. `send-command`
+   requires `i-*` or `mi-*` IDs and returns `InvalidInstanceId` for HyperPod
+   nodes. So all remote command execution goes through `start-session` with
+   `AWS-StartNonInteractiveCommand` as the document.
+
+2. **`start-session` needs a PTY on the client side.** Running
+   `aws ssm start-session ...` from a script (no TTY) causes the data
+   channel to close before all output has been delivered to your stdout —
+   you see "Cannot perform start session: EOF" with most of the command
+   output missing. Wrap the `aws` call in `script -q /dev/null ...` to
+   allocate a PTY. The `script` utility's syntax differs between GNU
+   (`script -q -c CMD /dev/null`) and BSD/macOS (`script -q /dev/null
+   CMD...`); handle both if the tool needs to work on both.
+
+3. **The CLI's exit code ≠ the remote exit code.** `aws ssm start-session`
+   exits 0 as long as the session opened, regardless of whether the remote
+   command succeeded. To detect remote failure, pass
+   `separateOutputStream=["true"]` in `--parameters` and parse the
+   `EXIT_CODE: N` line the agent appends to the output.
+
+4. **The `command` parameter is tokenized by `shlex.Split`, not a shell.**
+   Shell metacharacters (`|`, `&&`, `;`, `>`) are passed as literal argv
+   elements unless you explicitly wrap in `bash -c "..."`. Put the whole
+   pipeline inside `bash -c`.
+
+5. **Output files persist even if the stream is lost.** The agent writes
+   remote stdout/stderr to files under
+   `/var/lib/amazon/ssm/sagemaker-cluster:<...>/session/orchestration/<session-id>/NonInteractiveCommands/`
+   (`stdout`, `stderr`, `ipcTempFile.log`). If output is garbled or
+   truncated on your end, these files have the complete record — useful for
+   debugging agent behavior.
+
+The canonical implementation of all four points is in
+`infra/scripts/run-lifecycle.sh` (see `run_on_node()`). If you're writing a
+new SSM-based tool, copy that pattern rather than rolling your own.
 
 ---
 

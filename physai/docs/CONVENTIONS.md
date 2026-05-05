@@ -59,10 +59,12 @@ These scripts run on HyperPod nodes during cluster creation, orchestrated by
 
 - Use descriptive snake_case filenames (e.g. `install_docker.sh`, `start_slurm.sh`) — ordering is controlled by `lifecycle_script.py`, NOT by filename prefix
 - MUST include `#!/bin/bash` shebang if using bash-specific features; use `#!/bin/sh` otherwise
-- MUST use `set -euo pipefail` at the top of bash scripts
+- SHOULD use `set -euo pipefail` (or `-exo pipefail` when tracing is useful); some existing scripts still use `set -ex` — migrate opportunistically
+- MUST source `_lib.sh` right after `set -...` to auto-detect `NODE_TYPE` (controller/login/compute). Scripts that only apply to some node types MUST call `require_node_type <type> [<type> ...]` immediately after sourcing
+- Scripts MUST be idempotent and safe to re-run — `run-lifecycle.sh` re-runs them on existing nodes; each re-run should hit an "already installed" fast path when the node is already configured
 - Scripts run as root during node provisioning — no `.root.sh` suffix needed
-- No shellcheck configured — review shell changes manually (known gap)
-- These scripts run once per node at creation; to apply changes, replace the node with a fresh one (`scontrol update node=<name> state=fail reason="Action:Replace"`) — the existing node is torn down and re-provisioned. See `docs/USER_MANUAL.md`.
+- No shellcheck configured in CI — review shell changes manually (known gap). Local `shellcheck -x infra/lifecycle/*.sh` should be clean
+- To apply changes to a running cluster, use `infra/scripts/run-lifecycle.sh` (preferred — works on all node types including the controller). Replacing a node via `scontrol update ... state=fail` also works for workers/login but requires `cdk deploy` first to update the S3 copy. See `docs/USER_MANUAL.md`.
 
 ---
 
