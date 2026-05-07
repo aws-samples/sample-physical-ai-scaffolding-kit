@@ -10,12 +10,11 @@ set -euo pipefail
 
 AWS_ARGS=()
 AWS_ARGS_STR=" --no-cli-pager"
-REGION=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --profile) AWS_ARGS+=(--profile "$2"); AWS_ARGS_STR+=" --profile $2"; shift 2 ;;
-    --region)  REGION="$2"; AWS_ARGS+=(--region "$2"); AWS_ARGS_STR+=" --region $2"; shift 2 ;;
+    --region)  AWS_ARGS+=(--region  "$2"); AWS_ARGS_STR+=" --region $2";  shift 2 ;;
     -h|--help)
       sed -n 's/^# \{0,1\}//p' "$0" | head -7
       exit 0
@@ -23,12 +22,6 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
-
-REGION="${REGION:-${AWS_DEFAULT_REGION:-}}"
-if [[ -z "$REGION" ]]; then
-  echo "Error: --region not specified and AWS_DEFAULT_REGION is not set." >&2
-  exit 1
-fi
 
 # Resolve resource names from the current stacks
 resource() {  # stack, resource_type
