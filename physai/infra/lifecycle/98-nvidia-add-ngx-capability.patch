@@ -1,0 +1,11 @@
+--- /home/ubuntu/98-nvidia.sh.orig	2026-04-08 09:47:22.399930206 +0000
++++ /home/ubuntu/98-nvidia.sh.patched	2026-04-08 09:47:44.726941236 +0000
+@@ -53,7 +53,7 @@
+ for cap in ${NVIDIA_DRIVER_CAPABILITIES//,/ }; do
+     case "${cap}" in
+     all)
+-        cli_args+=("--compute" "--compat32" "--display" "--graphics" "--utility" "--video")
++        cli_args+=("--compute" "--compat32" "--display" "--graphics" "--ngx" "--utility" "--video")
+         break
+         ;;
+     compute|compat32|display|graphics|utility|video)

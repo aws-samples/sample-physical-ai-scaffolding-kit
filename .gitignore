@@ -19,3 +19,5 @@ __pycache__/
 samples/openpi-sample/openpi
 *.cache
 samples/openpi-sample.zip
+
+CLAUDE.md

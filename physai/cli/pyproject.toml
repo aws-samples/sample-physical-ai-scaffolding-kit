@@ -1,0 +1,22 @@
+[project]
+name = "physai"
+version = "0.1.0"
+description = "CLI for the Physical AI Pipeline Platform"
+requires-python = ">=3.10"
+dependencies = ["pyyaml"]
+
+[project.optional-dependencies]
+dev = ["ruff", "pytest"]
+
+[project.scripts]
+physai = "physai.cli:main"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff.lint]
+preview = true
+extend-select = [
+    "PLC0415",  # https://docs.astral.sh/ruff/rules/import-outside-top-level/
+]
