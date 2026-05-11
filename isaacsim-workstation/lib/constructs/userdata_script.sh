@@ -132,6 +132,21 @@ must "install-ros2-jazzy" '
   fi
 '
 
+# 4) Isaac Lab (binaries installation)
+must "install-isaac-lab" '
+  ISAACLAB_DIR="/home/ubuntu/IsaacLab"
+  ISAACSIM_DIR="/home/ubuntu/IsaacSim"
+  chown -R ubuntu:ubuntu /opt/IsaacSim
+  if [[ ! -d "$ISAACLAB_DIR" ]]; then
+    apt_install cmake build-essential
+    git clone -b release/2.2.0 https://github.com/isaac-sim/IsaacLab.git "$ISAACLAB_DIR"
+    chown -R ubuntu:ubuntu "$ISAACLAB_DIR"
+  fi
+  ln -sfn "$ISAACSIM_DIR" "$ISAACLAB_DIR/_isaac_sim"
+  cd "$ISAACLAB_DIR"
+  sudo -u ubuntu bash -c "cd $ISAACLAB_DIR && ./isaaclab.sh --install"
+'
+
 
 
 # Final: summary and optional reboot
