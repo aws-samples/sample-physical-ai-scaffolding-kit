@@ -228,6 +228,13 @@ TurtleBot3 のサンプルなど、詳細な手順は以下を参照してくだ
 
 <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/ros2_tutorials/index.html>
 
+## データの利用
+
+このサンプルでは [Amazon S3 Files](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-files.html) を利用しています。`/mnt/s3files` にマウントされますので、S3のバケットに必要なデータをアップロードすることで、通常のファイル操作と同じ方法で、S3に保存されたデータを利用することができます。
+マウントされるS3のバケットは cdk deploy時に出力された `DevWorkstation.WorkstationS3FilesBucketName` になります。
+
+繰り返しアクセスするデータの場合は、S3からローカルにコピーして利用することをお勧めします。
+
 ## EC2インスタンスのトラブルシューティング
 
 ### Cloud init ログ確認

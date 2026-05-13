@@ -228,6 +228,12 @@ For detailed instructions including the TurtleBot3 sample, see:
 
 <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/ros2_tutorials/index.html>
 
+## Using Data
+
+This sample uses [Amazon S3 Files](https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-files.html). It is mounted at `/mnt/s3files`, so you can upload the necessary data to the S3 bucket and access it using standard file operations, just like working with local files. The mounted S3 bucket is the one output as `DevWorkstation.WorkstationS3FilesBucketName` during `cdk deploy`.
+
+For data that is accessed repeatedly, we recommend copying it from S3 to local storage.
+
 ## EC2 Instance Troubleshooting
 
 ### Check Cloud Init Logs
