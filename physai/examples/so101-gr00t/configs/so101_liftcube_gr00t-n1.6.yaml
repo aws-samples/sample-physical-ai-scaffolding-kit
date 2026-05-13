@@ -1,0 +1,25 @@
+pipeline:
+  stages: [train, eval]
+
+sim:
+  platform: leisaac
+  environment: LeIsaac-SO101-LiftCube-v0
+  mimic_environment: LeIsaac-SO101-LiftCube-Mimic-v0
+  language_instruction: "Lift the red cube up"
+
+model:
+  name: gr00t-n1.6
+  config_dir: gr00t-n1.6/so101-singlecam
+
+stages:
+  train:
+    partition: gpu
+    gres: "gpu:1"
+    constraint: l40s
+    container: gr00t-n1.6-trainer
+    max_steps: 10000
+  eval:
+    partition: gpu
+    gres: "gpu:1"
+    container: leisaac-gr00t-n1.6
+    rounds: 20
