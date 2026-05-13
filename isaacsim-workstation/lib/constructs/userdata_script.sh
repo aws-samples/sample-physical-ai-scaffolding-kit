@@ -102,52 +102,134 @@ apt_install() {
   retry "apt-get install -yq --no-install-recommends $pkgs" "install: $pkgs" 6 8
 }
 
-# 0) install required library
+# 0) Wait for unattended-upgrades / dpkg lock to be released (up to 5 min)
+must "wait-for-dpkg-lock" '
+  for i in $(seq 1 60); do
+    if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; then
+      log "dpkg lock is free"
+      break
+    fi
+    log "Waiting for dpkg lock (attempt $i/60)..."
+    sleep 10
+  done
+'
+
+# 1) install required library
 must "install-basic-utils" '
     apt_update
     apt_install curl
 '
 
-# 1) amazon-efs-utils (critical for S3 Files mount)
+# 2) amazon-efs-utils (critical for S3 Files mount)
 must "install-efs-utils" '
   curl -fsSL https://amazon-efs-utils.aws.com/efs-utils-installer.sh | sh -s -- --install
 '
 
-# 2) S3 Files mount (non-fatal)
+# 3) S3 Files mount (non-fatal)
 must "mount-s3files" '
   mkdir -p /mnt/s3files
   retry "mount -t s3files __S3FILES_FS_ID__ /mnt/s3files" "S3 Files mount" 10 10
   chown ubuntu:ubuntu /mnt/s3files || chmod 777 /mnt/s3files
 '
 
-# 3) ROS2 Jazzy
+# 4) ROS2 Jazzy
 must "install-ros2-jazzy" '
   curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
   echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
   apt_update
   apt_install ros-jazzy-desktop ros-dev-tools
   apt_install ros-jazzy-rosbridge-suite ros-jazzy-rosbridge-server ros-jazzy-topic-tools
+  apt_install python3-rosdep python3-colcon-common-extensions
+  apt_install cmake build-essential
   if ! grep -q "source /opt/ros/jazzy/setup.bash" /home/ubuntu/.bashrc; then
     echo "source /opt/ros/jazzy/setup.bash" >> /home/ubuntu/.bashrc
   fi
 '
 
-# 4) Isaac Lab (binaries installation)
-must "install-isaac-lab" '
+# 5) Isaac Sim pip dependencies (must use the bundled Python at /opt/IsaacSim)
+must "install-isaacsim-pip-deps" '
+  /opt/IsaacSim/kit/python/bin/python3 -m pip install Pillow psutil
+'
+
+# 6) Isaac Lab — conda-based installation
+#    Isaac Lab requires a conda environment (env_isaaclab) and specific
+#    workarounds for setuptools/flatdict build issues.
+
+must "install-miniconda" '
+  if [[ ! -d /home/ubuntu/miniconda3 ]]; then
+    curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -o /tmp/miniconda.sh
+    sudo -u ubuntu bash /tmp/miniconda.sh -b -p /home/ubuntu/miniconda3
+    rm -f /tmp/miniconda.sh
+    sudo -u ubuntu /home/ubuntu/miniconda3/bin/conda init bash
+  fi
+  sudo -u ubuntu bash -c "
+    source /home/ubuntu/miniconda3/etc/profile.d/conda.sh
+    conda config --set auto_activate_base false
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+  "
+'
+
+must "clone-isaac-lab" '
   ISAACLAB_DIR="/home/ubuntu/IsaacLab"
   ISAACSIM_DIR="/home/ubuntu/IsaacSim"
   chown -R ubuntu:ubuntu /opt/IsaacSim
   if [[ ! -d "$ISAACLAB_DIR" ]]; then
-    apt_install cmake build-essential
     git clone -b release/2.2.0 https://github.com/isaac-sim/IsaacLab.git "$ISAACLAB_DIR"
     chown -R ubuntu:ubuntu "$ISAACLAB_DIR"
   fi
   ln -sfn "$ISAACSIM_DIR" "$ISAACLAB_DIR/_isaac_sim"
-  cd "$ISAACLAB_DIR"
-  sudo -u ubuntu bash -c "cd $ISAACLAB_DIR && ./isaaclab.sh --install"
+'
+
+must "create-isaaclab-conda-env" '
+  ISAACLAB_DIR="/home/ubuntu/IsaacLab"
+  sudo -u ubuntu bash -c "
+    source /home/ubuntu/miniconda3/etc/profile.d/conda.sh
+    if ! conda env list | grep -q env_isaaclab; then
+      cd $ISAACLAB_DIR && ./isaaclab.sh --conda
+    fi
+  "
+'
+
+must "fix-setuptools-and-install-isaac-lab" '
+  ISAACLAB_DIR="/home/ubuntu/IsaacLab"
+  sudo -u ubuntu bash -c "
+    source /home/ubuntu/miniconda3/etc/profile.d/conda.sh
+    conda activate env_isaaclab
+
+    # Ensure pip is available in the conda environment
+    conda install -n env_isaaclab pip -y
+
+    # setuptools >=70 drops pkg_resources as a top-level module, which breaks
+    # flatdict and other packages that still import it at build time.
+    conda remove -n env_isaaclab setuptools --force -y 2>/dev/null || true
+    python -m pip install \"setuptools==69.5.1\" --no-cache-dir
+
+    # flatdict uses pkg_resources in setup.py; --no-build-isolation lets it
+    # find the setuptools we just installed instead of a bare isolated env.
+    python -m pip install flatdict==4.0.1 --no-build-isolation
+
+    cd $ISAACLAB_DIR && ./isaaclab.sh --install
+  "
 '
 
 
+# 7) IsaacSim ROS2 workspace — sample packages for ROS2 bridge tutorials
+must "build-isaacsim-ros2-workspace" '
+  apt_install python3-numpy
+  ROS_WS="/home/ubuntu/IsaacSim-ros_workspaces"
+  if [[ ! -d "$ROS_WS" ]]; then
+    sudo -u ubuntu git clone https://github.com/isaac-sim/IsaacSim-ros_workspaces.git "$ROS_WS"
+  fi
+  sudo -u ubuntu bash -c "
+    source /opt/ros/jazzy/setup.bash
+    cd $ROS_WS/jazzy_ws
+    colcon build --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
+  "
+  if ! grep -q "source.*IsaacSim-ros_workspaces/jazzy_ws/install/setup.bash" /home/ubuntu/.bashrc; then
+    echo "source /home/ubuntu/IsaacSim-ros_workspaces/jazzy_ws/install/setup.bash" >> /home/ubuntu/.bashrc
+  fi
+'
 
 # Final: summary and optional reboot
 log "==== SUMMARY (also in $SUMMARY) ===="
