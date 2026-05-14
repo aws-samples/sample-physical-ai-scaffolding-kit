@@ -45,7 +45,8 @@ cd infra && npm install       # installs CDK dependencies
 | Workstream | Command | Duration |
 |------------|---------|----------|
 | `cli/` | `cd cli && pytest` | ~2 s |
-| `cli/` | `ruff check cli/physai/` | ~1 s |
+| `cli/` | `cd cli && ruff check` | ~1 s |
+| `cli/` | `cd cli && ruff format` | ~1 s |
 | `infra/` | `cd infra && npm run build` | ~5 s |
 | `infra/` | `cd infra && npm run synth` | ~10 s |
 | `examples/` | No automated validation yet | — |

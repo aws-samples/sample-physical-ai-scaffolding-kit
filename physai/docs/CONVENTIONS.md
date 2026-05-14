@@ -16,9 +16,10 @@ Prescriptive rules for all workstreams. Follow these when writing or modifying c
 - MUST add docstrings to modules and all public functions
 - MUST prefix private functions with `_`
 - MUST keep dependencies minimal — standard library + `pyyaml` only. DO NOT add heavy frameworks
-- MUST pass linting with zero warnings:
+- MUST pass linting with zero warnings and stay formatted:
   ```bash
   ruff check
+  ruff format
   ```
 - Tests MUST mirror source layout: `cli/tests/test_<module>.py` for `cli/physai/<module>.py`
 - MUST use `pytest` as the test runner:
