@@ -58,8 +58,12 @@ def list_jobs(session: Session) -> None:
     completed = []
     active_jobs = {x[0] for x in active}
     if session.has_sacct:
+        # sacct defaults to "today since 00:00" without -S. Pass an absolute
+        # date older than any plausible cluster. Avoid 1970-01-01 — that's
+        # the Unix epoch (timestamp 0), which Slurm's accounting code
+        # interprets as "not set / use default" and silently returns empty.
         out = session.run(
-            f"TZ=UTC sacct -u $(whoami) --format={SACCT_FORMAT} --noheader --parsable2 -S now-7days"
+            f"TZ=UTC sacct -u $(whoami) --format={SACCT_FORMAT} --noheader --parsable2 -S 2000-01-01"
         )
         for line in out.splitlines():
             parts = line.split("|", 6)
