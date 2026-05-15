@@ -88,8 +88,17 @@ esac
 NODENAME=$(hostname -s)
 echo "Registering $NODENAME ($ITYPE) with feature=$FEATURE"
 
-# slurmd may have started but slurmctld may not have registered this node yet.
-# Retry with backoff for up to ~60s.
+# `scontrol update` can fail for two distinct reasons:
+#   (a) slurm.conf has our NodeName but slurmctld hasn't finished registering
+#       the node yet — a brief race that resolves in seconds.
+#   (b) slurm.conf doesn't yet have a NodeName entry for this node. On
+#       UpdateCluster (adding a new instance group to a live cluster),
+#       HyperPod doesn't write the new NodeName/PartitionName into slurm.conf
+#       until ~5 minutes after the node reaches InService — well after this
+#       lifecycle script has exited.
+# Retry with backoff for ~60s to cover (a). For (b), give up and exit 0:
+# the .path unit installed below watches slurm.conf and re-fires this
+# registration when HyperPod eventually writes our NodeName entry.
 for attempt in 1 2 3 4 5 6 7 8 9 10; do
     if "$SLURM_BIN" update "NodeName=$NODENAME" \
         "ActiveFeatures=$FEATURE" "AvailableFeatures=$FEATURE" 2>&1; then
@@ -100,8 +109,8 @@ for attempt in 1 2 3 4 5 6 7 8 9 10; do
     sleep 6
 done
 
-echo "ERROR: Failed to register feature after 10 attempts" >&2
-exit 1
+echo "WARNING: Failed to register feature after 10 attempts; deferring to .path watcher" >&2
+exit 0
 SCRIPT_EOF
 
 chmod 0755 "$SCRIPT_PATH"

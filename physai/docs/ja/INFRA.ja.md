@@ -158,6 +158,22 @@ PhysaiInfraStack に依存します。
 | `register_slurm_features.sh` | Compute | ノードの Slurm `Feature`（例: `l40s`）を `scontrol update` で自己登録する systemd `.service` + `.path` ユニットをインストールします。`.path` ユニットは `/var/spool/slurmd/conf-cache/slurm.conf`（configless モードで `scontrol reconfigure` ごとに slurmd が書き直す）を監視するため、features は reconfigure の後に再適用されます — `scontrol update` で設定した features は slurmctld のメモリ上で reconfigure を生き延びないため必要です。 |
 | `install_xorg.sh` | Compute (GPU のみ) | IsaacSim ヘッドレスレンダリング用 Xorg をインストールします |
 
+### ライフサイクルスクリプトの作成: HyperPod のタイミング上の注意点
+
+compute ノードから `slurmctld` とやり取りするライフサイクルスクリプトを書く際には、HyperPod の挙動の非対称性に注意が必要です。
+
+`slurmctld` は `slurm.conf` に `NodeName=...` 行として現れるノードのみを認識します。これらの行はコントローラー上で HyperPod が管理・書き込みますが、そのタイミングはクラスター作成時とインスタンスグループ追加時で異なります:
+
+- **クラスター初回作成時.** 各ワーカーの `NodeName` 行は、そのワーカーのライフサイクルスクリプトが実行される前に書き込まれます。compute ノードのスクリプトはすぐに `scontrol update NodeName=<self> ...` を発行でき、コントローラーはそのノードを認識します。
+- **UpdateCluster（稼働中のクラスターへの新しいインスタンスグループの追加）.** 新しいノードはまずブートし、ライフサイクルスクリプトを*先に*実行します。対応する `NodeName` 行は、ノードが `InService` に到達した数分*後*に HyperPod がコントローラー上で書き込みます。ライフサイクル実行中は `slurmctld` はそのノードの存在を知らず、そのノードを参照する `scontrol update` は拒否されます。
+
+実務上のガイドライン:
+
+1. **これでライフサイクルを失敗させない.** `slurmctld` にノードを認識させる必要のある compute ノードのスクリプトは、まず操作を試みるべきですが、短いリトライ期間内に成功しなかった場合は警告をログに出して `exit 0` してください。ライフサイクルを失敗させるとノードが失敗し、CloudFormation のロールバックが発生します。
+2. **`slurm.conf` の書き込みを最終的整合性のシグナルとして使う.** configless モードでは、`slurmd` は `scontrol reconfigure` のたびに `/var/spool/slurmd/conf-cache/slurm.conf` を書き直します — HyperPod が新しい `NodeName` 行を書いた後に発行する reconfigure も含みます。このファイルを監視する systemd `.path` ユニットは、ノードが最終的に `slurmctld` に認識された時点で操作をリトライするための信頼できるトリガーになります。
+
+`register_slurm_features.sh` はこの両方のルールに従っています — 同様に slurmctld に依存する手順を追加するときはこのパターンをコピーしてください。
+
 ### Slurm アカウンティングのセットアップ
 
 `configure_slurm_accounting.sh` はコントローラー上で実行されます:

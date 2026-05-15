@@ -164,6 +164,22 @@ Every lifecycle script sources `_lib.sh`, which auto-detects the node type from 
 | `register_slurm_features.sh` | Compute | Install systemd `.service` + `.path` units that self-register the node's Slurm `Feature` (e.g. `l40s`) via `scontrol update`. The `.path` unit watches `/var/spool/slurmd/conf-cache/slurm.conf` (rewritten by slurmd on every `scontrol reconfigure` in configless mode), so features are re-applied after any reconfigure — necessary because `scontrol update` features don't survive reconfigure in slurmctld's memory. |
 | `install_xorg.sh` | Compute (GPU only) | Xorg for IsaacSim headless rendering |
 
+### Authoring lifecycle scripts: HyperPod timing notes
+
+One asymmetry in HyperPod's behavior matters when you write a lifecycle script that interacts with `slurmctld` from a compute node.
+
+`slurmctld` only recognizes nodes that appear as `NodeName=...` lines in `slurm.conf`. HyperPod owns those lines and writes them on the controller — but the timing differs between cluster create and instance-group add:
+
+- **Initial cluster create.** The `NodeName` line for each worker is written before that worker's lifecycle scripts run. A compute-node script can issue `scontrol update NodeName=<self> ...` immediately and the controller will recognize the node.
+- **UpdateCluster (new instance group added to a live cluster).** The new node bootstraps and runs its lifecycle scripts *first*. HyperPod writes the corresponding `NodeName` line on the controller several minutes *later*, after the node reaches `InService`. During the lifecycle window, `slurmctld` doesn't know the node exists and rejects any `scontrol update` referring to it.
+
+Practical guidance:
+
+1. **Don't fail the lifecycle on this.** A compute-node script that needs `slurmctld` to recognize the node should attempt the operation, but if it doesn't succeed within a short retry window, log a warning and `exit 0`. Failing the lifecycle fails the node, which triggers a CloudFormation rollback.
+2. **Use `slurm.conf` writes as your eventual-consistency signal.** In configless mode, `slurmd` rewrites `/var/spool/slurmd/conf-cache/slurm.conf` on every `scontrol reconfigure` — including the one HyperPod issues after writing the new `NodeName` line. A systemd `.path` unit watching that file is a reliable trigger to retry the operation once the node is finally known to `slurmctld`.
+
+`register_slurm_features.sh` follows both rules — copy its pattern when adding similar slurmctld-dependent steps.
+
 ### Slurm Accounting Setup
 
 `configure_slurm_accounting.sh` runs on the controller:
