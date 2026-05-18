@@ -15,6 +15,9 @@ Amazon SageMaker HyperPod eliminates the undifferentiated heavy lifting associat
   * If you only want to build a standard Slurm cluster, please refer to this sample to set up your Amazon SageMaker HyperPod environment
 * [Physical AI Pipeline Platform SDK](physai/README.md)
   * If you want to use a pipeline that utilizes the SDK developed for Amazon SageMaker HyperPod, please refer to this sample to set up your environment
+* [NVIDIA IsaacSim Development Workstation](/isaacsim-workstation/README.md)
+  * A sample for using NVIDIA Isaac Sim on an EC2 instance
+  * Provides access to NVIDIA Isaac Sim / Lab environments
 
 ## Samples for Amazon SageMaker HyperPod
 
