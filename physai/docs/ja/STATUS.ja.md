@@ -275,7 +275,7 @@ LeIsaac 以外の変更:
 - デプロイごとに一意の HyperPod `ClusterName`（CloudFormation スタックの GUID がサフィックスとして付与）により、各デプロイが `sacct` で独自のアイデンティティを持ちます
 - ライフサイクルスクリプト: FSx マウント、Slurm デーモン、Docker、Enroot + Pyxis、cgroup トラッキング、ノード機能マッピング、Slurm アカウンティング（slurmdbd → RDS）
 - ライフサイクルスクリプトのコンテンツハッシュ付き S3 プレフィックスにより、スクリプト変更時に CloudFormation が `UpdateCluster` を発行します
-- ヘルパースクリプト: `setup-ssh.sh`、`cleanup.sh`、`cleanup-failed-stacks.sh`
+- ヘルパースクリプト: `setup-ssh.sh`、`run-lifecycle.sh`、`cleanup.sh`、`cleanup-failed-stacks.sh`
 
 #### CLI (`physai`)
 

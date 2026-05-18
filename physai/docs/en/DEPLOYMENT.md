@@ -137,16 +137,94 @@ FSx layout (shared mount at `/fsx/` on all cluster nodes):
 
 ### Applying Lifecycle Script Changes to a Running Cluster (Advanced)
 
-`npx cdk deploy PhysaiClusterStack` uploads edits under `infra/lifecycle/` to S3. Lifecycle scripts only run when a node is first created, so existing nodes are not affected by the upload. To apply new scripts to worker or login nodes, replace the node:
+Lifecycle scripts under `infra/lifecycle/` run when HyperPod first provisions
+a node. If you edit them (or pull upstream changes), **existing nodes don't
+automatically pick up the new scripts** — HyperPod has already moved past the
+"initial provisioning" step.
+
+There are two things you may want:
+
+1. **Apply the new scripts to existing nodes right now.**
+2. **Make sure future node replacements / scale-outs also use the new scripts.**
+
+Do either or both depending on your need.
+
+#### Re-run scripts in place
+
+Use `infra/scripts/run-lifecycle.sh`. It packages `infra/lifecycle/` into a
+tarball and dispatches via SSM to the target nodes — so it works even if
+Slurm, SSH, or `/fsx` is broken on the cluster.
 
 ```bash
-# From the login node (requires Slurm admin privileges)
+# Re-run the full lifecycle everywhere (controller, login, all workers)
+infra/scripts/run-lifecycle.sh --all
+
+# Preview targets without executing
+infra/scripts/run-lifecycle.sh --all --dry-run
+
+# Only one instance group
+infra/scripts/run-lifecycle.sh --group gpu-workers
+
+# One specific script on one node (fastest iteration loop while editing a script)
+infra/scripts/run-lifecycle.sh --node ip-10-0-2-124 --script register_slurm_features.sh
+```
+
+Each lifecycle script auto-detects the node type and self-guards — running
+"all scripts on all nodes" is safe; scripts that don't apply to a given node
+exit 0 with a clear "skipped" message. The scripts are also idempotent: the
+"already installed" fast path is hit on re-runs, so the normal `--all` run
+finishes in seconds.
+
+Per-node logs are written under `/tmp/physai-lifecycle-runs/<timestamp>/` for
+later inspection. The summary at the end of each run prints that path.
+
+#### Also update S3 for future replacements
+
+`run-lifecycle.sh` ships your local copy of `infra/lifecycle/` to the nodes,
+but it does NOT update the copy in S3 that HyperPod uses for *new* nodes.
+When you're happy with the changes, also run:
+
+```bash
+npx cdk deploy PhysaiClusterStack   # re-uploads scripts to S3 under a new hashed prefix
+```
+
+This ensures that if a node is later replaced (e.g., you run `scontrol update
+node=<name> state=fail reason="Action:Replace"`, or HyperPod auto-replaces an
+unhealthy node, or you scale up), the new node provisions with the updated
+scripts.
+
+#### Replacing nodes instead of in-place re-runs
+
+If you'd rather have HyperPod provision fresh nodes from scratch, you can
+still use the replace workflow — it just requires `cdk deploy` first so the
+new nodes pick up your changes:
+
+```bash
+npx cdk deploy PhysaiClusterStack
+# from the login node (requires Slurm admin privileges):
 scontrol update node=<node-name> state=fail reason="Action:Replace"
 ```
 
-HyperPod destroys the node and provisions a new instance that runs the updated lifecycle scripts.
+This works for worker and login nodes. The **controller cannot be replaced
+this way** — use `run-lifecycle.sh --group controller-machine` to re-run
+its lifecycle scripts in place.
 
-The controller node cannot be replaced this way. To apply lifecycle changes on the controller, SSH/SSM into the controller and re-run the relevant script manually (scripts are idempotent and safe to re-run). If that is not feasible, destroy and redeploy `PhysaiClusterStack` as a last resort.
+#### Last resort: destroy and redeploy `PhysaiClusterStack`
+
+If the cluster is wedged badly enough that neither `run-lifecycle.sh` nor
+node replacement is getting it into a good state — or `run-lifecycle.sh`
+refuses to run because `infra/lifecycle/` has grown past the SSM payload
+limit — destroy `PhysaiClusterStack` and redeploy it:
+
+```bash
+npx cdk destroy PhysaiClusterStack     # ~10 min
+npx cdk deploy PhysaiClusterStack      # ~15 min
+```
+
+It's slow (~25 min) and all running jobs are lost. But it's safe:
+`PhysaiClusterStack` is stateless by design (IAM role, HyperPod cluster,
+lifecycle bucket), and `PhysaiInfraStack` — which holds every piece of
+persistent state (FSx, RDS, S3 data bucket) — is untouched.
 
 ## Accessing the Cluster
 

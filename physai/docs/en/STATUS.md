@@ -276,7 +276,7 @@ Model config directory is reused since the robot is unchanged.
 - Unique HyperPod `ClusterName` per deploy (suffixed with the CloudFormation stack GUID) so each fresh deployment has its own identity in `sacct`
 - Lifecycle scripts: FSx mount, Slurm daemons, Docker, Enroot + Pyxis, cgroup tracking, node feature mapping, Slurm accounting (slurmdbd → RDS)
 - Content-hashed S3 prefix for lifecycle scripts so CloudFormation issues `UpdateCluster` when scripts change
-- Helper scripts: `setup-ssh.sh`, `cleanup.sh`, `cleanup-failed-stacks.sh`
+- Helper scripts: `setup-ssh.sh`, `run-lifecycle.sh`, `cleanup.sh`, `cleanup-failed-stacks.sh`
 
 #### CLI (`physai`)
 

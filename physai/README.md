@@ -57,6 +57,7 @@ physai/
 │   ├── lifecycle/                # Node provisioning scripts (run on HyperPod nodes)
 │   ├── scripts/
 │   │   ├── setup-ssh.sh          # Upload SSH key to login node via SSM
+│   │   ├── run-lifecycle.sh      # Re-run lifecycle scripts on existing nodes via SSM
 │   │   ├── cleanup.sh            # Print teardown commands (manual review)
 │   │   └── cleanup-failed-stacks.sh   # Clean up never-successfully-created stacks
 │   └── cdk.json

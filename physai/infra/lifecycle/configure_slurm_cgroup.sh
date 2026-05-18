@@ -3,16 +3,11 @@
 # Adapted from: https://github.com/awslabs/awsome-distributed-training/blob/main/
 #   1.architectures/5.sagemaker-hyperpod/LifecycleScripts/base-config/utils/pam_adopt_cgroup_wheel.sh
 #
-# Usage: configure_slurm_cgroup.sh <node_type>
-#   node_type: controller | login | compute
+# Usage: configure_slurm_cgroup.sh
 set -ex
-
-NODE_TYPE="${1:?Usage: configure_slurm_cgroup.sh <node_type>}"
-
-if [ "$NODE_TYPE" = "login" ]; then
-    echo "Login node: nothing to do for cgroup config"
-    exit 0
-fi
+. "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+# Login nodes don't need cgroup tracking (no slurmd manages user jobs there).
+require_node_type controller compute
 
 SLURM_DIR="${SLURM_DIR:-/opt/slurm}"
 
@@ -68,23 +63,18 @@ EOF
         # the restart interrupts any in-flight reconfigure from earlier
         # scripts and Slurm (pre-25.11) does not auto-push on slurmctld
         # restart.
-        for attempt in 1 2 3 4 5 6; do
-            sleep 5
-            if scontrol reconfigure 2>&1; then
-                echo "Post-restart reconfigure OK on attempt $attempt"
-                break
-            fi
-        done
+        sleep 5
+        slurm_reconfigure_with_retry
         echo "Controller: cgroup config applied, slurmctld restarted and reconfigured"
     else
         echo "Controller: cgroup config already up-to-date, nothing to do"
     fi
 
-elif [ "$NODE_TYPE" = "compute" ]; then
-    # Compute nodes fetch cgroup.conf from the controller via configless. A
-    # restart here is only needed if we think the cached config is stale. The
-    # controller's reconfigure (above) triggers a SIGHUP push to all slurmd
-    # instances, which is sufficient. Restart only if slurmd isn't running.
+else
+    # Compute node. Fetches cgroup.conf from the controller via configless.
+    # The controller's reconfigure (above) triggers a SIGHUP push to all
+    # slurmd instances, which is sufficient — we only need to ensure slurmd
+    # is running here.
     if ! systemctl is-active --quiet slurmd; then
         systemctl start slurmd
         echo "Compute: slurmd started"

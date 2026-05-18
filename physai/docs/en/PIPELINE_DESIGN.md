@@ -178,13 +178,31 @@ Once implemented, each completed run will log to SageMaker MLflow:
 
 GPU and CPU partitions run fixed worker counts configured in `infra/cdk.json` (see [INFRA.md](INFRA.md)). HyperPod does not auto-scale — change counts and redeploy `PhysaiClusterStack` to add or remove workers.
 
-**Applying system-level changes to running nodes**:
+**Applying system-level changes to running nodes**: lifecycle scripts only
+run on first node provisioning, so existing nodes don't automatically pick
+up edits under `infra/lifecycle/`. Three options, from least to most invasive:
 
-1. Update lifecycle scripts in S3
-2. Drain target nodes: `scontrol update node=X state=drain` (finishes running jobs, accepts no new ones)
-3. Once drained, replace: `scontrol update node=X state=fail reason="Action:Replace"` (HyperPod provisions fresh instances with updated lifecycle scripts)
+- **In-place re-run**: `infra/scripts/run-lifecycle.sh --all` packages the
+  updated scripts and dispatches via SSM to every node, including the
+  controller. Scripts self-guard by node type and are idempotent. This is
+  the common case and the only way to apply changes to the controller (which
+  can't be replaced).
+- **Replace**: for worker/login nodes only, `npx cdk deploy
+  PhysaiClusterStack` (uploads new scripts to S3) followed by `scontrol
+  update node=X state=fail reason="Action:Replace"` on the login node causes
+  HyperPod to reprovision the node from the new scripts.
+- **Full cluster-stack redeploy** (last resort): `npx cdk destroy
+  PhysaiClusterStack && npx cdk deploy PhysaiClusterStack`. Slow (~25 min),
+  running jobs are lost, but safe — `PhysaiClusterStack` is stateless by
+  design; `PhysaiInfraStack` (FSx, RDS, S3 data bucket) is untouched. Use
+  when the cluster is wedged badly enough that neither of the above is
+  recovering it, or when the lifecycle tarball has outgrown the SSM size
+  limit `run-lifecycle.sh` operates under.
 
-Note: controller nodes cannot be replaced this way — only worker and login nodes. `UpdateClusterSoftware` only re-provisions when the AMI changes; it cannot be used to force lifecycle script re-execution on an existing AMI. For controller-only config changes (e.g., Slurm settings), apply manually via SSM.
+`UpdateClusterSoftware` only reprovisions when the AMI changes; it cannot
+force lifecycle script re-execution on an existing AMI. See
+[DEPLOYMENT.md](DEPLOYMENT.md#applying-lifecycle-script-changes-to-a-running-cluster-advanced)
+for full workflows.
 
 ## 8. Cost Model
 

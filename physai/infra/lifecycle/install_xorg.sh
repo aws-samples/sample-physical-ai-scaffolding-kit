@@ -5,9 +5,11 @@
 # Must pin xserver-xorg-video-nvidia to match the kernel module version to avoid
 # API mismatch. The kernel module version comes from the HyperPod AMI.
 set -e
+. "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+require_node_type compute
 
 # Get kernel module version
-DRIVER_VERSION=$(cat /proc/driver/nvidia/version | grep "NVRM version" | grep -oP '\d+\.\d+\.\d+' | head -1)
+DRIVER_VERSION=$(grep "NVRM version" /proc/driver/nvidia/version | grep -oP '\d+\.\d+\.\d+' | head -1)
 if [[ -z "$DRIVER_VERSION" ]]; then
   echo "WARNING: Could not detect NVIDIA driver version, skipping Xorg install"
   exit 0

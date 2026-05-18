@@ -39,4 +39,6 @@ so101_singlecam_config = {
     ),
 }
 
-register_modality_config(so101_singlecam_config, embodiment_tag=EmbodimentTag.NEW_EMBODIMENT)
+register_modality_config(
+    so101_singlecam_config, embodiment_tag=EmbodimentTag.NEW_EMBODIMENT
+)

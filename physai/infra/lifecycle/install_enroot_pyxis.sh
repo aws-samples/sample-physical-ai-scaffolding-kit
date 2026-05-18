@@ -1,17 +1,20 @@
 #!/bin/bash
 # Install Enroot + Pyxis for Slurm container support.
 # Requires Docker to be installed first.
-# Usage: install_enroot_pyxis.sh <node_type>
+# Usage: install_enroot_pyxis.sh
 set -ex
+. "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+require_node_type controller compute login
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NODE_TYPE="$1"
-# ENROOT_VERSION=3.4.1
 ENROOT_VERSION=4.1.2
-# PYXIS_VERSION=v0.19.0
 PYXIS_VERSION=v0.23.0
 ARCH=$(dpkg --print-architecture)
 SLURM_DIR="${SLURM_DIR:-/opt/slurm}"
+
+# Suppress debconf "unable to initialize frontend: Dialog/Readline/Teletype"
+# warnings during apt installs run from non-interactive contexts (lifecycle).
+export DEBIAN_FRONTEND=noninteractive
 
 # Enroot dependencies
 apt-get -y -o DPkg::Lock::Timeout=120 install squashfs-tools parallel fuse-overlayfs squashfuse
@@ -127,10 +130,10 @@ if [[ "$NODE_TYPE" == "controller" ]]; then
     fi
 
     # Push updated plugstack to workers via the configless mechanism only if
-    # something actually changed. slurmctld is already running so a single
-    # reconfigure is sufficient.
+    # something actually changed. slurmctld is already running, but earlier
+    # apt/kernel work in this script can briefly stall it; retry covers that.
     if [[ "$before" != "$after" ]] || $cgroup_changed; then
-        scontrol reconfigure
+        slurm_reconfigure_with_retry
     fi
 else
     # On workers (compute/login), restart slurmd so it re-fetches the latest
