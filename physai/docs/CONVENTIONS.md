@@ -15,19 +15,25 @@ Prescriptive rules for all workstreams. Follow these when writing or modifying c
 - MUST use Python 3.10+ type hints: `str | None`, not `Optional[str]`
 - MUST add docstrings to modules and all public functions
 - MUST prefix private functions with `_`
-- MUST keep dependencies minimal — standard library + `pyyaml` only. DO NOT add heavy frameworks
+- MUST keep dependencies minimal — standard library + `pyyaml` + `jsonschema` only. DO NOT add heavy frameworks
 - MUST pass linting with zero warnings and stay formatted:
   ```bash
   ruff check
   ruff format
   ```
-- Tests MUST mirror source layout: `cli/tests/test_<module>.py` for `cli/physai/<module>.py`
-- MUST use `pytest` as the test runner:
+- MUST pass formatting (CI-style, no writes):
   ```bash
-  cd cli && pytest
+  ruff format --check
   ```
+  Use `ruff format` (no `--check`) to apply fixes before committing.
+- Tests MUST mirror source layout: `cli/tests/test_<module>.py` for `cli/physai/<module>.py`
+- MUST use `pytest` as the test runner, invoked via `python -m`:
+  ```bash
+  cd cli && python -m pytest
+  ```
+  Plain `pytest` resolves `import physai` through whatever package is on `sys.path` — which, with an editable install pointing at a different worktree, is *not* this worktree's source. `python -m pytest` prepends the cwd to `sys.path`, so you always test the worktree you're sitting in.
 - MUST use `unittest.mock` for SSH session mocking — DO NOT make real SSH calls in tests
-- DO NOT use `from __future__ import annotations`
+- Use `from __future__ import annotations` only in modules that actually need it — i.e. those with forward references (types referring to a not-yet-defined class in the same module). On Python <3.14 those modules won't import without it (or without manually string-quoting each forward-ref annotation); on 3.14+ it's a harmless no-op (PEP 649 makes annotations lazy by default).
 - Entry point is `physai.cli:main` registered as a console_script in `pyproject.toml`
 - Ruff config lives in `cli/pyproject.toml` — check there before adding ignore rules
 
@@ -65,7 +71,7 @@ These scripts run on HyperPod nodes during cluster creation, orchestrated by
 - Scripts MUST be idempotent and safe to re-run — `run-lifecycle.sh` re-runs them on existing nodes; each re-run should hit an "already installed" fast path when the node is already configured
 - Scripts run as root during node provisioning — no `.root.sh` suffix needed
 - No shellcheck configured in CI — review shell changes manually (known gap). Local `shellcheck -x infra/lifecycle/*.sh` should be clean
-- To apply changes to a running cluster, use `infra/scripts/run-lifecycle.sh` (preferred — works on all node types including the controller). Replacing a node via `scontrol update ... state=fail` also works for workers/login but requires `cdk deploy` first to update the S3 copy. See `docs/USER_MANUAL.md`.
+- To apply changes to a running cluster, use `infra/scripts/run-lifecycle.sh` (preferred — works on all node types including the controller). Replacing a node via `scontrol update ... state=fail` also works for workers/login but requires `cdk deploy` first to update the S3 copy. See [`docs/en/DEPLOYMENT.md`](en/DEPLOYMENT.md#applying-lifecycle-script-changes-to-a-running-cluster-advanced).
 
 ---
 
@@ -73,8 +79,8 @@ These scripts run on HyperPod nodes during cluster creation, orchestrated by
 
 - Each container directory MUST contain a `container.yaml` with at minimum:
   - `name` — container identifier
-  - `partition` — Slurm partition to build on
-  - `gres` — GPU resource spec (e.g. `gpu:1`)
+  - `partition` — Slurm partition to build on (default `gpu`)
+  - Optional: `gres` — GPU resource spec (e.g. `gpu:1`). Omit for CPU-only containers.
   - Optional: `base_container` for layered builds (references another container's name)
 - `setup-hooks/` directory contains shell scripts that run during `physai build`:
   - MUST use numbered prefix for ordering: `10-foo.sh`, `20-bar.sh`, `90-cleanup.sh`, etc.
@@ -95,7 +101,7 @@ These scripts run on HyperPod nodes during cluster creation, orchestrated by
 - User config (`~/.physai/config.yaml`) is NOT checked into the repo
 - `run_config.yaml` files live in `examples/*/configs/`
 - Model configs live in `examples/*/model_configs/`
-- No JSON schema exists for any YAML config format (known gap)
+- JSON schemas for each YAML config format live in `cli/physai/schemas/` (`cli-config.schema.json`, `project.schema.json`, `container.schema.json`, `run-config.schema.json`) and are validated at load time via `schema.py`
 
 ---
 
@@ -106,4 +112,4 @@ These scripts run on HyperPod nodes during cluster creation, orchestrated by
   - This is because `physai/` is one sub-project inside a monorepo (alongside `hyperpod/`, `samples/`). Commits touching those siblings use their own prefix
 - Branch naming follows `feat/*`, `fix/*` based on recent history
 - DO NOT force-push to shared branches
-- DO NOT commit `~/.physai/config.yaml`, `.env`, or credential files
+- DO NOT commit secrets, credentials, or local-state files: `.env`, `*.pem`, AWS credential files, `~/.aws/` contents, or anything containing API keys/tokens

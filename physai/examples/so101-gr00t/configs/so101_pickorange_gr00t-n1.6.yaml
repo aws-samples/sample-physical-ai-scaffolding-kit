@@ -1,5 +1,5 @@
 pipeline:
-  stages: [train, eval]
+  stages: [convert, train, eval]
 
 sim:
   platform: leisaac
@@ -12,6 +12,9 @@ model:
   config_dir: gr00t-n1.6/so101-dualcam
 
 stages:
+  convert:
+    partition: cpu
+    container: so101-converter
   train:
     partition: gpu
     gres: "gpu:1"

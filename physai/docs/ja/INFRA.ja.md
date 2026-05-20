@@ -9,7 +9,7 @@
 | **PhysaiInfraStack** | ネットワーク、ストレージ、データベース | はい | ON |
 | **PhysaiClusterStack** | HyperPod クラスター、IAM、モニタリング | いいえ | OFF |
 
-PhysaiInfraStack のリソースは長期間存続し、クラスターの再構築をまたいで維持されます。PhysaiClusterStack はデータを失うことなく安全に削除・再作成できます。
+PhysaiInfraStack のリソースは長期的に保持され、クラスターの再構築をまたいで維持されます。PhysaiClusterStack はデータを失うことなく安全に削除・再作成できます。
 
 ## PhysaiInfraStack
 
@@ -50,7 +50,7 @@ PhysaiInfraStack のリソースは長期間存続し、クラスターの再構
 
 ### 出力値
 
-- `DataBucketName` — S3 データバケットです。ユーザーが S3 経由で生データをアップロードする際に参照します (USER_MANUAL.ja.md の「生データと S3 自動インポート」を参照)。`${stackName}-DataBucketName` としてエクスポートされます。
+- `DataBucketName` — S3 データバケットです。ユーザーが S3 経由で生データをアップロードする際に参照します ([`PHYSAI_CLI.ja.md` の「生データと S3 自動インポート」](PHYSAI_CLI.ja.md#生データと-s3-自動インポート)を参照)。`${stackName}-DataBucketName` としてエクスポートされます。
 
 ## PhysaiClusterStack
 

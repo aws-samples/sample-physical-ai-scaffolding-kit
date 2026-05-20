@@ -1,7 +1,7 @@
 # Project Status
 
 Current state of Phase 1: what's built, what's next. This file reflects
-execution against the platform design in [PIPELINE-DESIGN.md](PIPELINE-DESIGN.md).
+execution against the platform design in [PIPELINE_DESIGN.md](PIPELINE_DESIGN.md).
 
 ## Phase 1: LeIsaac + SO-101 + GR00T N1.6
 
@@ -12,13 +12,15 @@ Tasks: PickOrange and LiftCube. Two tasks demonstrate how the same containers an
 | Container | Base Image | Purpose |
 |-----------|-----------|---------|
 | `leisaac-runtime` | NGC PyTorch + IsaacSim (pip) | Base runtime (no GR00T) |
-| `leisaac-gr00t-n1.6` | `leisaac-runtime` + Isaac-GR00T @ `n1.6-release` | Evaluation (policy server + LeIsaac client) |
-| `so101-converter` | python:3.11-slim + h5py/pyarrow/ffmpeg | HDF5 → LeRobot conversion + validation |
+| `leisaac-gr00t-n1.6` | `leisaac-runtime` + Isaac-GR00T @ `n1.6-release` | Evaluation (policy server + LeIsaac client) for GR00T N1.6 |
+| `leisaac-gr00t-n1.5` | `leisaac-runtime` + Isaac-GR00T @ `n1.5-release` | Evaluation for GR00T N1.5 |
+| `so101-converter` | python:3.12-slim-bookworm + h5py/lerobot/ffmpeg | HDF5 → LeRobot conversion + validation |
 | `gr00t-n1.6-trainer` | NGC PyTorch + Isaac-GR00T @ `n1.6-release` | GR00T N1.6 fine-tuning |
+| `gr00t-n1.5-trainer` | NGC PyTorch + Isaac-GR00T @ `n1.5-release` | GR00T N1.5 fine-tuning |
 
 All LeIsaac tasks (PickOrange, LiftCube, etc.) are baked into the same `leisaac-runtime` base. The task is selected at runtime via `sim.environment` in the config — not at build time. `leisaac-gr00t-n1.6` layers on `leisaac-runtime` using `base_container:`, pinning the eval-time GR00T server to the N1.6 tag; follow-up work can add `leisaac-gr00t-n1.5` / `-n1.7` similarly without rebuilding the base.
 
-Containers are built via the container build system (see PIPELINE-DESIGN.md §3.4) and stored as squashfs on `/fsx/enroot/`. Slurm jobs use them via Pyxis `--container-image`.
+Containers are built via the container build system (see [`PIPELINE_DEVELOP.md` §3](PIPELINE_DEVELOP.md#3-container-definitions)) and stored as squashfs on `/fsx/enroot/`. Slurm jobs use them via Pyxis `--container-image`.
 
 **IsaacSim-specific notes**:
 - `leisaac-runtime` includes a `50-warmup.sh` setup hook that warms up IsaacSim shader caches during build (equivalent to [upstream warmup.sh](https://github.com/isaac-sim/IsaacSim/blob/main/source/scripts/warmup.sh)). Uses `kit_app.py` instead of the `kit` binary since the pip-installed IsaacSim only ships `kit-gcov` which requires the standalone distribution layout.
@@ -32,19 +34,22 @@ Two configs — same containers, same model config, different task:
 ```yaml
 # examples/so101-gr00t/configs/so101_pickorange_gr00t-n1.6.yaml
 pipeline:
-  stages: [train, eval]
+  stages: [convert, train, eval]
 
 sim:
   platform: leisaac
   environment: LeIsaac-SO101-PickOrange-v0
   mimic_environment: LeIsaac-SO101-PickOrange-Mimic-v0
-  language_instruction: "Pick up the orange"
+  language_instruction: "Pick up the orange and place it on the plate"
 
 model:
   name: gr00t-n1.6
-  config_dir: gr00t-n1.6/so101
+  config_dir: gr00t-n1.6/so101-dualcam
 
 stages:
+  convert:
+    partition: cpu
+    container: so101-converter
   train:
     partition: gpu
     gres: "gpu:1"
@@ -61,7 +66,7 @@ stages:
 ```yaml
 # examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml
 pipeline:
-  stages: [train, eval]
+  stages: [convert, train, eval]
 
 sim:
   platform: leisaac
@@ -71,9 +76,12 @@ sim:
 
 model:
   name: gr00t-n1.6
-  config_dir: gr00t-n1.6/so101
+  config_dir: gr00t-n1.6/so101-singlecam
 
 stages:
+  convert:
+    partition: cpu
+    container: so101-converter
   train:
     partition: gpu
     gres: "gpu:1"
@@ -87,14 +95,18 @@ stages:
     rounds: 20
 ```
 
-Only `sim.environment`, `sim.mimic_environment`, and `sim.language_instruction` differ. Everything else — containers, model config, stage parameters — is identical.
+Only `sim.environment`, `sim.mimic_environment`, `sim.language_instruction`, and `model.config_dir` differ (the 1-cam LiftCube task uses `so101-singlecam`; the 2-cam PickOrange task uses `so101-dualcam`). Everything else — containers, stage parameters — is identical.
 
 ### Model Config: GR00T N1.6 for SO-101
 
 ```
-examples/so101-gr00t/model_configs/gr00t-n1.6/so101/
-├── modality.json              # Joint group → index mapping
-└── modality_config.py         # ModalityConfig: action representation, normalization, horizon
+examples/so101-gr00t/model_configs/gr00t-n1.6/
+├── so101-singlecam/           # 1-camera variant (LiftCube)
+│   ├── modality.json          # Joint group → index mapping
+│   └── modality_config.py     # ModalityConfig: action representation, normalization, horizon
+└── so101-dualcam/             # 2-camera variant (PickOrange)
+    ├── modality.json
+    └── modality_config.py
 ```
 
 ### HDF5 Input Format (LeIsaac)
@@ -150,15 +162,15 @@ python scripts/convert/isaaclab2lerobot.py \
   --hdf5_root=./datasets --hdf5_files=demos.hdf5 --headless
 ```
 
-**Option B: Standalone `hdf5_to_lerobot.py`** (CPU only, minutes not hours)
+**Option B: Standalone `convert_hdf5_to_lerobot.py`** (CPU only, minutes not hours)
 ```bash
-python hdf5_to_lerobot.py \
-  --hdf5_file ${INPUT_HDF5} \
-  --output_dir /fsx/datasets/${RUN_ID}
+python convert_hdf5_to_lerobot.py \
+  --input-dir ${INPUT_HDF5_DIR} \
+  --output-dir /fsx/datasets/${NAME} \
+  --robot-config /app/robot_configs/so101.yaml \
+  --task "${LANGUAGE_INSTRUCTION}"
 ```
-Hardcodes SO-101 joint limits, camera names (`front`, `wrist`), and modality.json. Input is either from `/fsx/raw/` (no augmentation) or local NVMe (with augmentation).
-
-**Post-conversion**: `/app/convert.sh` should also re-encode AV1 → H.264 if needed (GR00T's decord loader doesn't support AV1).
+Robot-specific metadata (joint limits, names, fps) lives in `robot_configs/so101.yaml` baked into the container; cameras are auto-discovered from the HDF5 obs keys. The task string comes from `sim.language_instruction` in the run config. Input is either from `/fsx/raw/` (no augmentation) or local NVMe (with augmentation). Output is AV1-encoded (the format lerobot 0.3.3 produces by default for v2.1 datasets); GR00T reads fps/dimensions from the video file directly so codec choice is transparent to the trainer.
 
 ### Validation: GR00T N1.6
 
@@ -223,11 +235,11 @@ Changes outside LeIsaac:
 
 | What | Where | Example |
 |------|-------|---------|
-| Conversion script | `hdf5_to_lerobot.py` | Update hardcoded joint limits and camera names |
+| Conversion script | `convert_hdf5_to_lerobot.py` | Update `robot_configs/so101.yaml` with new joint limits; update NON_CAMERA_OBS_KEYS if the new robot's obs layout differs |
 | Model config | `examples/.../model_configs/gr00t-n1.6/so101_topcam/` | New `modality.json` with updated video key mapping |
 | Container rebuild | `leisaac-runtime` + `so101-converter` | Rebuild with updated code |
 
-**Key coupling**: `robot_utils.py` and `hdf5_to_lerobot.py` both hardcode SO-101 joint limits. Both need updating for a new robot.
+**Key coupling**: `robot_utils.py` (LeIsaac) and `robot_configs/so101.yaml` (our converter) both hardcode SO-101 joint limits. Both need updating for a new robot.
 
 #### Adding a New Task (e.g., StackBlocks)
 
@@ -257,7 +269,7 @@ Model config directory is reused since the robot is unchanged.
 | Responsibility | Owner |
 |---------------|-------|
 | HDF5 demo format | LeIsaac |
-| HDF5 → LeRobot conversion | Shared (LeIsaac's `isaaclab2lerobot.py` or our `hdf5_to_lerobot.py`) |
+| HDF5 → LeRobot conversion | Shared (LeIsaac's `isaaclab2lerobot.py` or our `convert_hdf5_to_lerobot.py`) |
 | Data augmentation (Mimic) | LeIsaac |
 | Model training | Model repo (Isaac-GR00T, OpenPI) |
 | Evaluation | LeIsaac (env + policy clients) + Model repo (policy server) |
@@ -280,7 +292,7 @@ Model config directory is reused since the robot is unchanged.
 
 #### CLI (`physai`)
 
-- Commands: `build`, `run`, `train`, `eval`, `ls`, `upload`, `list`, `status`, `logs`, `cancel`, `clean`, `doctor`
+- Commands: `build`, `run`, `train`, `eval`, `convert`, `ls`, `upload`, `rm`, `list`, `status`, `logs`, `cancel`, `clean`, `doctor`
 - SSH session multiplexing via `ControlMaster`, Ctrl-C detach/reconnect
 - `--from`/`--to` stage selection with a Stage registry
 - Model-config directory resolution via configurable search paths
@@ -294,6 +306,7 @@ Model config directory is reused since the robot is unchanged.
 
 #### Pipeline stages
 
+- `convert` — `so101-converter` container converts Isaac Lab HDF5 demos to LeRobot v2.1 (CPU-only, no Isaac Lab runtime); output goes to `/fsx/datasets/<name>`
 - `train`, `eval` — implemented and working end-to-end with the public Pick Orange dataset
 
 #### Observability
@@ -305,7 +318,6 @@ Model config directory is reused since the robot is unchanged.
 
 #### Next up (blocking full pipeline)
 
-- `convert` stage — `so101-converter` container (HDF5 → LeRobot v2.1)
 - `validate` stage — dataset structural + GR00T-specific checks
 - `register` stage — publish checkpoint + metrics to S3, log to MLflow
 - `train.sh` output contract — define `train_summary.json` (final loss, steps, checkpoint paths) so `register` can consume training outputs; currently `train.sh` only writes model checkpoints
@@ -314,8 +326,7 @@ Model config directory is reused since the robot is unchanged.
 
 #### Planned
 
-- DCV visual evaluation (`physai eval --visual`)
-- Examples for GR00T N1.5 (follow-up after the initial PR)
+- DCV visual evaluation (`physai eval --visual`) — the CLI currently accepts `--visual` and passes it to `eval.sh` (which omits `--headless` so Isaac Sim renders), but the surrounding DCV session management (allocating a DCV session on the GPU node, printing the SSM port-forward command, cleaning up on job exit) is not yet automated.
 
 #### Stretch
 

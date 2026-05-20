@@ -1,0 +1,26 @@
+# SO-101 follower: static robot metadata for HDF5 → LeRobot conversion.
+# Joint and motor limits from leisaac/assets/robots/lerobot.py.
+# Cameras are auto-discovered from the HDF5 obs keys at runtime.
+robot_type: so101_follower
+fps: 30
+joint_names:  # order matters — matches HDF5 obs/joint_pos column order
+  - shoulder_pan
+  - shoulder_lift
+  - elbow_flex
+  - wrist_flex
+  - wrist_roll
+  - gripper
+joint_limits_deg:  # USD joint limits (degrees)
+  shoulder_pan: [-110.0, 110.0]
+  shoulder_lift: [-100.0, 100.0]
+  elbow_flex: [-100.0, 90.0]
+  wrist_flex: [-95.0, 95.0]
+  wrist_roll: [-160.0, 160.0]
+  gripper: [-10.0, 100.0]
+motor_limits:  # Normalized motor range on real device
+  shoulder_pan: [-100.0, 100.0]
+  shoulder_lift: [-100.0, 100.0]
+  elbow_flex: [-100.0, 100.0]
+  wrist_flex: [-100.0, 100.0]
+  wrist_roll: [-100.0, 100.0]
+  gripper: [0.0, 100.0]

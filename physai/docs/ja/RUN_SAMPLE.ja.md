@@ -55,7 +55,7 @@ physai ls datasets
 - **イメージ** — ビルド成果物です。`/fsx/enroot/<name>.sqsh` に配置される squashfs ファイルです。`physai build` を実行するたびに1つのイメージが生成されます。イメージは不変で、ジョブ間で共有され、`--rebuild` するかファイルを削除するまで保持されます。
 - **コンテナ** — イメージの実行時インスタンスです。ジョブ開始時にワーカーノード上に作成され、通常はジョブ終了時に破棄されます。ジョブが異常終了した場合にコンテナが残ることがあります。`physai clean --enroot` で不要なコンテナを削除できます。
 
-`physai build` はパイプラインで使用するイメージを生成します。このサンプルでは3つのイメージをビルドする必要があります。イメージビルドは Slurm ジョブとして実行されます。3つのコマンドをすべて貼り付けると、ジョブは順番に実行されます。3つすべてが完了するまで約30分かかります。
+`physai build` はパイプラインで使用するイメージを生成します。このサンプルでは 3 つのイメージをビルドする必要があります。イメージビルドは Slurm ジョブとして実行されます。以下の 3 コマンドを順に実行すると、ジョブは順次実行されます。3 つすべてが完了するまで約 30 分かかります。
 
 ```bash
 physai build -n examples/so101-gr00t/containers/leisaac-runtime
@@ -78,22 +78,26 @@ JOB_ID   TYPE    NAME                           STATE        SUBMIT (UTC)    STA
 
 ## パイプラインの実行
 
-パイプライン定義は YAML ファイルで設定します。この設定ファイルの情報に基づいてパイプラインが実行されます: [examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml](/physai/examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml)
+パイプライン定義は YAML ファイルで設定します。この設定ファイルの情報に基づいてパイプラインが実行されます: [examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml](../../examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml)。
 
 ```yaml
 pipeline:
-  stages: [train, eval]
+  stages: [convert, train, eval]
 
 sim:
   platform: leisaac
   environment: LeIsaac-SO101-LiftCube-v0
+  mimic_environment: LeIsaac-SO101-LiftCube-Mimic-v0
   language_instruction: "Lift the red cube up"
 
 model:
   name: gr00t-n1.6
-  config_dir: model_configs/gr00t-n1.6/so101-singlecam
+  config_dir: gr00t-n1.6/so101-singlecam
 
 stages:
+  convert:
+    partition: cpu
+    container: so101-converter
   train:
     partition: gpu
     gres: "gpu:1"
@@ -109,15 +113,17 @@ stages:
 
 - `pipeline.stages`: デフォルトで実行するステージです。
 - `stages.<name>`: 各ステージのリソースおよびパラメータ設定です。
-- `model.config_dir`: `model_config_roots` に対して解決される相対名です（[`run_config.yaml` リファレンス](#run_configyaml-reference) を参照）。
+- `model.config_dir`: `model_config_roots` に対して解決される相対名です（`run_config.yaml` の全リファレンスは [PIPELINE_DEVELOP.ja.md §4](PIPELINE_DEVELOP.ja.md#4-パイプライン設定) を参照）。
 
 ### デフォルトステージの一括実行
 
 以下のコマンドでパイプラインに指定されたステージを実行します:
 
 ```bash
+# この LeRobot データセットは変換済みのため、設定ファイルがデフォルトで含む
+# `convert` ステージをスキップし、`train` から開始します。
 physai run -n --config examples/so101-gr00t/configs/so101_pickorange_gr00t-n1.6.yaml \
-  --dataset leisaac-pick-orange
+  --from train --dataset leisaac-pick-orange
 ```
 
 実行されたパイプラインは Slurm ジョブとして動作します。結果は以下のコマンドで確認できます:

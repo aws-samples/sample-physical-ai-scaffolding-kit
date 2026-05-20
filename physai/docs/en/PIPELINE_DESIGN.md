@@ -92,13 +92,13 @@ Fast local storage on GPU worker nodes (`/opt/dlami/nvme`). Used for temporary a
 
 ### Data flow
 
-1. User uploads raw HDF5 to `s3://bucket/raw/` → auto-imported to `/fsx/raw/` (lazy-load on first access)
+1. User uploads raw demo directory to `s3://bucket/raw/<name>/` → auto-imported to `/fsx/raw/<name>/` (lazy-load on first access)
 2. Pipeline stages read/write on `/fsx` at Lustre speed
 3. Registration stage publishes final results to S3 via explicit `aws s3 cp`
 4. Raw HDF5 deleted from `/fsx/raw/` after conversion. User can re-import from S3 if needed.
 5. For retraining from a published dataset, `physai train` stages it from S3 to `/fsx/datasets/`
 
-`/fsx/raw/` has a Data Repository Association (auto-import only) linked to `s3://bucket/raw/`. Users upload HDF5 to S3; it appears on `/fsx/raw/` via lazy-load on first access. All other `/fsx/` directories have no S3 link. The registration stage publishes final results from `/fsx` to S3 via explicit `aws s3 cp`.
+`/fsx/raw/` has a Data Repository Association (auto-import only) linked to `s3://bucket/raw/`. Users upload demo directories to S3 (each demo set is a directory of HDF5 files); contents appear under `/fsx/raw/<name>/` via lazy-load on first access. All other `/fsx/` directories have no S3 link. The registration stage publishes final results from `/fsx` to S3 via explicit `aws s3 cp`.
 
 ### Storage budget per run
 
@@ -118,12 +118,14 @@ FSx starts at 1.2TB. Supports live capacity increases in 2.4TB increments (no do
 
 ```bash
 RUN_ID=run-20260415-155400
-JOB1=$(sbatch --parsable --job-name=physai/run/$RUN_ID/train    train.sh)
-JOB2=$(sbatch --parsable --job-name=physai/run/$RUN_ID/eval     --dependency=afterok:$JOB1 eval.sh)
-JOB3=$(sbatch --parsable --job-name=physai/run/$RUN_ID/register --dependency=afterok:$JOB2 register.sh)
+JOB1=$(sbatch --parsable --job-name=physai/run/$RUN_ID/convert  convert.sh)
+JOB2=$(sbatch --parsable --job-name=physai/run/$RUN_ID/train    --dependency=afterok:$JOB1 train.sh)
+JOB3=$(sbatch --parsable --job-name=physai/run/$RUN_ID/eval     --dependency=afterok:$JOB2 eval.sh)
 ```
 
 All jobs share a run ID. If any step fails, downstream jobs are cancelled. `physai cancel` on any job cancels all jobs sharing the run ID.
+
+The `register` stage shown elsewhere in this document is planned but not yet implemented; current pipelines stop after `eval`.
 
 If a container image is currently being built (`physai build` in progress), the pipeline automatically adds the build job as a dependency — you can kick off `physai run` immediately after starting `physai build`.
 
@@ -131,7 +133,9 @@ If a container image is currently being built (`physai build` in progress), the 
 
 When augmentation is enabled, the orchestrator runs augmentation and conversion as a single Slurm job on the same GPU node. The augmented HDF5 is written to local NVMe (not `/fsx`), then conversion reads from local NVMe and writes to `/fsx`. The augmented HDF5 — which can be 600GB+ — never touches shared storage and is automatically cleaned up when the job ends.
 
-## 5. Visual Evaluation via DCV — planned, not yet implemented
+## 5. Visual Evaluation via DCV — partially implemented
+
+The CLI accepts `--visual` and forwards it to `eval.sh` (which omits `--headless` so Isaac Sim renders), but the surrounding session management — allocating a DCV session on the GPU node, printing the SSM port-forward command, cleaning up on job exit — is not yet automated. The end-to-end UX described below is the target.
 
 `physai eval --visual` streams a rendered simulation viewport to the developer's browser via NICE DCV:
 

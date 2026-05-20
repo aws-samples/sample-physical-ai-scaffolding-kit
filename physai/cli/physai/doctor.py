@@ -1,7 +1,5 @@
 """`physai doctor` — cluster health checks with interactive fixes."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal

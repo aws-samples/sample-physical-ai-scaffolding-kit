@@ -1,0 +1,8 @@
+name: so101-converter
+partition: cpu
+base_image: public.ecr.aws/docker/library/python:3.12-slim-bookworm
+env:
+  LEROBOT_VERSION: "0.3.3"
+  # CPU-only build: skip enroot's NVIDIA hook (98-nvidia.sh), which would
+  # otherwise fail on nodes without an NVIDIA driver.
+  NVIDIA_VISIBLE_DEVICES: void

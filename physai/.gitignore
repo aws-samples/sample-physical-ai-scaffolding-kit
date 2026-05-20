@@ -2,6 +2,8 @@
 *.pdf
 __pycache__/
 .mypy_cache/
+cli/build/
+cli/physai.egg-info/
 
 # Editor
 .vscode/
@@ -13,7 +15,6 @@ __pycache__/
 
 # Node
 node_modules/
-cli/physai.egg-info/
 
 # CDK
 infra/cdk.out/

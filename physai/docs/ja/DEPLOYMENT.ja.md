@@ -5,7 +5,7 @@
 - 認証情報が設定済みの AWS アカウント（AWS SSO や `~/.aws/config` の管理者プロファイルなど）
 - ターゲットリージョンで十分なサービスクォータが確保されていること:
   - HyperPod クラスターおよび使用予定のインスタンスタイプ（controller + login は `ml.c5.large`、GPU のデフォルトは `ml.g6e.2xlarge`、CPU は `ml.m5.2xlarge`）
-  - VPC クォータ: スタックは NAT ゲートウェイと複数のサブネットを含む VPC を1つ作成します
+  - VPC クォータ: スタックは NAT ゲートウェイと複数のサブネットを含む VPC を作成します
 - ローカル環境のツール:
   - Node.js 20+ および `npm`（CDK 用）
   - Python 3.12+ および `pip`
@@ -40,20 +40,20 @@
 ]
 ```
 
-`cpuWorkerType` / `cpuWorkerCount` は単一の CPU インスタンスグループを設定します。controller ノードと login ノードは `ml.c5.large x 1` で固定されており、ここでは変更できません。
+`cpuWorkerType` / `cpuWorkerCount` は単一の CPU インスタンスグループを設定します。controller ノードと login ノードは `ml.c5.large × 1` で固定です。
 
-### instanceの起動数制限を上限緩和申請とインスタンスの確保
+### インスタンス上限緩和の申請と予約
 
-使いたいインスタンスの上限緩和申請が事前に必要となる場合があります。実際に利用するインスタンスの上限が必要と想定されている数に設定されているかを確認し、足りない場合はインスタンスの数を上限緩和申請してください。 **インスタンス数や種類によっては承認まで時間がかかる** 場合があります。
+使用するインスタンスについて、事前に上限緩和の申請が必要になる場合があります。利用するインスタンスタイプの上限が必要数に達しているか確認し、不足していれば上限緩和を申請してください。 **インスタンス数や種類によっては承認まで時間がかかる** 場合があります。
 
-制限の申請は以下の順番で行います。**かならず、利用するAWSアカウントでサインインしいることを確認してください。**
+制限の申請は以下の順番で行います。**必ず、利用するAWSアカウントにサインインしていることを確認してください。**
 
 1. <https://console.aws.amazon.com/servicequotas/> にアクセス
 1. 左のメニューで `AWS services` を選択
 1. `Amazon SageMaker` を検索して、選択
 1. `for cluster usage` と検索欄に入力し検索結果に表示される利用したいインスタンスタイプを選択します
 1. `Request increase at account level` のボタンを選択
-1. `Increase quota value` に値を入力して `Request` をクリックすると反映されます
+1. `Increase quota value` に値を入力して `Request` をクリックすると申請されます
 
 **注意** これは上限緩和の申請であって、この数が必ず確保されるというものではありません。
 
@@ -93,7 +93,7 @@ npx cdk deploy PhysaiClusterStack
 │   ├── Private subnets                                                │
 │   └── S3 gateway VPC endpoint                                        │
 │                                                                      │
-│   S3 data bucket     s3://<clusterName>-data-<account>               │
+│   S3 data bucket     s3://<clusterName>-data-<account>-<region>      │
 │   FSx for Lustre     1.2 TB PERSISTENT_2, DRA → s3://.../raw/        │
 │   RDS MariaDB        db.t4g.small  (Slurm accounting)                │
 │   Secrets Manager    DB credentials                                  │
@@ -119,7 +119,7 @@ npx cdk deploy PhysaiClusterStack
 パイプラインで使用する S3 レイアウト:
 
 ```
-s3://<clusterName>-data-<account>/
+s3://<clusterName>-data-<account>-<region>/
 └── raw/        # 生の HDF5 デモデータ。DRA によりアクセス時に /fsx/raw/ へ自動インポートされる。
 ```
 

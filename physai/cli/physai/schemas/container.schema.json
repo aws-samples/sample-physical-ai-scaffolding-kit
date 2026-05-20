@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "container.schema.json",
+  "title": "physai container config",
+  "description": "Schema for container.yaml — per-container build configuration. Fields are merged with project.yaml defaults (container wins). After merging, exactly one of base_image or base_container must be set; both present or both absent is an error.",
+  "type": "object",
+  "required": ["name"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Container name. Used as the squashfs filename (/fsx/enroot/<name>.sqsh) and Slurm job name."
+    },
+    "base_image": {
+      "type": "string",
+      "description": "Docker image URI used as the base. Mutually exclusive with base_container (after merge with project.yaml)."
+    },
+    "base_container": {
+      "type": "string",
+      "description": "Name of a physai container whose squashfs image is used as the base. Mutually exclusive with base_image (after merge with project.yaml)."
+    },
+    "partition": {
+      "type": "string",
+      "default": "gpu",
+      "description": "Slurm partition for the build job."
+    },
+    "gres": {
+      "type": "string",
+      "description": "Slurm generic resource spec for the build job (e.g. 'gpu:1'). Omit for CPU-only builds."
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Environment variables (KEY: VALUE) injected into the container build. Deep-merged on top of project.yaml env."
+    }
+  },
+  "additionalProperties": false
+}

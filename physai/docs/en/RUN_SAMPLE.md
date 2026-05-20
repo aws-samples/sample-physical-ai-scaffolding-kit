@@ -78,22 +78,26 @@ JOB_ID   TYPE    NAME                           STATE        SUBMIT (UTC)    STA
 
 ## Running the Pipeline
 
-The pipeline definition is configured in a YAML file. The pipeline is executed based on the information in this configuration file: [examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml](/physai/examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml).
+The pipeline definition is configured in a YAML file. The pipeline is executed based on the information in this configuration file: [examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml](../../examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml).
 
 ```yaml
 pipeline:
-  stages: [train, eval]
+  stages: [convert, train, eval]
 
 sim:
   platform: leisaac
   environment: LeIsaac-SO101-LiftCube-v0
+  mimic_environment: LeIsaac-SO101-LiftCube-Mimic-v0
   language_instruction: "Lift the red cube up"
 
 model:
   name: gr00t-n1.6
-  config_dir: model_configs/gr00t-n1.6/so101-singlecam
+  config_dir: gr00t-n1.6/so101-singlecam
 
 stages:
+  convert:
+    partition: cpu
+    container: so101-converter
   train:
     partition: gpu
     gres: "gpu:1"
@@ -109,15 +113,17 @@ stages:
 
 - `pipeline.stages`: Stages to run by default.
 - `stages.<name>`: Resource and parameter settings for each stage.
-- `model.config_dir`: A relative name resolved against `model_config_roots` (see [`run_config.yaml` reference](#run_configyaml-reference)).
+- `model.config_dir`: A relative name resolved against `model_config_roots` (see [PIPELINE_DEVELOP.md §4](PIPELINE_DEVELOP.md#4-pipeline-configuration) for the full `run_config.yaml` reference).
 
 ### Running All Default Stages
 
 The following command executes the stages specified in the pipeline:
 
 ```bash
+# This LeRobot dataset is already converted, so skip the `convert` stage that
+# the example config lists by default and start from `train`.
 physai run -n --config examples/so101-gr00t/configs/so101_pickorange_gr00t-n1.6.yaml \
-  --dataset leisaac-pick-orange
+  --from train --dataset leisaac-pick-orange
 ```
 
 The executed pipeline runs as Slurm jobs. You can check the results with the following command:

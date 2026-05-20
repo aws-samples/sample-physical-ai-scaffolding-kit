@@ -44,11 +44,15 @@ See the design docs below for the full story.
 physai/
 ├── README.md                     # You are here
 ├── docs/
-│   ├── DEPLOYMENT.md             # ▶ How to deploy (start here)
-│   ├── USER_MANUAL.md            # How to use the platform
-│   ├── PIPELINE-DESIGN.md        # Architecture & design (developers)
-│   ├── PHYSAI-DESIGN.md          # CLI internals (developers)
-│   └── INFRA.md                  # CDK stacks (developers)
+│   ├── en/
+│   │   ├── DEPLOYMENT.md         # ▶ How to deploy (start here)
+│   │   ├── RUN_SAMPLE.md         # Run the bundled sample
+│   │   ├── PHYSAI_CLI.md         # CLI reference (model developers)
+│   │   ├── PIPELINE_DEVELOP.md   # Build your own pipeline (model developers)
+│   │   ├── PIPELINE_DESIGN.md    # Platform architecture (platform developers)
+│   │   ├── INFRA.md              # CDK stacks (platform developers)
+│   │   └── STATUS.md             # Phase 1 scope & status
+│   └── ja/                       # Japanese translations of the above
 ├── infra/                        # CDK project
 │   ├── bin/app.ts                # Entry point
 │   ├── lib/
@@ -82,7 +86,7 @@ physai/
 | [docs/en/RUN_SAMPLE.md](docs/en/RUN_SAMPLE.md) | Execute the sample project |
 | [docs/en/PHYSAI_CLI.md](docs/en/PHYSAI_CLI.md) | Model Developers — CLI reference |
 | [docs/en/PIPELINE_DEVELOP.md](docs/en/PIPELINE_DEVELOP.md) | Model Developers — Build your own pipeline project |
-| [docs/en/PIPELINE-DESIGN.md](docs/en/PIPELINE_DESIGN.md) | Platform Developers — Project structure for pipeline |
+| [docs/en/PIPELINE_DESIGN.md](docs/en/PIPELINE_DESIGN.md) | Platform Developers — Project structure for pipeline |
 | [docs/en/INFRA.md](docs/en/INFRA.md) | Platform Developers — CDK stack layout and lifecycle scripts |
 | [docs/en/STATUS.md](docs/en/STATUS.md) | Phase 1 scope (LeIsaac + SO-101 + GR00T N1.6) and implementation status |
 
@@ -102,7 +106,7 @@ per month.
 | RDS MariaDB | `db.t4g.small` + 20 GiB gp3 | ~$26 |
 | NAT Gateway | 1× (hourly; no data transfer) | ~$33 |
 | Secrets Manager, CloudWatch alarm | — | ~$1 |
-| **Total (always-on)** | | **~$2,763** |
+| **Total (always-on)** | | **~$2,700** |
 
 The GPU worker dominates the bill. To pause compute without destroying the
 cluster, set `cpuWorkerCount` and/or `gpuWorkers[*].count` to `0` in

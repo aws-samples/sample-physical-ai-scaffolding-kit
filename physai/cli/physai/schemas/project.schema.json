@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "project.schema.json",
+  "title": "physai project config",
+  "description": "Schema for project.yaml — shared defaults inherited by all container.yaml files in the project tree. All fields are optional; they provide defaults that containers can override.",
+  "type": "object",
+  "properties": {
+    "base_image": {
+      "type": "string",
+      "description": "Docker image URI used as the base for containers. Mutually exclusive with base_container at the container level."
+    },
+    "base_container": {
+      "type": "string",
+      "description": "Name of a physai container whose squashfs image is used as the base. Mutually exclusive with base_image at the container level."
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Environment variables (KEY: VALUE) injected into the container build. Container-level env is deep-merged on top."
+    }
+  },
+  "additionalProperties": false
+}

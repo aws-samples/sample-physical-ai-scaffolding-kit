@@ -4,6 +4,8 @@ from pathlib import Path
 
 import yaml
 
+from .schema import validate
+
 CONFIG_PATH = Path.home() / ".physai" / "config.yaml"
 
 DEFAULTS = {
@@ -17,6 +19,7 @@ def load(host_override: str | None = None) -> dict:
     if CONFIG_PATH.exists():
         with open(CONFIG_PATH) as f:
             file_cfg = yaml.safe_load(f) or {}
+        validate(file_cfg, "cli-config", str(CONFIG_PATH))
         cfg.update(file_cfg)
     if host_override:
         cfg["host"] = host_override

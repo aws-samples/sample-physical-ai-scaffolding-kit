@@ -11,13 +11,15 @@ Phase 1 の現在の状態：完了した内容と今後の予定です。本ド
 | コンテナ | ベースイメージ | 用途 |
 |-----------|-----------|---------|
 | `leisaac-runtime` | NGC PyTorch + IsaacSim (pip) | ベースランタイム（GR00T なし） |
-| `leisaac-gr00t-n1.6` | `leisaac-runtime` + Isaac-GR00T @ `n1.6-release` | 評価（ポリシーサーバ + LeIsaac クライアント） |
-| `so101-converter` | python:3.11-slim + h5py/pyarrow/ffmpeg | HDF5 → LeRobot 変換 + バリデーション |
+| `leisaac-gr00t-n1.6` | `leisaac-runtime` + Isaac-GR00T @ `n1.6-release` | 評価（ポリシーサーバ + LeIsaac クライアント）GR00T N1.6 用 |
+| `leisaac-gr00t-n1.5` | `leisaac-runtime` + Isaac-GR00T @ `n1.5-release` | 評価 GR00T N1.5 用 |
+| `so101-converter` | python:3.12-slim-bookworm + h5py/lerobot/ffmpeg | HDF5 → LeRobot 変換 + バリデーション |
 | `gr00t-n1.6-trainer` | NGC PyTorch + Isaac-GR00T @ `n1.6-release` | GR00T N1.6 ファインチューニング |
+| `gr00t-n1.5-trainer` | NGC PyTorch + Isaac-GR00T @ `n1.5-release` | GR00T N1.5 ファインチューニング |
 
-すべての LeIsaac タスク（PickOrange、LiftCube など）は同じ `leisaac-runtime` ベースに含まれています。タスクはビルド時ではなく、実行時に設定の `sim.environment` で選択されます。`leisaac-gr00t-n1.6` は `base_container:` を使って `leisaac-runtime` の上にレイヤーを追加し、評価時の GR00T サーバを N1.6 タグに固定しています。今後の作業で `leisaac-gr00t-n1.5` / `-n1.7` なども、ベースを再ビルドせずに同様の方法で追加できます。
+すべての LeIsaac タスク（PickOrange、LiftCube など）は同じ `leisaac-runtime` ベースに含まれています。タスクはビルド時ではなく、実行時に設定の `sim.environment` で選択されます。`leisaac-gr00t-n1.6` は `base_container:` を使って `leisaac-runtime` の上にレイヤー化し、評価時の GR00T サーバを N1.6 タグに固定しています。今後の作業で `leisaac-gr00t-n1.5` / `-n1.7` なども、ベースを再ビルドせずに同様の方法で追加できます。
 
-コンテナはコンテナビルドシステム（PIPELINE_DESIGN.ja.md 3.4節を参照）でビルドされ、squashfs として `/fsx/enroot/` に保存されます。Slurm ジョブは Pyxis の `--container-image` でこれらを利用します。
+コンテナはコンテナビルドシステム（[`PIPELINE_DEVELOP.ja.md` §3](PIPELINE_DEVELOP.ja.md#3-コンテナ定義) を参照）でビルドされ、squashfs として `/fsx/enroot/` に保存されます。Slurm ジョブは Pyxis の `--container-image` でこれらを利用します。
 
 **IsaacSim に関する注意事項**:
 - `leisaac-runtime` には `50-warmup.sh` セットアップフックが含まれており、ビルド中に IsaacSim のシェーダキャッシュをウォームアップします（[上流の warmup.sh](https://github.com/isaac-sim/IsaacSim/blob/main/source/scripts/warmup.sh) と同等です）。pip インストール版の IsaacSim はスタンドアロン配布用レイアウトを前提とする `kit-gcov` しか同梱しないため、`kit` バイナリの代わりに `kit_app.py` を使用します。
@@ -31,19 +33,22 @@ Phase 1 の現在の状態：完了した内容と今後の予定です。本ド
 ```yaml
 # examples/so101-gr00t/configs/so101_pickorange_gr00t-n1.6.yaml
 pipeline:
-  stages: [train, eval]
+  stages: [convert, train, eval]
 
 sim:
   platform: leisaac
   environment: LeIsaac-SO101-PickOrange-v0
   mimic_environment: LeIsaac-SO101-PickOrange-Mimic-v0
-  language_instruction: "Pick up the orange"
+  language_instruction: "Pick up the orange and place it on the plate"
 
 model:
   name: gr00t-n1.6
-  config_dir: gr00t-n1.6/so101
+  config_dir: gr00t-n1.6/so101-dualcam
 
 stages:
+  convert:
+    partition: cpu
+    container: so101-converter
   train:
     partition: gpu
     gres: "gpu:1"
@@ -60,7 +65,7 @@ stages:
 ```yaml
 # examples/so101-gr00t/configs/so101_liftcube_gr00t-n1.6.yaml
 pipeline:
-  stages: [train, eval]
+  stages: [convert, train, eval]
 
 sim:
   platform: leisaac
@@ -70,9 +75,12 @@ sim:
 
 model:
   name: gr00t-n1.6
-  config_dir: gr00t-n1.6/so101
+  config_dir: gr00t-n1.6/so101-singlecam
 
 stages:
+  convert:
+    partition: cpu
+    container: so101-converter
   train:
     partition: gpu
     gres: "gpu:1"
@@ -86,14 +94,18 @@ stages:
     rounds: 20
 ```
 
-異なるのは `sim.environment`、`sim.mimic_environment`、`sim.language_instruction` のみです。コンテナ、モデル設定、ステージパラメータはすべて同一です。
+異なるのは `sim.environment`、`sim.mimic_environment`、`sim.language_instruction`、`model.config_dir` のみです（1 カメラの LiftCube タスクは `so101-singlecam`、2 カメラの PickOrange タスクは `so101-dualcam` を使用）。コンテナとステージパラメータはすべて同一です。
 
 ### モデル設定: GR00T N1.6 for SO-101
 
 ```
-examples/so101-gr00t/model_configs/gr00t-n1.6/so101/
-├── modality.json              # ジョイントグループ → インデックスのマッピング
-└── modality_config.py         # ModalityConfig: アクション表現、正規化、ホライズン
+examples/so101-gr00t/model_configs/gr00t-n1.6/
+├── so101-singlecam/           # 1カメラバリアント（LiftCube）
+│   ├── modality.json          # ジョイントグループ → インデックスのマッピング
+│   └── modality_config.py     # ModalityConfig: アクション表現、正規化、ホライズン
+└── so101-dualcam/             # 2カメラバリアント（PickOrange）
+    ├── modality.json
+    └── modality_config.py
 ```
 
 ### HDF5 入力フォーマット（LeIsaac）
@@ -124,7 +136,7 @@ data/
 
 ### オーグメンテーション: Isaac Lab Mimic（ストレッチゴール）
 
-オーグメンテーションは最後に実装します。時間が足りない場合やスムーズに進まない場合はスキップ可能です — パイプラインはオーグメンテーションなしでも動作します（オーグメンテーションはオプションです）。
+オーグメンテーションは後半で実装予定です。時間が足りない場合やスムーズに進まない場合はスキップ可能です — パイプラインはオーグメンテーションなしでも動作します（オーグメンテーションはオプションです）。
 
 `leisaac-runtime` 内の `/app/augment.sh` は4ステップの Mimic パイプラインを実行します:
 
@@ -133,7 +145,7 @@ data/
 3. **generate_dataset.py**: ポーズ摂動 + リプレイによる拡張デモを生成します
 4. **eef_action_process.py --to_joint**: IK アクションをジョイントアクションに逆変換します
 
-Mimic にはシード HDF5 に `initial_state` と `states` が必要です（デモ収集時に記録されます）。LeRobot データセットは Mimic に使用できません — 変換時にこれらのフィールドが失われるためです。
+Mimic にはシード HDF5 に `initial_state` と `states` が必要です（デモ収集時に記録されます）。LeRobot データセットは Mimic に使用できません。変換時にこれらのフィールドが失われるためです。
 
 **既知の問題**: `annotate_demos.py` に IsaacLab v2.3.0 との互換性バグがあります（`Se3Keyboard` の API 変更、`torch.any()` の型エラー）。パッチが必要です。
 
@@ -149,15 +161,15 @@ python scripts/convert/isaaclab2lerobot.py \
   --hdf5_root=./datasets --hdf5_files=demos.hdf5 --headless
 ```
 
-**オプション B: スタンドアロンの `hdf5_to_lerobot.py`**（CPU のみ、数時間ではなく数分）
+**オプション B: スタンドアロンの `convert_hdf5_to_lerobot.py`**（CPU のみ、数時間ではなく数分）
 ```bash
-python hdf5_to_lerobot.py \
-  --hdf5_file ${INPUT_HDF5} \
-  --output_dir /fsx/datasets/${RUN_ID}
+python convert_hdf5_to_lerobot.py \
+  --input-dir ${INPUT_HDF5_DIR} \
+  --output-dir /fsx/datasets/${NAME} \
+  --robot-config /app/robot_configs/so101.yaml \
+  --task "${LANGUAGE_INSTRUCTION}"
 ```
-SO-101 のジョイントリミット、カメラ名（`front`、`wrist`）、modality.json をハードコードしています。入力は `/fsx/raw/`（オーグメンテーションなし）またはローカル NVMe（オーグメンテーションあり）からです。
-
-**変換後の処理**: `/app/convert.sh` は必要に応じて AV1 → H.264 の再エンコードも行うべきです（GR00T の decord ローダーは AV1 をサポートしていません）。
+ロボット固有のメタデータ（ジョイントリミット、名前、fps）はコンテナに組み込まれた `robot_configs/so101.yaml` に格納されています。カメラは HDF5 の obs キーから自動検出されます。タスク文字列は run config の `sim.language_instruction` から取得されます。入力は `/fsx/raw/`（オーグメンテーションなし）またはローカル NVMe（オーグメンテーションあり）からです。出力は AV1 エンコード（lerobot 0.3.3 が v2.1 データセットでデフォルトで生成する形式）です。GR00T はビデオファイルから fps/寸法を直接読み取るため、コーデックの選択はトレーナーに対して透過的です。
 
 ### バリデーション: GR00T N1.6
 
@@ -211,7 +223,7 @@ LeIsaac リポジトリ内の変更:
 
 | 内容 | 場所（LeIsaac リポジトリ内） | 例 |
 |------|------------------------|---------|
-| USD アセットファイル | `assets/robots/so101_topcam.usd` | カメラをリストではなく上部に設置した新しい USD |
+| USD アセットファイル | `assets/robots/so101_topcam.usd` | カメラを手首ではなく上部に設置した新しい USD |
 | ロボット設定 | `source/leisaac/leisaac/assets/robots/lerobot.py` | 新しい `SO101_TOPCAM_CFG`（ジョイントプロパティ、アクチュエータ、USD パスを定義する `ArticulationCfg`） |
 | ジョイント + モーターリミット | `source/leisaac/leisaac/utils/constant.py` | 新しいリミット配列（SO-101 と異なる場合のみ） |
 | 座標変換 | `source/leisaac/leisaac/utils/robot_utils.py` | `convert_leisaac_action_to_lerobot()` が SO-101 のリミットをハードコードしています — パラメータ化が必要です |
@@ -222,11 +234,11 @@ LeIsaac 以外の変更:
 
 | 内容 | 場所 | 例 |
 |------|-------|---------|
-| 変換スクリプト | `hdf5_to_lerobot.py` | ハードコードされたジョイントリミットとカメラ名を更新します |
+| 変換スクリプト | `convert_hdf5_to_lerobot.py` | `robot_configs/so101.yaml` のジョイントリミットを更新します。新しいロボットの obs レイアウトが異なる場合は NON_CAMERA_OBS_KEYS も更新します |
 | モデル設定 | `examples/.../model_configs/gr00t-n1.6/so101_topcam/` | 更新されたビデオキーマッピングを含む新しい `modality.json` |
 | コンテナ再ビルド | `leisaac-runtime` + `so101-converter` | 更新されたコードでリビルドします |
 
-**重要な結合**: `robot_utils.py` と `hdf5_to_lerobot.py` はどちらも SO-101 のジョイントリミットをハードコードしています。新しいロボットでは両方の更新が必要です。
+**重要な結合**: `robot_utils.py`（LeIsaac）と `robot_configs/so101.yaml`（本パイプラインのコンバータ）はどちらも SO-101 のジョイントリミットをハードコードしています。新しいロボットでは両方の更新が必要です。
 
 #### 新しいタスクの追加（例: StackBlocks）
 
@@ -256,7 +268,7 @@ LeIsaac 以外の変更:
 | 責任範囲 | オーナー |
 |---------------|-------|
 | HDF5 デモフォーマット | LeIsaac |
-| HDF5 → LeRobot 変換 | 共同（LeIsaac の `isaaclab2lerobot.py` または本パイプラインの `hdf5_to_lerobot.py`） |
+| HDF5 → LeRobot 変換 | 共同（LeIsaac の `isaaclab2lerobot.py` または本パイプラインの `convert_hdf5_to_lerobot.py`） |
 | データオーグメンテーション（Mimic） | LeIsaac |
 | モデルトレーニング | モデルリポジトリ（Isaac-GR00T、OpenPI） |
 | 評価 | LeIsaac（環境 + ポリシークライアント）+ モデルリポジトリ（ポリシーサーバ） |
@@ -279,7 +291,7 @@ LeIsaac 以外の変更:
 
 #### CLI (`physai`)
 
-- コマンド: `build`、`run`、`train`、`eval`、`ls`、`upload`、`list`、`status`、`logs`、`cancel`、`clean`、`doctor`
+- コマンド: `build`、`run`、`train`、`eval`、`convert`、`ls`、`upload`、`rm`、`list`、`status`、`logs`、`cancel`、`clean`、`doctor`
 - `ControlMaster` による SSH セッション多重化、Ctrl-C でのデタッチ/再接続
 - `--from`/`--to` によるステージ選択と Stage レジストリ
 - 設定可能な検索パスによるモデル設定ディレクトリの解決
@@ -293,6 +305,7 @@ LeIsaac 以外の変更:
 
 #### パイプラインステージ
 
+- `convert` — `so101-converter` コンテナが Isaac Lab HDF5 デモを LeRobot v2.1 に変換します（CPU のみ、Isaac Lab ランタイム不要）。出力先は `/fsx/datasets/<name>`
 - `train`、`eval` — 公開 Pick Orange データセットを使ったエンドツーエンド動作を実装・確認済みです
 
 #### オブザーバビリティ
@@ -304,7 +317,6 @@ LeIsaac 以外の変更:
 
 #### 次の優先事項（フルパイプラインのブロッカー）
 
-- `convert` ステージ — `so101-converter` コンテナ（HDF5 → LeRobot v2.1）
 - `validate` ステージ — データセットの構造チェック + GR00T 固有のチェック
 - `register` ステージ — チェックポイント + メトリクスを S3 に公開し、MLflow に記録します
 - `train.sh` 出力契約 — `train_summary.json`（最終ロス、ステップ数、チェックポイントパス）を定義し、`register` がトレーニング出力を利用できるようにします。現在 `train.sh` はモデルチェックポイントのみを書き出します
@@ -313,8 +325,7 @@ LeIsaac 以外の変更:
 
 #### 計画中
 
-- DCV ビジュアル評価（`physai eval --visual`）
-- GR00T N1.5 のサンプル（初回 PR 後のフォローアップ）
+- DCV ビジュアル評価（`physai eval --visual`）— CLI は現在 `--visual` を受け付けて `eval.sh` に渡します（`--headless` を省略して Isaac Sim がレンダリングします）が、周辺の DCV セッション管理（GPU ノードでの DCV セッション割り当て、SSM ポートフォワードコマンドの表示、ジョブ終了時のクリーンアップ）はまだ自動化されていません。
 
 #### ストレッチ
 

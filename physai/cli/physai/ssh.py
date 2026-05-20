@@ -47,23 +47,36 @@ class Session:
             raise RuntimeError(f"ssh {self.host}: {r.stderr.strip()}")
         return r.stdout.strip()
 
-    def rsync(self, src: str, dst: str) -> None:
-        """rsync a local path to the remote host."""
-        r = subprocess.run(
-            [
-                "rsync",
-                "-az",
-                "-e",
-                f"ssh -S {self._socket} -o ControlMaster=no",
-                str(src),
-                f"{self.host}:{dst}",
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if r.returncode != 0:
-            raise RuntimeError(f"rsync to {self.host}:{dst}: {r.stderr.strip()}")
+    def rsync(self, src: str, dst: str, show_progress: bool = False) -> None:
+        """rsync a local path to the remote host.
+
+        With show_progress=True, rsync streams a live one-line progress update
+        to the terminal (`--info=progress2`) and its stderr is not captured.
+        Use this for large uploads where silent waits are a bad UX. For small,
+        quick rsyncs (scripts, configs) leave it off so logs stay clean.
+        """
+        cmd = [
+            "rsync",
+            "-az",
+            "-e",
+            f"ssh -S {self._socket} -o ControlMaster=no",
+        ]
+        if show_progress:
+            cmd += ["--human-readable", "--info=progress2"]
+        cmd += [str(src), f"{self.host}:{dst}"]
+
+        if show_progress:
+            # Inherit stdout/stderr so rsync's \r-based progress line is
+            # rendered live in the user's terminal.
+            r = subprocess.run(cmd, check=False)
+            if r.returncode != 0:
+                raise RuntimeError(
+                    f"rsync to {self.host}:{dst} failed (exit {r.returncode})"
+                )
+        else:
+            r = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            if r.returncode != 0:
+                raise RuntimeError(f"rsync to {self.host}:{dst}: {r.stderr.strip()}")
 
     def write_file(self, path: str, content: str) -> None:
         """Write content to a file on the remote host."""

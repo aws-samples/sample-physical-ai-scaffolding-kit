@@ -179,6 +179,20 @@ echo "Build complete: $SQSH (${SECONDS}s)"
     assert sbatch == expected
 
 
+def test_generate_sbatch_omits_gres_when_not_set(tmp_path):
+    """CPU containers don't set gres — the --gres line must be omitted entirely."""
+    (tmp_path / "10-x.sh").write_text("")
+    cfg = {
+        "name": "cpu-container",
+        "base_image": "python:3.12-slim-bookworm",
+        "partition": "cpu",
+        "_local_hooks_dir": str(tmp_path),
+    }
+    sbatch = _generate_sbatch(cfg, "/fsx/physai/builds/x", "x")
+    assert "#SBATCH --partition=cpu" in sbatch
+    assert "--gres" not in sbatch
+
+
 def test_generate_sbatch_base_container(tmp_path):
     """base_container resolves to /fsx/enroot/<name>.sqsh in the --container-image arg."""
     (tmp_path / "10-x.sh").write_text("")

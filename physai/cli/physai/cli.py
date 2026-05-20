@@ -39,7 +39,9 @@ def main():
     p_run.add_argument("--config", required=True, help="Path to run config yaml")
     p_run.add_argument("--from", dest="from_stage", help="Start from this stage")
     p_run.add_argument("--to", dest="to_stage", help="Stop after this stage")
-    p_run.add_argument("--raw", help="Raw data name on cluster")
+    p_run.add_argument(
+        "--raw", help="Raw data directory name on cluster (under /fsx/raw/)"
+    )
     p_run.add_argument("--dataset", help="Dataset name on cluster")
     p_run.add_argument("--checkpoint", help="Checkpoint name on cluster")
     p_run.add_argument("--max-steps", type=int, help="Override stages.train.max_steps")
@@ -94,6 +96,30 @@ def main():
         "-n", "--no-stream", action="store_true", help="Submit without streaming logs"
     )
 
+    # convert (shortcut for run --from convert --to convert)
+    p_convert = sub.add_parser(
+        "convert", parents=[common], help="Convert raw data to training format"
+    )
+    p_convert.add_argument("--config", required=True, help="Path to run config yaml")
+    p_convert.add_argument(
+        "--raw",
+        required=True,
+        help="Raw data directory name on cluster (under /fsx/raw/)",
+    )
+    p_convert.add_argument(
+        "--dataset",
+        help="Output dataset name (default: same as --raw). Writes to /fsx/datasets/<name>.",
+    )
+    p_convert.add_argument(
+        "--model-config-root",
+        action="append",
+        default=[],
+        help="Model config search path",
+    )
+    p_convert.add_argument(
+        "-n", "--no-stream", action="store_true", help="Submit without streaming logs"
+    )
+
     # list
     sub.add_parser("list", parents=[common], help="List physai jobs")
 
@@ -108,6 +134,16 @@ def main():
     p_up = sub.add_parser("upload", parents=[common], help="Upload data to the cluster")
     p_up.add_argument("category", choices=data.CATEGORIES, help="Data category")
     p_up.add_argument("local_path", help="Local file or directory")
+
+    # rm
+    p_rm = sub.add_parser(
+        "rm", parents=[common], help="Remove a named artifact from /fsx/<category>/"
+    )
+    p_rm.add_argument("category", choices=data.RM_CATEGORIES, help="Data category")
+    p_rm.add_argument("name", help="Artifact name (no slashes)")
+    p_rm.add_argument(
+        "-f", "--force", action="store_true", help="Skip confirmation prompt"
+    )
 
     # status
     p_status = sub.add_parser("status", parents=[common], help="Show job status")
@@ -207,12 +243,26 @@ def main():
             visual=args.visual,
             stream=not args.no_stream,
         )
+    elif args.command == "convert":
+        roots = [Path(p) for p in args.model_config_root] + [
+            Path(p) for p in cfg.get("model_config_roots", [])
+        ]
+        pipeline.run_convert(
+            session,
+            Path(args.config),
+            args.raw,
+            model_config_roots=roots,
+            dataset=args.dataset,
+            stream=not args.no_stream,
+        )
     elif args.command == "list":
         jobs.list_jobs(session)
     elif args.command == "ls":
         data.ls(session, args.category, args.path)
     elif args.command == "upload":
         data.upload(session, args.category, args.local_path)
+    elif args.command == "rm":
+        data.rm(session, args.category, args.name, force=args.force)
     elif args.command == "status":
         jobs.status_job(session, args.job_id)
     elif args.command == "logs":

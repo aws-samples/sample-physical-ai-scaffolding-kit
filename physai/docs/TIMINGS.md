@@ -15,8 +15,9 @@ Reference for every command an agent might run. Check here before executing anyt
 
 | Command | Duration | Runs where | Blocks terminal? | Safe to run unprompted? |
 |---------|----------|------------|-------------------|------------------------|
-| `cd cli && pytest` | ~2 s | local | yes | YES |
+| `cd cli && python -m pytest` | ~2 s | local | yes | YES |
 | `ruff check cli/physai/` | ~1 s | local | yes | YES |
+| `ruff format cli/physai/` | ~1 s | local | yes | YES |
 | `cd infra && npm install` | ~30 s | local | yes | YES |
 | `cd infra && npm run build` | ~5 s | local | yes | YES |
 | `cd infra && npm run synth` | ~10 s | local | yes | YES |
@@ -39,7 +40,7 @@ Use this checklist after making changes. All commands below assume CWD is the
 repo root (`physai/`) unless they include an explicit `cd`.
 
 - **Changed `cli/` Python code?**
-  → Run `cd cli && pytest` (from `cli/`), then `ruff check cli/physai/` (from repo root). Both are safe and fast.
+  → Run `cd cli && python -m pytest` (from `cli/`), then `ruff check cli/physai/` and `ruff format cli/physai/` (from repo root). All three are safe and fast.
 - **Changed `infra/` TypeScript?**
   → Run `cd infra && npm run build` then `npm run synth` (both from `infra/`). Safe and fast.
 - **Changed `infra/lifecycle/` shell scripts?**

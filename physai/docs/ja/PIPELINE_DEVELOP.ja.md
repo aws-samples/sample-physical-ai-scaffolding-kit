@@ -80,7 +80,7 @@ your-project/
 
 ### ステップバイステップ
 
-1. **コンテナを定義する** — トレーナーコンテナと（任意で）評価ランタイムコンテナを作成します。各コンテナは `setup-hooks/` で環境を構築し、`app/*.sh` エントリポイントが [§3](#3-コンテナ定義) の仕様を満たす必要があります。フックのパターンは [§3.3](#33-セットアップフック) を参照してください。
+1. **コンテナを定義する** — トレーナーコンテナと（任意で）評価ランタイムコンテナを作成します。各コンテナは `setup-hooks/` で環境を構築し、`app/*.sh` エントリポイントは [§3](#3-コンテナ定義) の仕様に準拠する必要があります。フックのパターンは [§3.3](#33-セットアップフック) を参照してください。
 
 2. **パイプライン設定を書く** — `configs/` に YAML ファイルを作成し、実行するステージ、使用するコンテナ、ステージパラメータを宣言します。[§4](#4-パイプライン設定) を参照してください。
 
@@ -100,7 +100,7 @@ your-project/
    physai run --config configs/your_robot_task_model.yaml --dataset my-lerobot-dataset
    ```
 
-CLI の全リファレンスは [CLI リファレンス](../en/PHYSAI_CLI.md) を参照してください。
+CLI の全リファレンスは [PHYSAI_CLI.ja.md](PHYSAI_CLI.ja.md) を参照してください。
 
 ---
 
@@ -122,7 +122,7 @@ my-container/
 
 ### 3.2 project.yaml と container.yaml
 
-`project.yaml` は親ディレクトリに配置し、同じプロジェクト内の全コンテナの共通デフォルトを定義します。ビルダーはコンテナフォルダから上方向に探索し、最初に見つかった `project.yaml` を使用します。
+`project.yaml` は親ディレクトリに配置し、同じプロジェクト内の全コンテナの共通デフォルトを定義します。ビルダーはコンテナフォルダから上方向に探索し、最初に見つかった `project.yaml` を使用します。プロジェクト側で `base_image` または `base_container` を指定することで、そのプロジェクト内のコンテナ全体のデフォルトベースを設定できます。
 
 ```yaml
 # project.yaml — 共通デフォルト
@@ -131,6 +131,8 @@ env:
   PIP_CONSTRAINT: ""
   NVIDIA_VISIBLE_DEVICES: all
 ```
+
+> **スキーマ**: [`project.schema.json`](../../cli/physai/schemas/project.schema.json)
 
 `container.yaml` は `project.yaml` を上書き・拡張します。スカラー値は上書きされ、`env` 辞書はマージされます。
 
@@ -142,6 +144,8 @@ gres: "gpu:1"
 env:
   MY_CUSTOM_VAR: "value"    # project.yaml の env にマージ
 ```
+
+> **スキーマ**: [`container.schema.json`](../../cli/physai/schemas/container.schema.json)
 
 `base_image` と `base_container` のいずれか一方のみを設定する必要があります（排他的）。既にビルド済みの別のコンテナの上に構築する場合：
 
@@ -177,7 +181,7 @@ gres: "gpu:1"
 
 ### 3.4 エントリポイント仕様
 
-各パイプラインステージは固定のエントリポイントスクリプトを呼び出します。`setup-hooks/` が環境を構築し、`app/*.sh` スクリプトがパイプラインから実行時に呼び出されます。1つのコンテナが複数のエントリポイントを実装できます（例: `eval.sh` と `augment.sh` の両方を持つシミュレーションランタイムコンテナ）。
+各パイプラインステージは規定のエントリポイントスクリプトを呼び出します。`setup-hooks/` が環境を構築し、`app/*.sh` スクリプトがパイプラインから実行時に呼び出されます。1つのコンテナが複数のエントリポイントを実装できます（例: `eval.sh` と `augment.sh` の両方を持つシミュレーションランタイムコンテナ）。
 
 **全エントリポイントに渡される共通環境変数:**
 
@@ -192,7 +196,7 @@ gres: "gpu:1"
 | **引数** | `<dataset_dir> <model_config_dir> <output_dir> <max_steps>` |
 | `<dataset_dir>` | `/fsx/datasets/` 上のデータセットディレクトリです。フォーマットはコンテナが定義します — パイプラインは検査しません。 |
 | `<model_config_dir>` | 解決済みモデル設定ディレクトリです（[§5](#5-モデル設定ディレクトリ) 参照）。 |
-| `<output_dir>` | 空の実行ごとのディレクトリです。チェックポイントファイルを**直接ここに**書き込みます（サブディレクトリに入れないでください）。`eval.sh` はこのパスをそのまま読み取ります。 |
+| `<output_dir>` | 実行ごとに作成される空ディレクトリです。チェックポイントファイルを**直接ここに**書き込みます（サブディレクトリに入れないでください）。`eval.sh` はこのパスをそのまま読み取ります。 |
 | `<max_steps>` | 学習ステップ数です。`stages.train.max_steps` または `--max-steps` から取得されます。 |
 | **終了コード** | 学習失敗時に非ゼロとなります。後続ステージはキャンセルされます。 |
 
@@ -222,7 +226,7 @@ your_train_command \
 | **引数** | `<checkpoint_dir> <model_config_dir> <output_dir> <rounds> [--visual]` |
 | `<checkpoint_dir>` | `/fsx/checkpoints/` 上のチェックポイントディレクトリです。 |
 | `<model_config_dir>` | 解決済みモデル設定ディレクトリです。 |
-| `<output_dir>` | 空の実行ごとのディレクトリです。`metrics.json`（必須）とオプションで `eval.log` を書き込みます。 |
+| `<output_dir>` | 実行ごとに作成される空ディレクトリです。`metrics.json`（必須）とオプションで `eval.log` を書き込みます。 |
 | `<rounds>` | 評価ラウンド数です。`stages.eval.rounds` または `--eval-rounds` から取得されます。 |
 | `--visual` | 指定された場合、接続されたバーチャルディスプレイ (DCV) にレンダリングします。指定なしの場合はヘッドレスモードです。 |
 | **終了コード** | 評価失敗時に非ゼロとなります。 |
@@ -278,12 +282,12 @@ json.dump(metrics, open('$OUTPUT_DIR/metrics.json', 'w'))
 "
 ```
 
-#### convert.sh (計画中 — 未実装)
+#### convert.sh
 
 | 項目 | 説明 |
 |------|------|
-| **引数** | `<input_hdf5> <output_dir>` |
-| **仕様** | ソースフォーマットをトレーナーが利用できるデータセットに変換します。 |
+| **引数** | `<input_dir> <output_dir>` |
+| **仕様** | `<input_dir>` 内のソースフォーマットのファイル群（例: HDF5）を読み込み、トレーナーが利用できるデータセットを `<output_dir>` に書き出します。コンテナ側で `<input_dir>` の中身を順次処理するため、呼び出し側は単一ファイルではなくディレクトリを渡します。 |
 
 #### validate.sh (計画中 — 未実装)
 
@@ -309,7 +313,7 @@ json.dump(metrics, open('$OUTPUT_DIR/metrics.json', 'w'))
    c. `app/` の内容をコンテナ内の `/app/` にコピーします。
    d. squashfs にエクスポートします: `/fsx/enroot/<name>.sqsh`。
 
-CLI 側の詳細（プリフライトチェック、インフライトビルド依存関係、`--rebuild` セマンティクス）は PHYSAI-DESIGN.md §7 を参照してください。
+CLI 側の詳細（プリフライトチェック、インフライトビルド依存関係、`--rebuild` セマンティクス）は [`PHYSAI_CLI.ja.md` §3.3.3](PHYSAI_CLI.ja.md#333-ビルドワークフロー) を参照してください。
 
 ---
 
@@ -364,6 +368,8 @@ stages:
     container: <register_container>
 ```
 
+> **スキーマ**: [`run-config.schema.json`](../../cli/physai/schemas/run-config.schema.json)
+
 **主要フィールド:**
 
 - `pipeline.stages` — デフォルトで実行するステージです。CLI の `--from`/`--to` フラグで連続する部分範囲に絞り込めます。
@@ -390,15 +396,15 @@ Slurm はブール式をサポートします: `l40s`（完全一致）、`l40s|
 
 ### 4.3 開始ステージごとの必須引数
 
-現在 `train` と `eval` のみ実装済みです。その他のステージは将来の参考として記載しています。
+現在 `convert`、`train`、`eval` が実装済みです。その他のステージは将来の参考として記載しています。
 
 | `--from` | 必須 CLI 引数 | 解決先 | 実装済み? |
 |----------|--------------|--------|----------|
-| `augment` | `--raw <name>` | `/fsx/raw/<name>` | いいえ (計画中) |
-| `convert` | `--raw <name>` | `/fsx/raw/<name>` | いいえ (計画中) |
-| `validate` | `--dataset <name>` | `/fsx/datasets/<name>` | いいえ (計画中) |
-| `train` | `--dataset <name>` | `/fsx/datasets/<name>` | はい |
-| `eval` | `--checkpoint <name>` | `/fsx/checkpoints/<name>` | はい |
+| `augment` | `--raw <name>` | `/fsx/raw/<name>/` | いいえ (計画中) |
+| `convert` | `--raw <name>` | `/fsx/raw/<name>/` | はい |
+| `validate` | `--dataset <name>` | `/fsx/datasets/<name>/` | いいえ (計画中) |
+| `train` | `--dataset <name>` | `/fsx/datasets/<name>/` | はい |
+| `eval` | `--checkpoint <name>` | `/fsx/checkpoints/<name>/` | はい |
 | `register` | (なし) | | いいえ (計画中) |
 
 ### 4.4 ステージパラメータの CLI オーバーライド
@@ -503,7 +509,7 @@ env:
 ```yaml
 # configs/so101_pickorange_gr00t-n1.6.yaml
 pipeline:
-  stages: [train, eval]    # 実装済みステージのみ記載
+  stages: [convert, train, eval]
 
 sim:
   platform: leisaac
@@ -516,6 +522,9 @@ model:
   config_dir: gr00t-n1.6/so101-dualcam
 
 stages:
+  convert:
+    partition: cpu
+    container: so101-converter
   train:
     partition: gpu
     gres: "gpu:1"
@@ -539,7 +548,7 @@ stages:
 
 | コンテナ | フック | 内容 |
 |---------|--------|------|
-| `leisaac-runtime` | `10-system-packages.root.sh` | build-essential, git, cmake, ffmpeg, EGL/GLX ライブラリ, `uv` (Python パッケージマネージャ) をインストールします |
+| `leisaac-runtime` | `10-system-packages.root.sh` | build-essential, git, cmake, ffmpeg, EGL/GLX ライブラリ, `uv` (Python パッケージ管理ツール) をインストールします |
 | | `20-install-leisaac.sh` | LeIsaac をクローンし、Python 3.11 venv, PyTorch 2.7, IsaacSim 5.1.0 (pip), IsaacLab, ZMQ 依存をインストールします |
 | | `40-download-assets.sh` | SO-101 ロボット USD とシーンアセットを GitHub Releases からダウンロードします |
 | | `50-warmup.sh` | IsaacSim シェーダーキャッシュをウォームアップします（ランタイム時の 5-10 分の初回起動遅延を回避します） |
@@ -547,7 +556,7 @@ stages:
 | `leisaac-gr00t-n1.6` | `10-install-gr00t.sh` | Isaac-GR00T を `n1.6-release` でクローンし、`uv sync` + flash-attn でインストールします |
 | | `90-cleanup.sh` | キャッシュを削除します |
 | `gr00t-n1.6-trainer` | `10-system-packages.root.sh` | build-essential, git, cmake, ffmpeg, libaio, `uv` をインストールします |
-| | `20-install-gr00t.sh` | 同じ GR00T インストール (クローン + uv sync + flash-attn) を行います |
+| | `20-install-gr00t.sh` | 同じ GR00T を同じ方法でインストール (クローン + uv sync + flash-attn) |
 | | `90-cleanup.sh` | キャッシュを削除します |
 
 ### 6.6 train.sh 実装の詳細
@@ -710,7 +719,13 @@ dataset/
 
 ---
 
-## 9. リファレンス
+## 9. 関連ドキュメント
+
+- [プラットフォームアーキテクチャ (PIPELINE_DESIGN.ja.md)](PIPELINE_DESIGN.ja.md) — ストレージ設計、Slurm ジョブチェーンの内部構造、DCV ビジュアル評価、コストモデル
+- [CLI リファレンス (PHYSAI_CLI.ja.md)](PHYSAI_CLI.ja.md) — 全コマンドの詳細
+- [インフラストラクチャ (INFRA.ja.md)](INFRA.ja.md) — CDK スタック構成とライフサイクルスクリプト
+
+## 10. 外部リファレンス
 
 - [AWS Sample: Embodied AI Platform](https://github.com/aws-samples/sample-embodied-ai-platform)
 - [AWS Sample: Physical AI Scaffolding Kit](https://github.com/aws-samples/sample-physical-ai-scaffolding-kit)

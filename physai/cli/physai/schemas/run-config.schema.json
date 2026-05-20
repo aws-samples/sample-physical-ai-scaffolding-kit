@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "run-config.schema.json",
+  "title": "physai run config",
+  "description": "Schema for run_config.yaml — pipeline configuration that defines which stages to run, the model to use, simulation parameters, and per-stage settings.",
+  "type": "object",
+  "required": ["pipeline", "model", "stages"],
+  "properties": {
+    "pipeline": {
+      "type": "object",
+      "description": "Pipeline execution order. Required at runtime when submitting a run.",
+      "required": ["stages"],
+      "properties": {
+        "stages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "enum": ["augment", "convert", "validate", "train", "eval", "register"]
+          },
+          "description": "Ordered list of stages to execute."
+        }
+      },
+      "additionalProperties": false
+    },
+    "sim": {
+      "type": "object",
+      "description": "Simulation environment parameters (optional; passed through to containers). Only 'platform' is interpreted by the CLI; all other keys are passed through as-is.",
+      "properties": {
+        "platform": {
+          "type": "string",
+          "description": "Simulation platform name (e.g. 'leisaac')."
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "description": "Model identification. Used to resolve the model config directory.",
+      "required": ["name", "config_dir"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Model name (e.g. 'gr00t-n1.6')."
+        },
+        "config_dir": {
+          "type": "string",
+          "description": "Relative path under a model_config_root to the model config directory."
+        }
+      },
+      "additionalProperties": false
+    },
+    "stages": {
+      "type": "object",
+      "description": "Per-stage configuration. Each key is a stage name and its value configures that stage's Slurm job.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "partition": {
+            "type": "string",
+            "default": "gpu",
+            "description": "Slurm partition for this stage."
+          },
+          "gres": {
+            "type": "string",
+            "description": "Slurm generic resource spec (e.g. 'gpu:1')."
+          },
+          "constraint": {
+            "type": "string",
+            "description": "Slurm constraint for node selection (e.g. 'l40s')."
+          },
+          "container": {
+            "type": "string",
+            "description": "Name of the physai container to run this stage in."
+          },
+          "max_steps": {
+            "type": "integer",
+            "description": "Maximum training steps (train stage)."
+          },
+          "rounds": {
+            "type": "integer",
+            "description": "Number of evaluation rounds (eval stage)."
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

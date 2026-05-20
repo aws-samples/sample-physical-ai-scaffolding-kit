@@ -5,12 +5,14 @@ Shared logic for loading run configs, resolving model configs, and generating sb
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import yaml
 
 from .build import _container_sqsh_exists, _find_active_build_job
+from .schema import validate
 from .ssh import Session
 
 # Ordered list of all pipeline stages
@@ -25,8 +27,66 @@ ALL_STAGES = ["augment", "convert", "validate", "train", "eval", "register"]
 # ── Stage abstraction ──
 
 
+@dataclass(frozen=True)
+class Artifact:
+    """A cluster path produced or consumed by a stage.
+
+    Sum type: `File(path)` or `Dir(path)`. `str()` is the raw path (safe for
+    shell interpolation); `as_token()` / `from_token()` are the kind-aware
+    serialization pair used for the sbatch --comment (directories have a
+    trailing `/`).
+    """
+
+    path: PurePosixPath
+
+    def __str__(self) -> str:
+        return str(self.path)
+
+    def as_token(self) -> str:
+        raise NotImplementedError
+
+    @staticmethod
+    def from_token(token: str) -> Artifact:
+        if token.endswith("/"):
+            return Dir(PurePosixPath(token.rstrip("/")))
+        return File(PurePosixPath(token))
+
+
+@dataclass(frozen=True)
+class File(Artifact):
+    def as_token(self) -> str:
+        return str(self.path)
+
+
+@dataclass(frozen=True)
+class Dir(Artifact):
+    def as_token(self) -> str:
+        return f"{self.path}/"
+
+
+@dataclass
+class JobMetadata:
+    """Slurm job metadata for a pipeline stage."""
+
+    name: str  # Slurm --job-name, e.g. "physai/run/<run_id>/<stage>"
+    outputs: list[Artifact] = field(default_factory=list)
+    partition: str = "gpu"
+    gres: str | None = None
+    constraint: str | None = None
+
+
 class Stage:
-    """Base class for pipeline stages."""
+    """Base class for pipeline stages.
+
+    A stage declares:
+      - `inputs(ctx)` / `outputs(ctx)`: pure functions returning cluster paths
+      - `metadata(ctx)`: Slurm job metadata (name, resources, outputs)
+      - `prepare(ctx)`: update ctx for downstream stages
+      - `sbatch_body(ctx)`: the per-stage body (srun + exports) of the sbatch script
+
+    The runner uses inputs/outputs to verify reachability & chain dependencies,
+    and calls `generate_sbatch()` (final) which composes header + body.
+    """
 
     name: str
 
@@ -43,34 +103,157 @@ class Stage:
         self.remote_model_config = remote_model_config
 
     def validate(self, ctx: dict) -> None:
-        """Check that required inputs are present in ctx. Raise SystemExit if not."""
+        """Check required ctx keys are present. Called on every stage."""
 
-    def verify_inputs(self, session: Session, ctx: dict) -> None:
-        """Verify that required inputs exist on the cluster."""
+    def inputs(self, ctx: dict) -> list[Artifact]:
+        """Cluster paths this stage reads. Pure; no side effects."""
+        return []
 
-    def prepare(self, session: Session, ctx: dict) -> None:
-        """Create output directories on the cluster."""
+    def outputs(self, ctx: dict) -> list[Artifact]:
+        """Cluster paths this stage produces. Pure; no side effects."""
+        return []
 
-    def generate_sbatch(self, ctx: dict) -> str:
-        """Generate sbatch content and update ctx with output paths."""
+    def metadata(self, ctx: dict) -> JobMetadata:
+        """Slurm job metadata. Subclasses override to set resources."""
+        return JobMetadata(
+            name=f"physai/run/{self.run_id}/{self.name}",
+            outputs=self.outputs(ctx),
+            partition=self.cfg.get("partition", "gpu"),
+            gres=self.cfg.get("gres"),
+            constraint=self.cfg.get("constraint"),
+        )
+
+    def prepare(self, ctx: dict) -> None:
+        """Update ctx for downstream stages."""
+
+    def sbatch_body(self, ctx: dict) -> str:
+        """Return the body of the sbatch script (exports + srun). Override this."""
         raise NotImplementedError
 
+    def generate_sbatch(self, ctx: dict) -> str:
+        """Final — do not override. Composes header from metadata + stage body."""
+        return _sbatch_header(self.metadata(ctx)) + "\n" + self.sbatch_body(ctx)
 
-def _sbatch_header(cfg: dict, job_name: str, comment: str) -> str:
-    partition = cfg.get("partition", "gpu")
+
+def _format_produces(output: Artifact) -> str:
+    """Serialize an Artifact into a `produces=<path>` comment token.
+
+    Kind (file vs dir) is encoded by `as_token()` — directories render with a
+    trailing `/`. Whitespace in paths would break space-separated tokenization,
+    so we reject it.
+    """
+    s = output.as_token()
+    if any(c.isspace() for c in s):
+        raise SystemExit(
+            f"Pipeline output path contains whitespace: {s!r}. "
+            "Whitespace is not supported in cluster paths."
+        )
+    return f"produces={s}"
+
+
+def _sbatch_header(meta: JobMetadata) -> str:
+    # Comment encodes every output the job will produce (space-separated, one
+    # `produces=<path>` token per output). `_find_active_job_producing` looks
+    # for an exact token match, so multi-output jobs work automatically.
+    comment = " ".join(_format_produces(p) for p in meta.outputs)
     lines = [
         "#!/bin/bash",
-        f"#SBATCH --job-name={job_name}",
+        f"#SBATCH --job-name={meta.name}",
         f'#SBATCH --comment="{comment}"',
-        f"#SBATCH --partition={partition}",
+        f"#SBATCH --partition={meta.partition}",
     ]
-    if "gres" in cfg:
-        lines.append(f"#SBATCH --gres={cfg['gres']}")
-    if "constraint" in cfg:
-        lines.append(f"#SBATCH --constraint={cfg['constraint']}")
+    if meta.gres:
+        lines.append(f"#SBATCH --gres={meta.gres}")
+    if meta.constraint:
+        lines.append(f"#SBATCH --constraint={meta.constraint}")
     lines.append("#SBATCH --output=/fsx/physai/logs/%j.out")
     lines.append("set -eo pipefail")
     return "\n".join(lines)
+
+
+def _find_active_job_producing(session: Session, artifact: Artifact) -> str | None:
+    """Find an active physai/run job that will produce `artifact`.
+
+    Each stage's sbatch --comment stores one or more `produces=<path>` tokens
+    (space-separated, emitted by `_format_produces`). We match exact-token
+    equality client-side (pipeline job names include run_id so `squeue -n`
+    isn't an option).
+    """
+    out = session.run('squeue -u $(whoami) -h -o "%i|%j|%k"')
+    target = _format_produces(artifact)
+    candidates: list[int] = []
+    for line in out.splitlines():
+        parts = line.split("|", 2)
+        if len(parts) < 3:
+            continue
+        job_id, name, comment = parts
+        if name.startswith("physai/run/") and target in comment.split():
+            candidates.append(int(job_id))
+    return str(max(candidates)) if candidates else None
+
+
+def _artifact_exists(session: Session, artifact: Artifact) -> bool:
+    """Check that the artifact exists AND matches its kind (file vs directory)."""
+    flag = "-d" if isinstance(artifact, Dir) else "-f"
+    try:
+        session.run(f"test {flag} {artifact}")
+        return True
+    except RuntimeError:
+        return False
+
+
+def _validate_artifact_name(name: str, role: str) -> None:
+    """Reject names that would escape paths or break comment tokenization.
+
+    `role` is a user-facing label (e.g. 'dataset', 'raw data', 'checkpoint')
+    used in the error message.
+    """
+    if "/" in name or name in ("", ".", ".."):
+        raise SystemExit(
+            f"Invalid {role} name {name!r}: must not contain '/' or be '.', '..'"
+        )
+    if any(c.isspace() for c in name):
+        raise SystemExit(
+            f"Invalid {role} name {name!r}: whitespace is not supported in cluster paths"
+        )
+
+
+class ConvertStage(Stage):
+    name = "convert"
+
+    def validate(self, ctx: dict) -> None:
+        if not ctx.get("raw_dir"):
+            raise SystemExit("--raw required when starting from 'convert'")
+
+    def _dataset_dir(self, ctx: dict) -> Dir:
+        # If the user passed --dataset, use that name as the output; otherwise
+        # mirror the raw directory name (format-agnostic default).
+        if ctx.get("dataset_dir"):
+            return ctx["dataset_dir"]
+        return Dir(PurePosixPath("/fsx/datasets") / ctx["raw_dir"].path.name)
+
+    def inputs(self, ctx: dict) -> list[Artifact]:
+        return [ctx["raw_dir"]]
+
+    def outputs(self, ctx: dict) -> list[Artifact]:
+        return [self._dataset_dir(ctx)]
+
+    def prepare(self, ctx: dict) -> None:
+        # Only populate if absent: if the user passed --dataset, it's already set.
+        if not ctx.get("dataset_dir"):
+            ctx["dataset_dir"] = self._dataset_dir(ctx)
+
+    def sbatch_body(self, ctx: dict) -> str:
+        container = self.cfg["container"]
+        return f"""\
+export RUN_CONFIG={self.remote_config}
+
+srun --container-image=/fsx/enroot/{container}.sqsh \\
+  --container-mounts=/fsx:/fsx \\
+  bash /app/convert.sh \\
+    {ctx["raw_dir"]} \\
+    {ctx["dataset_dir"]}
+"""
 
 
 class TrainStage(Stage):
@@ -80,23 +263,22 @@ class TrainStage(Stage):
         if not ctx.get("dataset_dir"):
             raise SystemExit("--dataset required when starting from 'train'")
 
-    def verify_inputs(self, session: Session, ctx: dict) -> None:
-        _verify_exists(session, ctx["dataset_dir"], "Dataset")
+    def _checkpoint_dir(self) -> Dir:
+        return Dir(PurePosixPath("/fsx/checkpoints") / self.run_id)
 
-    def prepare(self, session: Session, ctx: dict) -> None:
-        ctx["checkpoint_dir"] = f"/fsx/checkpoints/{self.run_id}"
-        session.run(f"mkdir -p {ctx['checkpoint_dir']}")
+    def inputs(self, ctx: dict) -> list[Artifact]:
+        return [ctx["dataset_dir"]]
 
-    def generate_sbatch(self, ctx: dict) -> str:
+    def outputs(self, ctx: dict) -> list[Artifact]:
+        return [self._checkpoint_dir()]
+
+    def prepare(self, ctx: dict) -> None:
+        ctx["checkpoint_dir"] = self._checkpoint_dir()
+
+    def sbatch_body(self, ctx: dict) -> str:
         container = self.cfg["container"]
         max_steps = ctx.get("max_steps") or self.cfg.get("max_steps", 10000)
-        header = _sbatch_header(
-            self.cfg,
-            f"physai/run/{self.run_id}/train",
-            f"dataset={ctx['dataset_dir']}",
-        )
         return f"""\
-{header}
 export RUN_CONFIG={self.remote_config}
 
 srun --container-image=/fsx/enroot/{container}.sqsh \\
@@ -116,24 +298,23 @@ class EvalStage(Stage):
         if not ctx.get("checkpoint_dir"):
             raise SystemExit("--checkpoint required when starting from 'eval'")
 
-    def verify_inputs(self, session: Session, ctx: dict) -> None:
-        _verify_exists(session, ctx["checkpoint_dir"], "Checkpoint")
+    def _eval_dir(self) -> Dir:
+        return Dir(PurePosixPath("/fsx/evaluations") / self.run_id)
 
-    def prepare(self, session: Session, ctx: dict) -> None:
-        ctx["eval_dir"] = f"/fsx/evaluations/{self.run_id}"
-        session.run(f"mkdir -p {ctx['eval_dir']}")
+    def inputs(self, ctx: dict) -> list[Artifact]:
+        return [ctx["checkpoint_dir"]]
 
-    def generate_sbatch(self, ctx: dict) -> str:
+    def outputs(self, ctx: dict) -> list[Artifact]:
+        return [self._eval_dir()]
+
+    def prepare(self, ctx: dict) -> None:
+        ctx["eval_dir"] = self._eval_dir()
+
+    def sbatch_body(self, ctx: dict) -> str:
         container = self.cfg["container"]
         rounds = ctx.get("eval_rounds") or self.cfg.get("rounds", 20)
         visual_flag = " --visual" if ctx.get("visual") else ""
-        header = _sbatch_header(
-            self.cfg,
-            f"physai/run/{self.run_id}/eval",
-            f"checkpoint={ctx['checkpoint_dir']}",
-        )
         return f"""\
-{header}
 export RUN_CONFIG={self.remote_config}
 export DISPLAY=${{DISPLAY:-:0}}
 
@@ -148,6 +329,7 @@ srun --container-image=/fsx/enroot/{container}.sqsh \\
 
 
 STAGE_REGISTRY: dict[str, type[Stage]] = {
+    "convert": ConvertStage,
     "train": TrainStage,
     "eval": EvalStage,
 }
@@ -160,7 +342,8 @@ def _load_run_config(config_path: Path) -> dict:
     if not config_path.exists():
         raise SystemExit(f"Config not found: {config_path}")
     with open(config_path) as f:
-        cfg = yaml.safe_load(f)
+        cfg = yaml.safe_load(f) or {}
+    validate(cfg, "run-config", str(config_path))
     if "model" not in cfg:
         raise SystemExit(f"Missing 'model' in {config_path}")
     if "config_dir" not in cfg.get("model", {}):
@@ -248,11 +431,25 @@ def run_pipeline(
     if not stage_names:
         raise SystemExit("No stages to run")
 
+    # Validate name inputs — reject slashes, whitespace, and path escapes so
+    # they don't surface as confusing downstream errors (or, worse, silently
+    # point at unexpected paths).
+    if raw is not None:
+        _validate_artifact_name(raw, "raw data")
+    if dataset is not None:
+        _validate_artifact_name(dataset, "dataset")
+    if checkpoint is not None:
+        _validate_artifact_name(checkpoint, "checkpoint")
+
     # Build run context
     ctx: dict = {
-        "raw_dir": f"/fsx/raw/{raw}" if raw else None,
-        "dataset_dir": f"/fsx/datasets/{dataset}" if dataset else None,
-        "checkpoint_dir": f"/fsx/checkpoints/{checkpoint}" if checkpoint else None,
+        "raw_dir": Dir(PurePosixPath("/fsx/raw") / raw) if raw else None,
+        "dataset_dir": Dir(PurePosixPath("/fsx/datasets") / dataset)
+        if dataset
+        else None,
+        "checkpoint_dir": Dir(PurePosixPath("/fsx/checkpoints") / checkpoint)
+        if checkpoint
+        else None,
         "max_steps": max_steps,
         "eval_rounds": eval_rounds,
         "visual": visual,
@@ -274,9 +471,6 @@ def run_pipeline(
         stage_cfg = _get_stage_config(run_cfg, name)
         stages.append(cls(stage_cfg, run_id, remote_config, remote_model_config))
 
-    # Validate and verify first stage inputs
-    stages[0].validate(ctx)
-
     # Resolve and sync model config
     model_config_dir = run_cfg["model"]["config_dir"]
     local_model_config = _resolve_model_config(model_config_dir, model_config_roots)
@@ -284,44 +478,109 @@ def run_pipeline(
     session.rsync(str(config_path.resolve()), remote_config)
     session.rsync(f"{local_model_config}/", f"{remote_model_config}/")
 
-    stages[0].verify_inputs(session, ctx)
-
-    # Submit stages
-    prev_job_id = None
-    job_ids: list[str] = []
+    # Pre-flight: validate all stages, verify inputs/outputs, run prepare, and
+    # render each stage's sbatch content BEFORE submitting anything. Rendering
+    # in preflight matters because a stage's prepare() may mutate ctx keys —
+    # doing it later would make generate_sbatch see the final ctx, not the one
+    # that stage saw during preflight.
+    planned_outputs: set[Artifact] = set()
+    stage_plans: list[
+        tuple[Stage, list[str], str]
+    ] = []  # (stage, input_deps, sbatch_content)
 
     for stage in stages:
-        stage.prepare(session, ctx)
-        content = stage.generate_sbatch(ctx)
-        sbatch_path = f"{sync_dir}/{stage.name}.sbatch"
-        session.write_file(sbatch_path, content)
+        # Check required ctx keys are present. For the first stage they come
+        # from CLI args; for later stages they must have been populated by an
+        # upstream prepare().
+        stage.validate(ctx)
 
-        # Collect dependencies: previous stage + in-flight build for this container.
-        deps: list[str] = []
-        if prev_job_id:
-            deps.append(prev_job_id)
-        container_name = stage.cfg["container"]
-        build_job = _find_active_build_job(session, container_name)
-        if build_job:
-            deps.append(build_job)
-            print(
-                f"  {stage.name}: depends on build job {build_job} ({container_name})"
+        # Verify inputs: must exist on disk, be produced by an upstream stage
+        # in this run, or be produced by an active job (chain via afterok).
+        input_dep_jobs: list[str] = []
+        for artifact in stage.inputs(ctx):
+            if artifact in planned_outputs or _artifact_exists(session, artifact):
+                continue
+            active = _find_active_job_producing(session, artifact)
+            if active:
+                input_dep_jobs.append(active)
+                print(f"  {stage.name}: waits on job {active} to produce {artifact}")
+                continue
+            raise SystemExit(
+                f"{stage.name}: input {artifact} does not exist and no job is producing it"
             )
-        elif not _container_sqsh_exists(session, container_name):
+
+        # Verify outputs: must NOT exist on disk AND no active job is writing it.
+        for artifact in stage.outputs(ctx):
+            if artifact in planned_outputs:
+                raise SystemExit(
+                    f"{stage.name}: output {artifact} is already claimed by an earlier stage in this run"
+                )
+            if _artifact_exists(session, artifact):
+                raise SystemExit(
+                    f"{stage.name}: output {artifact} already exists on cluster. Remove it or use a different name."
+                )
+            active = _find_active_job_producing(session, artifact)
+            if active:
+                raise SystemExit(
+                    f"{stage.name}: active job {active} is already producing {artifact}. Wait or cancel it."
+                )
+            planned_outputs.add(artifact)
+
+        # Confirm the container image is available (or an active build will
+        # produce it). Do this in preflight so a missing container on stage N
+        # doesn't strand already-submitted earlier stages.
+        container_name = stage.cfg["container"]
+        if not _find_active_build_job(
+            session, container_name
+        ) and not _container_sqsh_exists(session, container_name):
             raise SystemExit(
                 f"Container '{container_name}' not found at /fsx/enroot/{container_name}.sqsh. "
                 "Build it first."
             )
 
-        dep = (
-            f" --dependency=afterok:{':'.join(deps)} --kill-on-invalid-dep=yes"
-            if deps
-            else ""
-        )
-        job_id = session.run(f"sbatch --parsable{dep} {sbatch_path}")
-        print(f"  {stage.name}: job {job_id}")
-        prev_job_id = job_id
-        job_ids.append(job_id)
+        stage.prepare(ctx)
+        stage_plans.append((stage, input_dep_jobs, stage.generate_sbatch(ctx)))
+
+    # Submit stages. If any submission fails, cancel everything we've submitted
+    # so far in this run (Slurm would eventually invalidate dependents, but
+    # scancel makes it immediate and unambiguous).
+    prev_job_id: str | None = None
+    job_ids: list[str] = []
+    try:
+        for stage, input_dep_jobs, content in stage_plans:
+            sbatch_path = f"{sync_dir}/{stage.name}.sbatch"
+            session.write_file(sbatch_path, content)
+
+            deps: list[str] = list(input_dep_jobs)
+            if prev_job_id:
+                deps.append(prev_job_id)
+            # Re-check for an active build at submit time so we chain on one
+            # that started during preflight (rare, but cheap).
+            build_job = _find_active_build_job(session, stage.cfg["container"])
+            if build_job:
+                deps.append(build_job)
+                print(
+                    f"  {stage.name}: depends on build job {build_job} ({stage.cfg['container']})"
+                )
+            dep = (
+                f" --dependency=afterok:{':'.join(deps)} --kill-on-invalid-dep=yes"
+                if deps
+                else ""
+            )
+            job_id = session.run(f"sbatch --parsable{dep} {sbatch_path}")
+            print(f"  {stage.name}: job {job_id}")
+            prev_job_id = job_id
+            job_ids.append(job_id)
+    except Exception:
+        if job_ids:
+            print(
+                f"\nSubmission failed. Cancelling {len(job_ids)} already-submitted job(s): {' '.join(job_ids)}"
+            )
+            try:
+                session.run(f"scancel {' '.join(job_ids)}")
+            except RuntimeError as e:
+                print(f"  scancel failed: {e}")
+        raise
 
     print(f"\nSubmitted {len(stages)} stage(s): {' → '.join(stage_names)}")
     print(f"  Run ID:     {run_id}")
@@ -332,13 +591,6 @@ def run_pipeline(
 
     for job_id in job_ids:
         session.stream_log(job_id)
-
-
-def _verify_exists(session: Session, path: str, label: str) -> None:
-    try:
-        session.run(f"test -e {path}")
-    except RuntimeError:
-        raise SystemExit(f"{label} not found on cluster: {path}")
 
 
 # ── Convenience shortcuts ──
@@ -384,5 +636,30 @@ def run_eval(
         checkpoint=checkpoint,
         eval_rounds=eval_rounds,
         visual=visual,
+        stream=stream,
+    )
+
+
+def run_convert(
+    session: Session,
+    config_path: Path,
+    raw: str,
+    model_config_roots: list[Path],
+    dataset: str | None = None,
+    stream: bool = True,
+) -> None:
+    """Shortcut: physai convert ≡ physai run --from convert --to convert.
+
+    When `dataset` is given, the convert stage writes to /fsx/datasets/<dataset>
+    instead of mirroring the raw name.
+    """
+    run_pipeline(
+        session,
+        config_path,
+        model_config_roots,
+        from_stage="convert",
+        to_stage="convert",
+        raw=raw,
+        dataset=dataset,
         stream=stream,
     )

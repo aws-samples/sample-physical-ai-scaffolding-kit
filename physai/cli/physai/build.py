@@ -6,6 +6,7 @@ from pathlib import Path
 
 import yaml
 
+from .schema import validate
 from .ssh import Session
 
 BUILD_SCRIPTS_DIR = Path(__file__).parent / "build-scripts"
@@ -111,7 +112,7 @@ def _generate_sbatch(
     name = cfg["name"]
     base_image = _resolve_base(cfg)
     partition = cfg.get("partition", "gpu")
-    gres = cfg.get("gres", "gpu:1")
+    gres = cfg.get("gres")
     hooks_dir = f"{build_dir}/setup-hooks"
     hooks = _discover_hooks(Path(cfg["_local_hooks_dir"]))
     prelude = f"{build_dir}/build-scripts"
@@ -121,7 +122,10 @@ def _generate_sbatch(
         f"#SBATCH --job-name=physai/build/{name}",
         f'#SBATCH --comment="base={base_image}"',
         f"#SBATCH --partition={partition}",
-        f"#SBATCH --gres={gres}",
+    ]
+    if gres:
+        lines.append(f"#SBATCH --gres={gres}")
+    lines += [
         "#SBATCH --output=/fsx/physai/logs/%j.out",
         "set -eo pipefail",
         'trap \'echo "\\nBuild failed. Container may be left on the worker node."; '
@@ -216,13 +220,15 @@ def run_build(
         raise SystemExit(f"No app/ directory in {container_dir}")
 
     with open(container_yaml) as f:
-        container_cfg = yaml.safe_load(f)
+        container_cfg = yaml.safe_load(f) or {}
+    validate(container_cfg, "container", str(container_yaml))
 
     project_yaml = _find_project_yaml(container_path)
     project_cfg = {}
     if project_yaml:
         with open(project_yaml) as f:
             project_cfg = yaml.safe_load(f) or {}
+        validate(project_cfg, "project", str(project_yaml))
 
     cfg = _merge_configs(project_cfg, container_cfg)
     _validate_config(cfg)

@@ -88,7 +88,7 @@ physai/
 | RDS MariaDB | `db.t4g.small` + 20 GiB gp3 | 約 $26 |
 | NAT Gateway | 1x (時間課金、データ転送なし) | 約 $33 |
 | Secrets Manager, CloudWatch alarm | — | 約 $1 |
-| **合計 (常時稼働)** | | **約 $2,763** |
+| **合計 (常時稼働)** | | **約 $2,700** |
 
 GPU ワーカーがコストの大部分を占めます。クラスターを破棄せずにコンピューティングを一時停止するには、`infra/cdk.json` で `cpuWorkerCount` や `gpuWorkers[*].count` を `0` に設定し `PhysaiClusterStack` を再デプロイしてください。復帰時はカウントを元に戻して再デプロイします。
 
