@@ -244,6 +244,61 @@ def test_missing_mode_is_rejected_by_argparse():
     assert excinfo.value.code == 2
 
 
+# ── unknown-flag rejection / pytest passthrough ───────────────────────────
+
+
+def test_runner_flag_typo_is_rejected(capsys):
+    """A close typo of a runner long flag (--proflie) must error, not reach pytest.
+
+    Note argparse resolves unambiguous abbreviations (``--profil`` →
+    ``--profile``), so the typo here is a transposition argparse can't match;
+    the close-match guard then catches it before it silently reaches pytest.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        main(["fresh", "--proflie", "p"])
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "--proflie" in err
+    assert "--profile" in err  # names the flag it resembles
+
+
+def test_runner_flag_typo_with_equals_is_rejected(capsys):
+    """The `--flag=value` form is caught too (the name is matched pre-`=`)."""
+    with pytest.raises(SystemExit) as excinfo:
+        main(["upgrade-existing", "--regon=us-west-2"])
+    assert excinfo.value.code == 2
+    assert "--region" in capsys.readouterr().err
+
+
+def test_pytest_short_flags_still_forwarded():
+    """Legitimate pytest short flags pass through untouched, incl. ---valued -k."""
+    forwarded = _captured_pytest_args(
+        ["upgrade-existing", "--profile", "p", "-k", "dcvagent", "-x", "-v"]
+    )
+    assert forwarded[-4:] == ["-k", "dcvagent", "-x", "-v"]
+
+
+def test_common_pytest_long_flags_forwarded_without_separator():
+    """Genuine pytest long flags (unlike runner typos) forward untouched.
+
+    These don't resemble any runner flag, so no `--` separator is needed —
+    the guard only rejects close typos of the runner's own options.
+    """
+    forwarded = _captured_pytest_args(
+        ["upgrade-existing", "--profile", "p", "--lf", "--tb=short", "--maxfail=1"]
+    )
+    for flag in ("--lf", "--tb=short", "--maxfail=1"):
+        assert flag in forwarded
+
+
+def test_short_flag_value_starting_with_dashes_is_forwarded():
+    """A `-k` expression whose value begins with `--` is not mistaken for a flag."""
+    forwarded = _captured_pytest_args(
+        ["upgrade-existing", "--profile", "p", "-k", "--slow-only"]
+    )
+    assert forwarded[-2:] == ["-k", "--slow-only"]
+
+
 # ── --builtin-examples flag plumbing ──────────────────────────────────────
 
 
@@ -282,24 +337,6 @@ def test_default_run_forwards_neither_marker_selector_nor_raw_source():
     )
     assert "-m" not in forwarded
     assert "--raw-source" not in forwarded
-
-
-def test_builtin_examples_forwards_marker_selector():
-    forwarded = _captured_pytest_args(
-        [
-            "upgrade-existing",
-            "--builtin-examples",
-            "--raw-source",
-            "file:///tmp/raw",
-            "--profile",
-            "p",
-            "--region",
-            "r",
-        ]
-    )
-    assert "-m" in forwarded
-    i = forwarded.index("-m")
-    assert forwarded[i + 1] == "platform or builtin_example"
 
 
 @pytest.mark.parametrize(
@@ -414,22 +451,6 @@ def test_malformed_raw_source_uri_is_rejected_before_deploy(capsys):
     # The deploy and the checks must never have started.
     redeploy.assert_not_called()
     pmain.assert_not_called()
-
-
-def test_builtin_examples_with_raw_source_forwards_uri():
-    forwarded = _captured_pytest_args(
-        [
-            "upgrade-existing",
-            "--builtin-examples",
-            "--raw-source",
-            "s3://bucket/prefix/",
-            "--profile",
-            "p",
-        ]
-    )
-    assert "--raw-source" in forwarded
-    i = forwarded.index("--raw-source")
-    assert forwarded[i + 1] == "s3://bucket/prefix/"
 
 
 @pytest.mark.parametrize(

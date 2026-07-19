@@ -20,19 +20,33 @@ import os
 import subprocess
 from pathlib import Path
 
+from botocore.exceptions import ClientError
+
+from .aws import cloudformation_client
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_INFRA_DIR = REPO_ROOT / "infra"
 RUN_LIFECYCLE_SH = REPO_ROOT / "infra" / "scripts" / "run-lifecycle.sh"
 CLUSTER_STACK = "PhysaiClusterStack"
 
 
-def aws_cli_args(profile: str | None, region: str | None) -> list[str]:
+def aws_cli_args(
+    profile: str | None,
+    region: str | None,
+    *,
+    include_region: bool = True,
+) -> list[str]:
     """Build ``--profile``/``--region`` argv suffixes for an ``aws`` CLI call,
-    skipping each flag when its value is None."""
+    skipping each flag when its value is None.
+
+    ``include_region=False`` omits ``--region`` even when ``region`` is set —
+    used for ``cdk`` invocations, which silently ignore ``--region`` and get
+    the region from ``AWS_REGION``/``AWS_DEFAULT_REGION`` in the subprocess env
+    instead (see module docstring; aws/aws-cdk#28725)."""
     args: list[str] = []
     if profile:
         args += ["--profile", profile]
-    if region:
+    if include_region and region:
         args += ["--region", region]
     return args
 
@@ -40,7 +54,7 @@ def aws_cli_args(profile: str | None, region: str | None) -> list[str]:
 class StackNotFound(RuntimeError):
     """The named stack genuinely does not exist in this account/region.
 
-    Raised only when ``describe-stacks`` fails with CloudFormation's
+    Raised only when ``describe_stacks`` fails with CloudFormation's
     "does not exist" ``ValidationError`` — never for auth, network, or
     other failures, which raise :class:`StackQueryError` instead so they
     can't be mistaken for absence.
@@ -53,50 +67,46 @@ class StackQueryError(RuntimeError):
     no network). Callers must NOT treat this as "stack absent"."""
 
 
-# CloudFormation's signature for a genuinely-missing stack, e.g.
-# "An error occurred (ValidationError) ... Stack with id X does not exist".
+# CloudFormation's ``describe_stacks`` reports a genuinely-missing stack as a
+# ``ClientError`` with ``Code == "ValidationError"`` and a message like
+# "Stack with id X does not exist". ``ValidationError`` is generic (a
+# malformed request also raises it), so the message substring is still needed
+# to distinguish absence from other validation failures.
 _STACK_ABSENT_SIGNATURE = "does not exist"
 
 
 def describe_stack(
     stack: str,
-    query: str,
     profile: str | None = None,
     region: str | None = None,
-) -> str:
-    """Run ``aws cloudformation describe-stacks --stack-name <stack> --query <query>``.
+) -> dict:
+    """Return the CloudFormation description dict for ``stack`` (``Stacks[0]``).
 
-    Returns the stripped ``--output text`` result. Raises
-    :class:`StackNotFound` when the stack genuinely does not exist, and
-    :class:`StackQueryError` for any other failure (auth, network,
-    throttling, wrong region) — the distinction matters because
-    :func:`stack_exists` maps only the former to "absent". The returned
-    string can be empty when the stack exists but the JMESPath query
-    matched nothing (e.g. an output key that isn't declared).
+    Calls ``cloudformation.describe_stacks(StackName=stack)`` via boto3 and
+    returns the first (and only) stack's dict, so callers navigate its
+    ``StackStatus`` / ``Outputs`` themselves. Raises :class:`StackNotFound`
+    when the stack genuinely does not exist, and :class:`StackQueryError` for
+    any other failure (auth, network, throttling, wrong region) — the
+    distinction matters because :func:`stack_exists` maps only the former to
+    "absent".
     """
-    cmd = [
-        "aws",
-        *aws_cli_args(profile, region),
-        "cloudformation",
-        "describe-stacks",
-        "--stack-name",
-        stack,
-        "--query",
-        query,
-        "--output",
-        "text",
-    ]
-    r = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if r.returncode != 0:
-        stderr = r.stderr.strip()
-        prefix = f"aws cloudformation describe-stacks --stack-name {stack} failed: "
-        if _STACK_ABSENT_SIGNATURE in stderr:
-            raise StackNotFound(prefix + stderr)
-        raise StackQueryError(prefix + stderr)
-    out = r.stdout.strip()
-    # `aws --output text` prints "None" (not empty) when a query matches a
-    # null JMESPath result. Normalize to empty.
-    return "" if out == "None" else out
+    client = cloudformation_client(profile, region)
+    try:
+        resp = client.describe_stacks(StackName=stack)
+    except ClientError as e:
+        err = e.response.get("Error", {})
+        code = err.get("Code", "")
+        message = err.get("Message", "")
+        prefix = f"describe-stacks --stack-name {stack} failed: "
+        if code == "ValidationError" and _STACK_ABSENT_SIGNATURE in message:
+            raise StackNotFound(prefix + message) from e
+        raise StackQueryError(prefix + f"({code}) {message}") from e
+    stacks = resp.get("Stacks", [])
+    if not stacks:
+        # describe-stacks by name returns exactly one stack or raises
+        # ValidationError; an empty list would be an API contract break.
+        raise StackNotFound(f"describe-stacks --stack-name {stack} returned no stacks")
+    return stacks[0]
 
 
 def _cdk_env(region: str | None) -> dict[str, str]:
@@ -131,16 +141,11 @@ def stack_exists(
     couldn't reach CloudFormation.
     """
     try:
-        status = describe_stack(
-            stack, "Stacks[0].StackStatus", profile=profile, region=region
-        )
+        stack_desc = describe_stack(stack, profile=profile, region=region)
     except StackNotFound:
         return False
+    status = stack_desc.get("StackStatus", "")
     return bool(status) and status != "DELETE_COMPLETE"
-
-
-def _cdk_profile_args(profile: str | None) -> list[str]:
-    return ["--profile", profile] if profile else []
 
 
 def cdk_deploy(
@@ -163,7 +168,7 @@ def cdk_deploy(
         stack,
         "--require-approval",
         "never",
-        *_cdk_profile_args(profile),
+        *aws_cli_args(profile, region, include_region=False),
     ]
     r = subprocess.run(cmd, cwd=str(cwd), env=_cdk_env(region), check=False)
     if r.returncode != 0:
@@ -192,7 +197,7 @@ def cdk_destroy(
         "destroy",
         stack,
         "--force",
-        *_cdk_profile_args(profile),
+        *aws_cli_args(profile, region, include_region=False),
     ]
     r = subprocess.run(cmd, cwd=str(cwd), env=_cdk_env(region), check=False)
     if r.returncode != 0:

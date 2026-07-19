@@ -3,12 +3,9 @@
 See ``docs/en/PIPELINE_DESIGN.md`` §5 for the visual-eval architecture.
 """
 
-import re
-
 import pytest
 
-# Strips the "<task-id>: " prefix that `srun --label` adds to each line.
-_LABEL_RE = re.compile(r"^\s*\d+:\s*")
+from physai_regression.checks._parsing import _LABEL_RE
 
 
 @pytest.mark.platform

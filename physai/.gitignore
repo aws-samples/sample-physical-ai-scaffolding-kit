@@ -2,8 +2,10 @@
 *.pdf
 __pycache__/
 .mypy_cache/
+.pytest_cache/
 cli/build/
 cli/physai.egg-info/
+regression/.venv/
 
 # Editor
 .vscode/

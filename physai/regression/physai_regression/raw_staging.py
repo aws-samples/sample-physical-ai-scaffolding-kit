@@ -28,30 +28,32 @@ removing ``/fsx/raw/<name>/`` after a successful test) is the test's
 responsibility, not this module's.
 """
 
-import json
 import shlex
-import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import assert_never
 from urllib.parse import urlsplit
 
-from .orchestration.deploy import aws_cli_args
+from botocore.exceptions import ClientError
+
+from .orchestration.aws import s3_client
 
 # Substrings in an `aws s3 ls` error that mean "the cluster's IAM role
 # can't see this bucket/prefix" — i.e. fall back to laptop-driven
 # presigning. Any other error (network, endpoint, region mismatch)
-# propagates so a real platform problem isn't silently routed through
-# the slower fallback path. These match the structured forms the AWS CLI
-# emits ("An error occurred (AccessDenied) when calling ...") rather than
-# bare "403"/"404", which would also match a bucket or prefix named e.g.
-# `my-dataset-404` that the CLI echoes into an unrelated error message.
+# propagates so a real platform problem isn't silently routed through the
+# slower fallback path. These match only the parenthesized structured forms
+# the AWS CLI emits ("An error occurred (AccessDenied) when calling ..." /
+# "(403)") — not bare tokens like "403", "404", or "Forbidden", which also
+# appear in bucket/prefix names (e.g. `my-dataset-404`) or in unrelated
+# network/proxy error bodies the CLI echoes, and would wrongly divert a real
+# platform failure into the slow presign fallback.
 _S3_PERMISSION_HINTS = (
     "(AccessDenied)",
     "(NoSuchBucket)",
     "(403)",
     "(404)",
-    "Forbidden",
 )
 
 _HF_PKG_DIR = "/tmp/regression-hf-pkgs"
@@ -222,6 +224,24 @@ def stage_raw(
     except RuntimeError as e:
         raise RawSourceError(f"failed to stage {uri} at {_dest(name)}: {e}") from e
 
+    # Backstop against silent staging failures for every scheme: each stager
+    # wiped and re-populated /fsx/raw/<name>/, so an empty dest here means
+    # nothing landed (an empty hf download, a sync that copied only zero-byte
+    # dir markers, a wrong-region presign whose bodies were discarded, etc.).
+    # `ls -A` lists dotfiles too, so empty stdout == empty dir.
+    dest = shlex.quote(_dest(name))
+    try:
+        listing = session.run(f"ls -A {dest}")
+    except RuntimeError as e:
+        raise RawSourceError(
+            f"failed to verify staged content at {_dest(name)} for {uri}: {e}"
+        ) from e
+    if not listing.strip():
+        raise RawSourceError(
+            f"staging {uri} produced no files at {_dest(name)} — the source may "
+            f"be empty or the download silently failed"
+        )
+
 
 def _file_stage(session, parsed: FileSource, name: str) -> None:
     """``rsync`` a local directory's contents into ``/fsx/raw/<name>/``."""
@@ -247,7 +267,7 @@ def _s3_stage(
     src = shlex.quote(f"s3://{parsed.bucket}/{parsed.prefix}")
     dest = shlex.quote(_dest(name))
     try:
-        session.run(f"aws s3 ls {src}")
+        listing = session.run(f"aws s3 ls {src}")
     except RuntimeError as e:
         msg = str(e)
         if not any(hint in msg for hint in _S3_PERMISSION_HINTS):
@@ -257,6 +277,13 @@ def _s3_stage(
             ) from e
         _s3_stage_via_presign(session, parsed, name, aws_profile, aws_region)
         return
+    # `aws s3 ls` on a prefix with zero objects and zero common-prefixes
+    # exits 0 with empty stdout; a subsequent `aws s3 sync` would copy nothing
+    # and leave an empty /fsx/raw/<name>/. Reject that here — symmetric with
+    # the presign path's "S3 prefix is empty" guard — so a mistyped or empty
+    # prefix fails loudly instead of silently staging nothing.
+    if not listing.strip():
+        raise RawSourceError(f"S3 prefix is empty (no objects to fetch): {parsed.raw}")
     _reset_dest(session, name)
     session.run(f"aws s3 sync {src} {dest}")
 
@@ -281,13 +308,27 @@ def _s3_stage_via_presign(
     keys = [k for k in keys if not k.endswith("/")]
     if not keys:
         raise RawSourceError(f"S3 prefix is empty (no objects to fetch): {parsed.raw}")
-    # `aws s3 presign` signs the URL locally (SigV4 binds the region) and
-    # makes no network call, so it cannot auto-redirect to the bucket's
-    # home region the way `list-objects-v2` does. A URL signed for the
-    # wrong region gets a PermanentRedirect from S3 — and curl writes the
-    # redirect's XML body to the output file. Resolve the bucket's real
-    # region and presign against that, not the run region.
-    bucket_region = _bucket_region(parsed.bucket, aws_profile, aws_region)
+    # A presigned URL binds its signing region into the signature, so a URL
+    # signed for the wrong region gets a PermanentRedirect from S3 — and curl
+    # writes the redirect's XML body to the output file. Resolve the bucket's
+    # real region and presign against that, not the run region.
+    bucket_region, region_fell_back = _bucket_region(
+        parsed.bucket, aws_profile, aws_region
+    )
+    if region_fell_back:
+        # The region couldn't be resolved; we're guessing with the run region.
+        # If that guess is wrong, S3 returns a PermanentRedirect and curl
+        # writes the redirect XML into each file — a silent corruption the
+        # post-stage content check can't catch (the files are non-empty).
+        # Warn loudly so the operator inspects.
+        print(
+            f"WARNING: could not resolve the home region of bucket "
+            f"{parsed.bucket!r}; presigning against fallback region "
+            f"{bucket_region!r}. If this is wrong, S3 returns a "
+            f"PermanentRedirect and curl writes the redirect XML into each "
+            f"downloaded file — inspect {_dest(name)} before trusting it.",
+            file=sys.stderr,
+        )
     urls = [_presign_s3_key(parsed.bucket, k, aws_profile, bucket_region) for k in keys]
     _reset_dest(session, name)
     dest = _dest(name)
@@ -309,100 +350,75 @@ def _list_s3_keys(
 ) -> list[str]:
     """Return every key under ``s3://bucket/prefix/``.
 
-    Uses ``aws s3api list-objects-v2 --output json``; the AWS CLI v2
-    paginates client-side and emits a single ``Contents[]``, so this
-    works for prefixes with >1000 objects without explicit pagination.
+    Uses the boto3 ``list_objects_v2`` paginator, which pages server-side, so
+    prefixes with more than 1000 objects are handled without explicit
+    continuation. A prefix with no objects yields pages with no ``Contents``
+    member and returns an empty list.
     """
-    cmd = [
-        "aws",
-        "s3api",
-        "list-objects-v2",
-        "--bucket",
-        bucket,
-        "--prefix",
-        prefix,
-        "--query",
-        "Contents[].Key",
-        "--output",
-        "json",
-        *aws_cli_args(aws_profile, aws_region),
-    ]
-    r = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if r.returncode != 0:
-        raise RawSourceError(
-            f"aws s3api list-objects-v2 failed for s3://{bucket}/{prefix}: "
-            f"{r.stderr.strip()}"
-        )
-    out = r.stdout.strip()
-    if not out or out == "null":
-        return []
+    client = s3_client(aws_profile, aws_region)
+    keys: list[str] = []
     try:
-        keys = json.loads(out)
-    except json.JSONDecodeError as e:
+        paginator = client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                keys.append(obj["Key"])
+    except ClientError as e:
         raise RawSourceError(
-            f"could not parse list-objects-v2 output for s3://{bucket}/{prefix}: {e}"
+            f"list-objects-v2 failed for s3://{bucket}/{prefix}: {e}"
         ) from e
-    if not isinstance(keys, list):
-        raise RawSourceError(
-            f"unexpected list-objects-v2 shape for s3://{bucket}/{prefix}: {out!r}"
-        )
-    return [str(k) for k in keys]
+    return keys
 
 
 def _bucket_region(
     bucket: str, aws_profile: str | None, aws_region: str | None
-) -> str | None:
+) -> tuple[str | None, bool]:
     """Resolve ``bucket``'s home region for region-correct presigning.
 
-    ``aws s3api get-bucket-location`` is a network call that succeeds
-    regardless of the caller's configured region, so the ``aws_region``
-    passed here only seeds the initial endpoint. The API returns a
-    ``LocationConstraint`` of ``null`` for the legacy ``us-east-1``
-    default; normalize that to ``us-east-1``. On any failure, fall back
-    to the run region rather than hard-failing — presign will then
-    surface the redirect error with a clearer message than this helper
-    could.
+    Returns ``(region, used_fallback)``. ``used_fallback`` is True when the
+    region could not be resolved and the run region was returned as a last
+    resort — the caller can then warn, since a wrong region makes every
+    presigned URL redirect and ``curl`` write the redirect body to disk.
+
+    Uses boto3 ``head_bucket``, whose response carries ``BucketRegion`` at
+    the top level, resolves cross-region regardless of the client's region,
+    and returns ``us-east-1`` explicitly (unlike the CLI's
+    ``get-bucket-location``, which returns null for the legacy default and
+    needed special-casing). ``head_bucket`` is authorized by ``s3:ListBucket``
+    — already exercised by ``list_objects_v2`` on the way to this call. On any
+    failure fall back to the run region rather than hard-failing: presign then
+    surfaces the redirect error with a clearer message than this helper could.
     """
-    cmd = [
-        "aws",
-        "s3api",
-        "get-bucket-location",
-        "--bucket",
-        bucket,
-        "--query",
-        "LocationConstraint",
-        "--output",
-        "text",
-        *aws_cli_args(aws_profile, aws_region),
-    ]
-    r = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if r.returncode != 0:
-        return aws_region
-    loc = r.stdout.strip()
-    if not loc or loc == "None":
-        return "us-east-1"
-    return loc
+    client = s3_client(aws_profile, aws_region)
+    try:
+        resp = client.head_bucket(Bucket=bucket)
+    except ClientError:
+        return aws_region, True
+    region = resp.get("BucketRegion")
+    if not region:
+        return aws_region, True
+    return region, False
 
 
 def _presign_s3_key(
     bucket: str, key: str, aws_profile: str | None, aws_region: str | None
 ) -> str:
-    """Generate a 1-hour presigned URL for ``s3://bucket/key``."""
-    cmd = [
-        "aws",
-        "s3",
-        "presign",
-        f"s3://{bucket}/{key}",
-        "--expires-in",
-        "3600",
-        *aws_cli_args(aws_profile, aws_region),
-    ]
-    r = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if r.returncode != 0:
-        raise RawSourceError(
-            f"aws s3 presign failed for s3://{bucket}/{key}: {r.stderr.strip()}"
+    """Generate a 1-hour presigned GET URL for ``s3://bucket/key``.
+
+    The client is built ``for_presign`` (SigV4 + virtual-hosted addressing)
+    so the URL is region-correct: ``aws_region`` here is the bucket's home
+    region (from :func:`_bucket_region`), and it binds into the signature. A
+    default client would emit a region-less legacy SigV2 URL that
+    PermanentRedirects when the bucket is not in the client's region.
+    """
+    client = s3_client(aws_profile, aws_region, for_presign=True)
+    try:
+        return client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket, "Key": key},
+            ExpiresIn=3600,
         )
-    return r.stdout.strip()
+    except ClientError as e:
+        raise RawSourceError(f"presign failed for s3://{bucket}/{key}: {e}") from e
 
 
 def _hf_stage(session, parsed: HFSource, name: str) -> None:

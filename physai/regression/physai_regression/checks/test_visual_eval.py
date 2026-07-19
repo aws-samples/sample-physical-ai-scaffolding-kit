@@ -9,14 +9,12 @@ render) requires a human and is out of scope here.
 """
 
 import json
-import re
 
 import pytest
 
-CONFIG_REL = "configs/fake-pipeline.yaml"
+from physai_regression.checks._parsing import _extract_run_id, _extract_stage_jobs
 
-_RUN_ID_RE = re.compile(r"Run ID:\s+(run-\S+)")
-_STAGE_JOB_RE = re.compile(r"^\s*(\w+):\s+job\s+(\d+)\s*$", re.MULTILINE)
+CONFIG_REL = "configs/fake-pipeline.yaml"
 
 
 @pytest.mark.platform
@@ -57,14 +55,10 @@ def test_visual_eval_setup(
             str(fake_project_dir / "model_configs"),
             timeout=600,
         )
-        m = _RUN_ID_RE.search(r.stdout)
-        assert m, f"could not parse Run ID from physai output:\n{r.stdout}"
-        run_id = m.group(1)
+        run_id = _extract_run_id(r.stdout)
 
         # `physai eval` prints "  eval: job <ID>" right after sbatch returns.
-        stage_jobs = {
-            mm.group(1): mm.group(2) for mm in _STAGE_JOB_RE.finditer(r.stdout)
-        }
+        stage_jobs = _extract_stage_jobs(r.stdout)
         job_id = stage_jobs.get("eval")
         assert job_id, f"could not parse eval job id from output:\n{r.stdout}"
 

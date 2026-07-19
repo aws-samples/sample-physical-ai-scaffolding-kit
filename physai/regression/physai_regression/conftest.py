@@ -120,16 +120,16 @@ def _stack_output(
 ) -> str:
     """Read a single named output from a CFN stack, ``pytest.fail`` on absence."""
     try:
-        value = describe_stack(
-            stack,
-            f"Stacks[0].Outputs[?OutputKey==`{output_key}`].OutputValue",
-            profile=profile,
-            region=region,
-        )
+        stack_desc = describe_stack(stack, profile=profile, region=region)
     except (StackNotFound, StackQueryError) as e:
         # Both a missing stack and an unreachable CloudFormation should fail
         # the check cleanly — the message distinguishes which.
         pytest.fail(str(e))
+    value = ""
+    for output in stack_desc.get("Outputs", []) or []:
+        if output.get("OutputKey") == output_key:
+            value = output.get("OutputValue") or ""
+            break
     if not value:
         pytest.fail(f"{stack} CFN output {output_key!r} is empty or missing")
     return value

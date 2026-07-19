@@ -1,16 +1,16 @@
 """Tests for ``physai_regression.raw_staging``.
 
-The stagers shell out via two boundaries: ``Session.run`` /
-``Session.rsync`` for cluster-side commands, and
-``physai_regression.raw_staging.subprocess.run`` for laptop-side AWS
-calls. Tests mock both. No network, no SSH, no filesystem beyond
-``tmp_path`` for the file:// stager.
+The stagers reach two boundaries: ``Session.run`` / ``Session.rsync`` for
+cluster-side commands (over SSH), and the boto3 client factory
+(``raw_staging.s3_client``) for laptop-side S3 calls. Tests mock both. No
+network, no SSH, no filesystem beyond ``tmp_path`` for the file:// stager.
 """
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from botocore.exceptions import ClientError
 
 from physai_regression import raw_staging
 from physai_regression.raw_staging import (
@@ -25,6 +25,11 @@ from physai_regression.raw_staging import (
 
 def _completed(returncode: int = 0, stdout: str = "", stderr: str = "") -> MagicMock:
     return MagicMock(returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+def _s3_client_error(code: str, message: str = "boom") -> ClientError:
+    """Build a botocore ClientError for the laptop-side S3 client mocks."""
+    return ClientError({"Error": {"Code": code, "Message": message}}, "S3Op")
 
 
 # ── parse_raw_source ──────────────────────────────────────────────────────
@@ -199,17 +204,48 @@ def test_s3_stage_uses_cluster_sync_when_iam_allows():
     # Probe succeeds; subsequent calls (reset + sync) also succeed.
     session.run.side_effect = ["object-listing-line", "", ""]
     parsed = S3Source(raw="s3://b/p/", bucket="b", prefix="p/")
-    with patch.object(raw_staging.subprocess, "run") as laptop_run:
+    with patch.object(raw_staging, "s3_client") as laptop_s3:
         raw_staging._s3_stage(session, parsed, "name", None, None)
-    # No laptop AWS calls — cluster handled everything.
-    laptop_run.assert_not_called()
+    # No laptop S3 calls — cluster handled everything.
+    laptop_s3.assert_not_called()
     cluster_cmds = [c.args[0] for c in session.run.call_args_list]
     assert cluster_cmds[0] == "aws s3 ls s3://b/p/"
     assert "rm -rf /fsx/raw/name/" in cluster_cmds[1]
     assert cluster_cmds[2] == "aws s3 sync s3://b/p/ /fsx/raw/name/"
 
 
+def test_s3_stage_empty_prefix_on_sync_path_raises():
+    """Probe succeeds but lists nothing → error, symmetric with presign path.
+
+    An empty listing means `aws s3 sync` would copy nothing and leave an
+    empty dest; reject before the pointless sync/reset.
+    """
+    session = MagicMock()
+    session.run.side_effect = [""]  # probe returns an empty listing
+    parsed = S3Source(raw="s3://b/empty/", bucket="b", prefix="empty/")
+    with patch.object(raw_staging, "s3_client") as laptop_s3:
+        with pytest.raises(RawSourceError, match="empty"):
+            raw_staging._s3_stage(session, parsed, "name", None, None)
+    laptop_s3.assert_not_called()
+    # Only the probe ran; reset + sync never happened.
+    cluster_cmds = [c.args[0] for c in session.run.call_args_list]
+    assert cluster_cmds == ["aws s3 ls s3://b/empty/"]
+
+
+def test_s3_stage_whitespace_only_listing_treated_as_empty():
+    session = MagicMock()
+    session.run.side_effect = ["   \n  "]
+    parsed = S3Source(raw="s3://b/p/", bucket="b", prefix="p/")
+    with pytest.raises(RawSourceError, match="empty"):
+        raw_staging._s3_stage(session, parsed, "name", None, None)
+
+
 # ── _s3_stage presign fallback ────────────────────────────────────────────
+#
+# These integration tests drive the fallback path by patching the laptop-side
+# helper functions (_list_s3_keys / _bucket_region / _presign_s3_key), which
+# keeps them independent of whether those helpers use the AWS CLI or boto3.
+# Focused unit tests for each helper's own S3-client wiring live further down.
 
 
 def test_s3_stage_falls_back_to_presigned_urls_on_access_denied():
@@ -224,30 +260,24 @@ def test_s3_stage_falls_back_to_presigned_urls_on_access_denied():
     ]
     parsed = S3Source(raw="s3://b/p/", bucket="b", prefix="p/")
 
-    def laptop_run_side_effect(cmd, *args, **kwargs):
-        if "list-objects-v2" in cmd:
-            return _completed(stdout='["p/file.hdf5", "p/sub/nested.bin"]')
-        if "get-bucket-location" in cmd:
-            return _completed(stdout="us-west-2")
-        if "presign" in cmd:
-            presign_uri = cmd[3]  # s3://b/<key>
-            return _completed(stdout=f"https://example.com/{presign_uri}?sig=xyz")
-        raise AssertionError(f"unexpected laptop command: {cmd}")
-
-    with patch.object(
-        raw_staging.subprocess, "run", side_effect=laptop_run_side_effect
-    ) as laptop_run:
+    with (
+        patch.object(
+            raw_staging,
+            "_list_s3_keys",
+            return_value=["p/file.hdf5", "p/sub/nested.bin"],
+        ),
+        patch.object(raw_staging, "_bucket_region", return_value=("us-west-2", False)),
+        patch.object(
+            raw_staging,
+            "_presign_s3_key",
+            side_effect=lambda bucket, key, *a, **k: (
+                f"https://example.com/{key}?sig=xyz"
+            ),
+        ) as presign,
+    ):
         raw_staging._s3_stage(session, parsed, "name", "prof", "us-west-2")
 
-    # Laptop calls: list + bucket-location + 2 presigns.
-    aws_calls = [c.args[0] for c in laptop_run.call_args_list]
-    list_calls = [c for c in aws_calls if "list-objects-v2" in c]
-    presign_calls = [c for c in aws_calls if "presign" in c]
-    assert len(list_calls) == 1
-    assert len(presign_calls) == 2  # one per object
-    # Profile/region threaded through.
-    assert "--profile" in list_calls[0] and "prof" in list_calls[0]
-    assert "--region" in list_calls[0] and "us-west-2" in list_calls[0]
+    assert presign.call_count == 2  # one per object
 
     # Cluster: probe (raised), reset, then 2 curls (one per key).
     cluster_cmds = [c.args[0] for c in session.run.call_args_list]
@@ -274,22 +304,20 @@ def test_s3_stage_fallback_skips_directory_marker_keys():
     ]
     parsed = S3Source(raw="s3://b/p/", bucket="b", prefix="p/")
 
-    def laptop_run_side_effect(cmd, *args, **kwargs):
-        if "list-objects-v2" in cmd:
-            return _completed(stdout='["p/file.hdf5", "p/dir/", "p/other.bin"]')
-        if "get-bucket-location" in cmd:
-            return _completed(stdout="us-west-2")
-        if "presign" in cmd:
-            return _completed(stdout="https://example.com/x?sig=xyz")
-        raise AssertionError(f"unexpected laptop command: {cmd}")
-
-    with patch.object(
-        raw_staging.subprocess, "run", side_effect=laptop_run_side_effect
-    ) as laptop_run:
+    with (
+        patch.object(
+            raw_staging,
+            "_list_s3_keys",
+            return_value=["p/file.hdf5", "p/dir/", "p/other.bin"],
+        ),
+        patch.object(raw_staging, "_bucket_region", return_value=("us-west-2", False)),
+        patch.object(
+            raw_staging, "_presign_s3_key", return_value="https://example.com/x?sig=xyz"
+        ) as presign,
+    ):
         raw_staging._s3_stage(session, parsed, "name", None, None)
 
-    presign_calls = [c for c in laptop_run.call_args_list if "presign" in c.args[0]]
-    assert len(presign_calls) == 2  # the "p/dir/" marker was skipped
+    assert presign.call_count == 2  # the "p/dir/" marker was skipped
     cluster_cmds = [c.args[0] for c in session.run.call_args_list]
     curl_cmds = [c for c in cluster_cmds if "curl -fsSL" in c]
     assert len(curl_cmds) == 2
@@ -298,11 +326,10 @@ def test_s3_stage_fallback_skips_directory_marker_keys():
 def test_s3_stage_fallback_presigns_against_bucket_region():
     """Presign uses the bucket's home region, not the run region.
 
-    ``aws s3 presign`` signs locally and can't auto-redirect, so a URL
-    signed for the wrong region gets a PermanentRedirect from S3. The
-    bucket region comes from ``get-bucket-location``; the run region
-    (here us-west-2) must NOT be what presign is given when the bucket
-    lives elsewhere (here ap-northeast-1).
+    A presigned URL signed for the wrong region gets a PermanentRedirect
+    from S3. The bucket region comes from ``_bucket_region``; the run region
+    (here us-west-2) must NOT be what the presign client is given when the
+    bucket lives elsewhere (here ap-northeast-1).
     """
     session = MagicMock()
     session.run.side_effect = [
@@ -312,44 +339,21 @@ def test_s3_stage_fallback_presigns_against_bucket_region():
     ]
     parsed = S3Source(raw="s3://b/p/", bucket="b", prefix="p/")
 
-    def laptop_run_side_effect(cmd, *args, **kwargs):
-        if "list-objects-v2" in cmd:
-            return _completed(stdout='["p/file.hdf5"]')
-        if "get-bucket-location" in cmd:
-            return _completed(stdout="ap-northeast-1")
-        if "presign" in cmd:
-            return _completed(stdout="https://example.com/x?sig=xyz")
-        raise AssertionError(f"unexpected laptop command: {cmd}")
-
-    with patch.object(
-        raw_staging.subprocess, "run", side_effect=laptop_run_side_effect
-    ) as laptop_run:
+    with (
+        patch.object(raw_staging, "_list_s3_keys", return_value=["p/file.hdf5"]),
+        patch.object(
+            raw_staging, "_bucket_region", return_value=("ap-northeast-1", False)
+        ),
+        patch.object(
+            raw_staging, "_presign_s3_key", return_value="https://example.com/x?sig=xyz"
+        ) as presign,
+    ):
         raw_staging._s3_stage(session, parsed, "name", "prof", "us-west-2")
 
-    presign_calls = [
-        c.args[0] for c in laptop_run.call_args_list if "presign" in c.args[0]
-    ]
-    assert len(presign_calls) == 1
-    # The bucket's region (ap-northeast-1), not the run region (us-west-2).
-    assert "ap-northeast-1" in presign_calls[0]
-    assert "us-west-2" not in presign_calls[0]
-
-
-def test_bucket_region_normalizes_us_east_1_null():
-    """get-bucket-location returns None/null for legacy us-east-1 buckets."""
-    with patch.object(
-        raw_staging.subprocess, "run", return_value=_completed(stdout="None")
-    ):
-        assert raw_staging._bucket_region("b", None, None) == "us-east-1"
-
-
-def test_bucket_region_falls_back_to_run_region_on_error():
-    with patch.object(
-        raw_staging.subprocess,
-        "run",
-        return_value=_completed(returncode=255, stderr="boom"),
-    ):
-        assert raw_staging._bucket_region("b", None, "eu-west-1") == "eu-west-1"
+    # The presign helper is given the bucket's region (ap-northeast-1), not
+    # the run region (us-west-2).
+    assert presign.call_count == 1
+    assert presign.call_args.args[3] == "ap-northeast-1"
 
 
 def test_s3_stage_fallback_empty_prefix_raises():
@@ -358,11 +362,7 @@ def test_s3_stage_fallback_empty_prefix_raises():
         RuntimeError("An error occurred (AccessDenied) when calling ListObjectsV2")
     ]
     parsed = S3Source(raw="s3://b/p/", bucket="b", prefix="p/")
-    with patch.object(
-        raw_staging.subprocess,
-        "run",
-        return_value=_completed(stdout="[]"),
-    ):
+    with patch.object(raw_staging, "_list_s3_keys", return_value=[]):
         with pytest.raises(RawSourceError, match="empty"):
             raw_staging._s3_stage(session, parsed, "name", None, None)
 
@@ -374,10 +374,50 @@ def test_s3_stage_propagates_non_auth_probe_errors():
         RuntimeError("Could not connect to the endpoint URL"),
     ]
     parsed = S3Source(raw="s3://b/p/", bucket="b", prefix="p/")
-    with patch.object(raw_staging.subprocess, "run") as laptop_run:
+    with patch.object(raw_staging, "_list_s3_keys") as list_keys:
         with pytest.raises(RawSourceError, match="not a permission issue"):
             raw_staging._s3_stage(session, parsed, "name", None, None)
-    laptop_run.assert_not_called()
+    list_keys.assert_not_called()
+
+
+def test_s3_stage_bare_forbidden_no_longer_triggers_fallback():
+    """A non-structured error merely containing 'Forbidden' (e.g. a proxy
+    body) is NOT an S3 permission signal and must propagate, not route to
+    the laptop presign fallback."""
+    session = MagicMock()
+    session.run.side_effect = [
+        RuntimeError("407 Proxy Authentication Required: Forbidden by upstream"),
+    ]
+    parsed = S3Source(raw="s3://b/p/", bucket="b", prefix="p/")
+    with patch.object(raw_staging, "_list_s3_keys") as list_keys:
+        with pytest.raises(RawSourceError, match="not a permission issue"):
+            raw_staging._s3_stage(session, parsed, "name", None, None)
+    list_keys.assert_not_called()
+
+
+def test_s3_stage_structured_403_still_triggers_fallback():
+    """Dropping bare 'Forbidden' must not regress real, structured 403s."""
+    session = MagicMock()
+    session.run.side_effect = [
+        RuntimeError(
+            "An error occurred (403) when calling the ListObjectsV2 operation"
+        ),
+        "",  # reset
+        "",  # curl 1
+    ]
+    parsed = S3Source(raw="s3://b/p/", bucket="b", prefix="p/")
+    with (
+        patch.object(raw_staging, "_list_s3_keys", return_value=["p/f.bin"]),
+        patch.object(raw_staging, "_bucket_region", return_value=("us-west-2", False)),
+        patch.object(
+            raw_staging, "_presign_s3_key", return_value="https://example.com/x?sig=y"
+        ),
+    ):
+        raw_staging._s3_stage(session, parsed, "name", None, None)
+    curl_cmds = [
+        c.args[0] for c in session.run.call_args_list if "curl -fsSL" in c.args[0]
+    ]
+    assert len(curl_cmds) == 1
 
 
 def test_s3_stage_does_not_misclassify_bucket_named_with_404():
@@ -393,10 +433,168 @@ def test_s3_stage_does_not_misclassify_bucket_named_with_404():
     parsed = S3Source(
         raw="s3://my-dataset-404/p/", bucket="my-dataset-404", prefix="p/"
     )
-    with patch.object(raw_staging.subprocess, "run") as laptop_run:
+    with patch.object(raw_staging, "_list_s3_keys") as list_keys:
         with pytest.raises(RawSourceError, match="not a permission issue"):
             raw_staging._s3_stage(session, parsed, "name", None, None)
-    laptop_run.assert_not_called()
+    list_keys.assert_not_called()
+
+
+# ── _list_s3_keys (boto3 paginator) ───────────────────────────────────────
+
+
+def _paginator_client(pages: list[dict]) -> MagicMock:
+    """A mock S3 client whose list_objects_v2 paginator yields ``pages``."""
+    client = MagicMock()
+    paginator = MagicMock()
+    paginator.paginate.return_value = iter(pages)
+    client.get_paginator.return_value = paginator
+    return client
+
+
+def test_list_s3_keys_paginates():
+    """Keys from every page are concatenated in order (>1000-object path)."""
+    client = _paginator_client(
+        [
+            {"Contents": [{"Key": "p/a"}, {"Key": "p/b"}]},
+            {"Contents": [{"Key": "p/c"}]},
+        ]
+    )
+    with patch.object(raw_staging, "s3_client", return_value=client):
+        keys = raw_staging._list_s3_keys("b", "p/", None, None)
+    assert keys == ["p/a", "p/b", "p/c"]
+    client.get_paginator.assert_called_once_with("list_objects_v2")
+    paginator = client.get_paginator.return_value
+    paginator.paginate.assert_called_once_with(Bucket="b", Prefix="p/")
+
+
+def test_list_s3_keys_empty_prefix_returns_empty():
+    """A prefix with no objects yields a page with no Contents → []."""
+    client = _paginator_client([{"KeyCount": 0}])
+    with patch.object(raw_staging, "s3_client", return_value=client):
+        assert raw_staging._list_s3_keys("b", "empty/", None, None) == []
+
+
+def test_list_s3_keys_wraps_client_error():
+    client = MagicMock()
+    paginator = MagicMock()
+    paginator.paginate.side_effect = _s3_client_error("AccessDenied")
+    client.get_paginator.return_value = paginator
+    with patch.object(raw_staging, "s3_client", return_value=client):
+        with pytest.raises(RawSourceError, match="list-objects-v2 failed"):
+            raw_staging._list_s3_keys("b", "p/", None, None)
+
+
+# ── _bucket_region (boto3 head_bucket) ────────────────────────────────────
+
+
+def test_bucket_region_returns_head_bucket_region():
+    """head_bucket's BucketRegion flows through; us-east-1 is explicit now."""
+    client = MagicMock()
+    client.head_bucket.return_value = {"BucketRegion": "us-east-1"}
+    with patch.object(raw_staging, "s3_client", return_value=client):
+        assert raw_staging._bucket_region("b", None, None) == ("us-east-1", False)
+
+
+def test_bucket_region_returns_cross_region():
+    """The resolved region (not the run region) is returned for presigning."""
+    client = MagicMock()
+    client.head_bucket.return_value = {"BucketRegion": "ap-northeast-1"}
+    with patch.object(raw_staging, "s3_client", return_value=client):
+        region, fell_back = raw_staging._bucket_region("b", None, "us-west-2")
+    assert region == "ap-northeast-1"
+    assert fell_back is False
+
+
+def test_bucket_region_falls_back_to_run_region_on_error():
+    client = MagicMock()
+    client.head_bucket.side_effect = _s3_client_error("AccessDenied")
+    with patch.object(raw_staging, "s3_client", return_value=client):
+        assert raw_staging._bucket_region("b", None, "eu-west-1") == ("eu-west-1", True)
+
+
+def test_bucket_region_falls_back_when_region_absent():
+    """A response missing BucketRegion is treated as a fallback."""
+    client = MagicMock()
+    client.head_bucket.return_value = {}
+    with patch.object(raw_staging, "s3_client", return_value=client):
+        assert raw_staging._bucket_region("b", None, "eu-west-1") == ("eu-west-1", True)
+
+
+# ── _presign_s3_key (boto3) ───────────────────────────────────────────────
+
+
+def test_presign_uses_sigv4_virtual_client():
+    """The presign client is built for_presign (SigV4 + virtual addressing).
+
+    Locks in the region-correctness fix: a default client emits a region-less
+    legacy SigV2 URL, so a future refactor dropping for_presign would silently
+    regress cross-region buckets to corrupt (redirect-body) downloads.
+    """
+    client = MagicMock()
+    client.generate_presigned_url.return_value = "https://example.com/x?sig=y"
+    with patch.object(raw_staging, "s3_client", return_value=client) as factory:
+        url = raw_staging._presign_s3_key("b", "p/key.bin", "prof", "ap-northeast-1")
+    assert url == "https://example.com/x?sig=y"
+    # The client is built for_presign, bound to the (bucket) region passed in.
+    assert factory.call_args.kwargs["for_presign"] is True
+    assert factory.call_args.args == ("prof", "ap-northeast-1")
+    client.generate_presigned_url.assert_called_once_with(
+        "get_object",
+        Params={"Bucket": "b", "Key": "p/key.bin"},
+        ExpiresIn=3600,
+    )
+
+
+def test_presign_wraps_client_error():
+    client = MagicMock()
+    client.generate_presigned_url.side_effect = _s3_client_error("AccessDenied")
+    with patch.object(raw_staging, "s3_client", return_value=client):
+        with pytest.raises(RawSourceError, match="presign failed"):
+            raw_staging._presign_s3_key("b", "p/key.bin", None, None)
+
+
+# ── region-fallback warning (presign path) ────────────────────────────────
+
+
+def test_s3_presign_warns_on_region_fallback(capsys):
+    """When _bucket_region falls back, warn about redirect-body corruption."""
+    session = MagicMock()
+    session.run.side_effect = [
+        RuntimeError("An error occurred (AccessDenied) when calling ListObjectsV2"),
+        "",  # reset
+        "",  # curl 1
+    ]
+    parsed = S3Source(raw="s3://b/p/", bucket="b", prefix="p/")
+    with (
+        patch.object(raw_staging, "_list_s3_keys", return_value=["p/f.bin"]),
+        patch.object(raw_staging, "_bucket_region", return_value=("us-west-2", True)),
+        patch.object(
+            raw_staging, "_presign_s3_key", return_value="https://example.com/x?sig=y"
+        ),
+    ):
+        raw_staging._s3_stage(session, parsed, "name", "prof", "us-west-2")
+    err = capsys.readouterr().err
+    assert "fallback region" in err
+    assert "b" in err
+
+
+def test_s3_presign_no_warning_when_region_resolved(capsys):
+    session = MagicMock()
+    session.run.side_effect = [
+        RuntimeError("An error occurred (AccessDenied) when calling ListObjectsV2"),
+        "",  # reset
+        "",  # curl 1
+    ]
+    parsed = S3Source(raw="s3://b/p/", bucket="b", prefix="p/")
+    with (
+        patch.object(raw_staging, "_list_s3_keys", return_value=["p/f.bin"]),
+        patch.object(raw_staging, "_bucket_region", return_value=("us-west-2", False)),
+        patch.object(
+            raw_staging, "_presign_s3_key", return_value="https://example.com/x?sig=y"
+        ),
+    ):
+        raw_staging._s3_stage(session, parsed, "name", "prof", "us-west-2")
+    assert "fallback region" not in capsys.readouterr().err
 
 
 # ── _hf_stage ─────────────────────────────────────────────────────────────
@@ -498,3 +696,44 @@ def test_stage_raw_propagates_parse_error_unwrapped(tmp_path: Path):
             aws_region=None,
         )
     session.run.assert_not_called()
+
+
+# ── stage_raw post-stage content check ────────────────────────────────────
+
+
+def test_stage_raw_content_check_passes_when_dest_nonempty(tmp_path: Path):
+    """The trailing `ls -A` reports files → stage_raw returns cleanly."""
+    src = tmp_path / "raw"
+    src.mkdir()
+    session = MagicMock()
+    # reset run, rsync (no run), then the trailing `ls -A` returns a file.
+    session.run.return_value = "marker.txt"
+    stage_raw(session, f"file://{src}", "name-x", aws_profile=None, aws_region=None)
+    last = session.run.call_args_list[-1].args[0]
+    assert last == "ls -A /fsx/raw/name-x/"
+
+
+def test_stage_raw_content_check_fails_on_empty_dest(tmp_path: Path):
+    """An empty dest listing after staging → RawSourceError."""
+    src = tmp_path / "raw"
+    src.mkdir()
+    session = MagicMock()
+    session.run.return_value = ""  # every run incl. the final `ls -A` is empty
+    with pytest.raises(RawSourceError, match="produced no files"):
+        stage_raw(session, f"file://{src}", "name-x", aws_profile=None, aws_region=None)
+
+
+def test_stage_raw_content_check_verify_failure_wraps(tmp_path: Path):
+    """If the `ls -A` verification itself fails, wrap it as RawSourceError."""
+    src = tmp_path / "raw"
+    src.mkdir()
+    session = MagicMock()
+
+    def run(cmd, *a, **k):
+        if cmd.startswith("ls -A"):
+            raise RuntimeError("No such file or directory")
+        return ""
+
+    session.run.side_effect = run
+    with pytest.raises(RawSourceError, match="failed to verify staged content"):
+        stage_raw(session, f"file://{src}", "name-x", aws_profile=None, aws_region=None)

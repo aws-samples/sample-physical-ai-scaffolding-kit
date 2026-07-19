@@ -12,6 +12,8 @@ import re
 
 import pytest
 
+from physai_regression.checks._parsing import _LABEL_RE
+
 # Expected layout under /fsx/. dcv-claims is created lazily by the eval
 # stage's flock — so it's checked separately.
 FSX_DIRS = ["raw", "datasets", "checkpoints", "evaluations", "enroot", "physai"]
@@ -47,8 +49,6 @@ def test_fsx_dirs_present(physai_session) -> None:
     )
 
 
-# `--label` strips ``<task-id>: `` prefixes srun adds.
-_LABEL_RE = re.compile(r"^\s*\d+:\s*")
 GPU_FEATURES = {"l40s", "l4", "a10g", "v100", "a100", "h100"}
 
 

@@ -29,7 +29,11 @@ Examples::
 ``--profile`` and ``--region`` are consumed by both the orchestration
 primitives (``cdk deploy``/``destroy``) and the conftest fixtures, so they
 are parsed at the top level and forwarded to pytest as well. All other
-arguments after the mode are forwarded to pytest unchanged.
+arguments after the mode are forwarded to pytest unchanged (``-k``, ``-v``,
+``-m``, ``-x``, ``--lf``, ``--pdb``, ``--tb=short`` ...). The one exception
+is a ``--`` flag that closely resembles one of the runner's own options
+(e.g. ``--profil``, ``--regon``): that is rejected as a typo rather than
+silently forwarded to pytest and ignored.
 
 ``--builtin-examples`` is mode-orthogonal: when set with any of the three
 modes it adds the Layer 2 shipped-example checks on top of the Layer 1
@@ -51,6 +55,7 @@ failure.
 """
 
 import argparse
+import difflib
 import sys
 from pathlib import Path
 
@@ -62,6 +67,16 @@ from .raw_staging import RawSourceError, parse_raw_source
 CHECKS_DIR = Path(__file__).resolve().parent / "checks"
 
 MODES = ["fresh", "upgrade-existing", "upgrade-from-ref"]
+
+# The runner's own long options. A ``--`` token that closely resembles one of
+# these is rejected as a typo; every other ``--`` flag is forwarded to pytest.
+_RUNNER_LONG_FLAGS = (
+    "--profile",
+    "--region",
+    "--from-ref",
+    "--builtin-examples",
+    "--raw-source",
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -260,6 +275,26 @@ def _run_upgrade_from_ref(
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args, pytest_args = parser.parse_known_args(argv)
+
+    # parse_known_args forwards anything it doesn't recognize to pytest, which
+    # is what we want for real pytest passthrough (-k, -v, -m, -x, --lf, --pdb,
+    # --tb=short, ...). The one hazard it hides is a TYPO of this runner's own
+    # long flags: `--profil x` (or `--regon`) would sail through to pytest and
+    # be ignored instead of erroring, so the run proceeds with no profile and
+    # fails much later. Catch only that: reject a long flag that closely
+    # resembles one of the runner's own options. Everything else — genuine
+    # pytest flags, short flags, values — is forwarded untouched. `=value`
+    # suffixes are stripped before matching so `--profil=x` is still caught.
+    for arg in pytest_args:
+        if not arg.startswith("--"):
+            continue
+        name = arg.split("=", 1)[0]
+        if difflib.get_close_matches(name, _RUNNER_LONG_FLAGS, n=1, cutoff=0.7):
+            parser.error(
+                f"unrecognized flag {name!r} — did you mean one of the runner "
+                f"flags {', '.join(_RUNNER_LONG_FLAGS)}? (Genuine pytest flags "
+                f"are forwarded; only close typos of runner flags are rejected.)"
+            )
 
     if args.mode != "upgrade-from-ref" and args.from_ref is not None:
         parser.error("--from-ref is only valid for the upgrade-from-ref mode")

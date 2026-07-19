@@ -51,7 +51,12 @@ def test_cluster_name_uses_cli_override_without_calling_aws():
 def test_cluster_name_resolves_from_cfn_output():
     with patch(
         "physai_regression.conftest.describe_stack",
-        return_value="physai-cluster-abc12345",
+        return_value={
+            "Outputs": [
+                {"OutputKey": "Other", "OutputValue": "ignore-me"},
+                {"OutputKey": "ClusterName", "OutputValue": "physai-cluster-abc12345"},
+            ]
+        },
     ) as ds:
         out = _unwrap(conftest_module.cluster_name)(
             _request_with(),
@@ -61,15 +66,15 @@ def test_cluster_name_resolves_from_cfn_output():
     assert out == "physai-cluster-abc12345"
     kwargs = ds.call_args.kwargs
     assert kwargs == {"profile": "myprofile", "region": "us-west-2"}
-    args = ds.call_args.args
-    assert args[0] == "PhysaiClusterStack"
-    assert "ClusterName" in args[1]
+    # The stack name is positional; describe_stack no longer takes a query.
+    assert ds.call_args.args[0] == "PhysaiClusterStack"
 
 
 def test_cluster_name_fails_loudly_when_output_empty():
     with patch(
         "physai_regression.conftest.describe_stack",
-        return_value="",
+        # Stack exists but has no matching output key.
+        return_value={"Outputs": [{"OutputKey": "Other", "OutputValue": "x"}]},
     ):
         with pytest.raises(pytest.fail.Exception) as excinfo:
             _unwrap(conftest_module.cluster_name)(

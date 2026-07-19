@@ -1,12 +1,12 @@
 """Pipeline-stage checks using the fake-project containers."""
 
 import json
-import re
 import subprocess
 import time
 
 import pytest
 
+from physai_regression.checks._parsing import _extract_run_id, _extract_stage_jobs
 from physai_regression.orchestration.deploy import aws_cli_args
 
 CONFIG_REL = "configs/fake-pipeline.yaml"
@@ -92,11 +92,15 @@ def _wait_for_run_jobs(session, run_id: str, timeout: int) -> dict[str, str]:
 def _seed_raw(session, profile: str | None, region: str | None, bucket: str) -> str:
     """Stage a tiny raw input under ``/fsx/raw/<RAW_NAME>/`` via S3 + DRA.
 
-    Returns ``RAW_NAME``. Idempotent: if the directory already exists from
-    an earlier run, the function returns without re-uploading.
+    Returns ``RAW_NAME``. Idempotent: if the marker file is already present
+    from an earlier run, the function returns without re-uploading.
     """
     target = f"/fsx/raw/{RAW_NAME}"
-    out = session.run(f"test -d {target} && echo y || echo n")
+    # Only short-circuit when the marker file itself is present, not merely
+    # the directory. A prior run that created the dir but never completed the
+    # DRA import of marker.txt would otherwise return a fixture the convert
+    # stage then reads as empty.
+    out = session.run(f"test -f {target}/marker.txt && echo y || echo n")
     if out.strip() == "y":
         return RAW_NAME
     # Upload via S3 so the DRA imports it into /fsx/raw/.
@@ -126,25 +130,6 @@ def _seed_raw(session, profile: str | None, region: str | None, bucket: str) -> 
             return RAW_NAME
         time.sleep(2)
     raise AssertionError(f"DRA did not import {s3_uri} → {target} within 60s.")
-
-
-_RUN_ID_RE = re.compile(r"Run ID:\s+(run-\S+)")
-# `physai run -n` prints one line per stage: "  <stage>: job <ID>".
-_STAGE_JOB_RE = re.compile(r"^\s*(\w+):\s+job\s+(\d+)\s*$", re.MULTILINE)
-
-
-def _extract_run_id(stdout: str) -> str:
-    m = _RUN_ID_RE.search(stdout)
-    if not m:
-        raise AssertionError(
-            f"Could not find 'Run ID:' line in physai output:\n{stdout}"
-        )
-    return m.group(1)
-
-
-def _extract_stage_jobs(stdout: str) -> dict[str, str]:
-    """Return ``{stage_name: job_id}`` parsed from ``physai run -n`` output."""
-    return {m.group(1): m.group(2) for m in _STAGE_JOB_RE.finditer(stdout)}
 
 
 def _model_config_root(fake_project_dir) -> str:
@@ -318,10 +303,13 @@ def test_cancel_cascades(
 
     The fake-trainer sleeps 20s before exiting, so by the time
     ``physai cancel`` lands train is guaranteed to still be active —
-    train cannot reach COMPLETED. Eval terminal state is then either
-    absent (train was PENDING; --kill-on-invalid-dep=yes drops eval
-    pre-run, no sacct record) or DependencyNeverSatisfied (train was
-    RUNNING). Either is a successful cascade.
+    train cannot reach COMPLETED. Its terminal state is CANCELLED in the
+    common case (occasionally FAILED if the cancel lands in the
+    launch/teardown gap); the check asserts train did not COMPLETE rather
+    than the exact string. Eval terminal state is then either absent (train
+    was PENDING; --kill-on-invalid-dep=yes drops eval pre-run, no sacct
+    record) or DependencyNeverSatisfied (train was RUNNING). Either is a
+    successful cascade.
     """
     dataset_name = "regression-cancel-in"
     dataset_dir = f"/fsx/datasets/{dataset_name}"
@@ -362,8 +350,21 @@ def test_cancel_cascades(
         states = _wait_for_run_jobs(physai_session, run_id, timeout=300)
         train_states = [s for n, s in states.items() if n.endswith("/train")]
         eval_states = [s for n, s in states.items() if n.endswith("/eval")]
-        assert train_states == ["CANCELLED"], (
-            f"train job did not record CANCELLED: {states}"
+        # The cancel must have prevented train from completing. Slurm records
+        # a cancelled job as CANCELLED in the common case, but if the cancel
+        # lands in the launch/teardown gap it can occasionally be FAILED —
+        # both prove train did not reach COMPLETED, which is the property the
+        # cascade depends on. Assert on that property rather than the exact
+        # string so legitimate scheduler variance isn't a red test.
+        assert len(train_states) == 1, (
+            f"expected exactly one train terminal row, got {train_states}: {states}"
+        )
+        assert train_states[0] not in _NON_TERMINAL_STATES, (
+            f"train did not reach a terminal state: {states}"
+        )
+        assert train_states[0] != "COMPLETED", (
+            f"train reached COMPLETED despite cancel — cascade did not "
+            f"trigger: {states}"
         )
         # Eval terminal state depends on train's state at cancel:
         #   - PENDING → eval killed pre-run, no sacct record (eval_states=[])

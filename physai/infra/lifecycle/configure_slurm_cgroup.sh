@@ -58,13 +58,12 @@ EOF
         # ProctrackType changes require a full restart; a reconfigure alone
         # won't pick them up.
         systemctl restart slurmctld
-        # Wait for slurmctld to come back, then issue a final reconfigure to
-        # push the complete config (including pyxis plugstack written by
-        # install_enroot_pyxis.sh) to all registered workers. Without this,
-        # the restart interrupts any in-flight reconfigure from earlier
-        # scripts and Slurm (pre-25.11) does not auto-push on slurmctld
-        # restart.
-        sleep 5
+        # Then issue a final reconfigure to push the complete config (including
+        # the pyxis plugstack written by install_enroot_pyxis.sh) to all
+        # registered workers — the restart interrupts any in-flight reconfigure
+        # from earlier scripts and Slurm (pre-25.11) does not auto-push on
+        # restart. slurm_reconfigure_with_retry waits for slurmctld to answer
+        # again after the restart before reconfiguring.
         slurm_reconfigure_with_retry
         echo "Controller: cgroup config applied, slurmctld restarted and reconfigured"
     else

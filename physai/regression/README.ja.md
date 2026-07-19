@@ -5,11 +5,15 @@ Physical AI パイプラインプラットフォームの回帰テストです�
 （ライフサイクルスクリプト、Slurm 機能、DCV 状態、CLI サーフェス）が
 壊れていないことを検証します。
 
-このスイートは CLI パッケージから `physai.ssh.Session` をインポートします。
-まだインストールしていない場合は、先に CLI をインストールしてください:
+このスイートは [uv](https://docs.astral.sh/uv/) の仮想プロジェクトです。
+`physai.ssh.Session` と `physai` コンソールスクリプトを、隣接する `cli/`
+パッケージから editable なパス依存として取り込むため、`uv run` は常に
+（マシン上の別の editable インストールではなく）この作業ツリーの CLI を
+実行します。まず環境を用意してください:
 
 ```bash
-pip install -e "physai/cli[dev]"
+cd physai/regression
+uv sync
 ```
 
 ## ライブクラスターに対してチェックを実行する
@@ -149,5 +153,5 @@ python -m physai_regression upgrade-existing --builtin-examples -k n1.6 \
 
 ```bash
 cd physai/regression
-python -m pytest tests/
+uv run pytest tests/
 ```

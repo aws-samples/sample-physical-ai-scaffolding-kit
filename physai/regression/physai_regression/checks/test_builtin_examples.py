@@ -44,11 +44,11 @@ import pytest
 
 from physai_regression.raw_staging import stage_raw
 
-# Helpers reused from the Layer 1 pipeline checks. Kept private to that
-# module today; pulled in here rather than refactored to a shared module
-# because the function set is small and used in two places only.
+# Output parsing is shared via the _parsing module; the sacct/squeue polling
+# helpers stay in test_pipeline (they take a live session and are
+# pipeline-specific).
+from physai_regression.checks._parsing import _extract_run_id
 from physai_regression.checks.test_pipeline import (
-    _extract_run_id,
     _wait_for_run_jobs,
     _wait_for_stage_states,
 )

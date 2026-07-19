@@ -1,0 +1,33 @@
+[project]
+name = "physai-regression"
+version = "0.1.0"
+description = "Live-cluster regression checks for the Physical AI Pipeline Platform"
+requires-python = ">=3.10"
+dependencies = [
+    "pytest",
+    "boto3>=1.43",
+    "physai",
+]
+
+# Virtual project: uv provisions the environment and locks dependencies, but
+# never builds/installs `regression/` itself. The checks and runner are
+# executed in place via `python -m physai_regression` / `uv run pytest`.
+[tool.uv]
+package = false
+
+# `physai` is an editable path dep on the sibling `cli/` package. The path is
+# relative to this file, so `import physai` and the `physai` console script
+# always resolve to THIS worktree's `cli/` — never a stray editable install
+# elsewhere on the machine (which, on some setups, points at a different
+# worktree of the same repo).
+[tool.uv.sources]
+physai = { path = "../cli", editable = true }
+
+# Migrated from the former regression/pytest.ini. `addopts`/`markers` must be
+# valid TOML here (unlike INI): `addopts` is a single string, `markers` a list.
+[tool.pytest.ini_options]
+addopts = "-m \"not builtin_example\""
+markers = [
+    "platform: Layer 1 — platform regression checks (default)",
+    "builtin_example: Layer 2 — shipped-example regression checks (opt-in)",
+]

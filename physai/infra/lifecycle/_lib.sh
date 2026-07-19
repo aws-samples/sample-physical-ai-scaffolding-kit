@@ -59,14 +59,52 @@ require_node_type() {
     exit 0
 }
 
-# slurm_reconfigure_with_retry: wrap `scontrol reconfigure` in a retry loop.
-# slurmctld can be transiently unreachable in the lifecycle pipeline (apt
-# package processing, initramfs rebuilds, kernel-trigger work all happen on
-# the controller during install_docker.sh / install_enroot_pyxis.sh and can
-# briefly stall slurmctld). A single naive reconfigure that hits that window
-# fails with "Unable to contact slurm controller (connect failure)" and
-# aborts the lifecycle. Retry up to 6 times with 5s sleeps (~30s budget).
+# wait_for_slurmctld_ready: block until slurmctld answers RPCs.
+# `systemctl enable --now slurmctld` returns when the unit has launched, not
+# when the controller is answering. On a first boot slurmctld connects to a
+# freshly-created RDS accounting DB and initializes its state before it
+# responds — and it does so while install_docker.sh / install_enroot_pyxis.sh
+# run concurrently on the same controller (a ~30s update-initramfs, apt, and a
+# pyxis compile all competing for CPU/IO), so it can take several minutes to
+# start answering. A `scontrol reconfigure` that races ahead of that fails with
+# "Unable to contact slurm controller (connect failure)" and aborts the
+# lifecycle. Call this immediately before such a reconfigure. Probe with
+# `scontrol ping` (the reachability check reconfigure needs); abort early if
+# the unit died, otherwise give it up to 300s (observed cold-start under
+# contention was still not answering at ~168s).
+wait_for_slurmctld_ready() {
+    local attempt
+    for attempt in $(seq 1 300); do
+        if ! systemctl is-active --quiet slurmctld; then
+            echo "ERROR: slurmctld is not active (attempt $attempt). Recent log:" >&2
+            journalctl -u slurmctld -n 20 --no-pager >&2 || true
+            return 1
+        fi
+        if scontrol ping >/dev/null 2>&1; then
+            echo "slurmctld ready on attempt $attempt"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "ERROR: slurmctld did not start answering RPCs within 300s" >&2
+    journalctl -u slurmctld -n 20 --no-pager >&2 || true
+    return 1
+}
+
+# slurm_reconfigure_with_retry: wait for slurmctld to be reachable, then run
+# `scontrol reconfigure` with retries.
+#
+# Every lifecycle reconfigure funnels through here, so the readiness gate
+# lives here rather than at each call site: slurmctld may still be doing its
+# (minutes-long, first-boot) cold start when a reconfigure fires — either
+# because it was only just `systemctl enable --now`'d, or because a sibling
+# script restarted it — and a reconfigure that races that cold start fails
+# with "Unable to contact slurm controller (connect failure)" and aborts the
+# lifecycle. wait_for_slurmctld_ready blocks until it answers (or the unit
+# dies). The retry loop then still covers a brief mid-reconfigure stall from
+# concurrent apt/kernel work elsewhere in the pipeline.
 slurm_reconfigure_with_retry() {
+    wait_for_slurmctld_ready || return 1
     local attempt
     for attempt in 1 2 3 4 5 6; do
         if scontrol reconfigure 2>&1; then

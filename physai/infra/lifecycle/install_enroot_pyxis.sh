@@ -138,8 +138,11 @@ if [[ "$NODE_TYPE" == "controller" ]]; then
     fi
 
     # Push updated plugstack to workers via the configless mechanism only if
-    # something actually changed. slurmctld is already running, but earlier
-    # apt/kernel work in this script can briefly stall it; retry covers that.
+    # something actually changed. slurm_reconfigure_with_retry waits for
+    # slurmctld to be answering first — on a first boot it may still be doing
+    # its cold start while this script's apt work + ~30s update-initramfs +
+    # pyxis compile starve it of CPU, and a reconfigure that races that would
+    # fail the lifecycle.
     if [[ "$before" != "$after" ]] || $cgroup_changed; then
         slurm_reconfigure_with_retry
     fi

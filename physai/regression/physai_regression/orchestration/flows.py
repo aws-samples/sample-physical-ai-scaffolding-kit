@@ -6,6 +6,7 @@ these so the pytest-side code stays focused on running checks.
 
 import secrets
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -101,12 +102,28 @@ def deploy_from_ref(
         )
     physai_in_worktree = worktree_root / prefix
     infra_in_worktree = physai_in_worktree / "infra"
-    deploy.npm_ci(infra_in_worktree)
-    deploy.cdk_deploy(
-        profile=profile,
-        region=region,
-        infra_dir=infra_in_worktree,
-    )
+    try:
+        deploy.npm_ci(infra_in_worktree)
+        deploy.cdk_deploy(
+            profile=profile,
+            region=region,
+            infra_dir=infra_in_worktree,
+        )
+    except Exception:
+        # `git worktree add` already materialized worktree_root on disk. A
+        # failure here (npm ci / cdk deploy) leaves it orphaned with no path
+        # returned to the caller, so surface the path for manual cleanup
+        # before re-raising. We deliberately do NOT auto-remove it: a
+        # half-deployed worktree is exactly what an operator wants to
+        # inspect, matching the keep-on-failure contract the upgrade-from-ref
+        # mode already uses for check failures.
+        print(
+            f"deploy from {ref} failed; worktree left for inspection at "
+            f"{worktree_root} (physai/ at {physai_in_worktree}). Remove it "
+            f"with: git worktree remove --force {worktree_root}",
+            file=sys.stderr,
+        )
+        raise
     return physai_in_worktree
 
 

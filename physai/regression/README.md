@@ -5,11 +5,15 @@ pytest function that runs against a live cluster and asserts the platform
 machinery (lifecycle scripts, Slurm features, DCV state, CLI surface) is
 intact.
 
-The suite imports `physai.ssh.Session` from the CLI package; install the
-CLI first if you haven't:
+The suite is a [uv](https://docs.astral.sh/uv/) virtual project; it imports
+`physai.ssh.Session` and the `physai` console script from the sibling `cli/`
+package via an editable path dep, so `uv run` always exercises this
+worktree's CLI (not a stray editable install elsewhere on the machine).
+Provision the environment first:
 
 ```bash
-pip install -e "physai/cli[dev]"
+cd physai/regression
+uv sync
 ```
 
 ## Run the checks against a live cluster
@@ -147,5 +151,5 @@ own wiring with mocks — they don't talk to a cluster:
 
 ```bash
 cd physai/regression
-python -m pytest tests/
+uv run pytest tests/
 ```

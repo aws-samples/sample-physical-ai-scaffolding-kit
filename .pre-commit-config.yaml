@@ -71,7 +71,7 @@ repos:
         # still type-checks against the package it belongs to.
         entry: bash -c 'cd physai && ty check cli regression infra/lifecycle'
         language: python
-        additional_dependencies: [ty, jsonschema, pyyaml, pytest]
+        additional_dependencies: [ty, jsonschema, pyyaml, pytest, boto3]
         pass_filenames: false
         files: ^physai/(cli/.*|infra/lifecycle/.*|regression/.*)\.py$
         types_or: [python]
@@ -92,11 +92,19 @@ repos:
         name: regression pytest (unit)
         # Only the unit tests under `tests/` — the checks under `checks/`
         # talk to a live cluster and aren't safe for pre-commit.
-        entry: bash -c 'cd physai/regression && python -m pytest -q tests/'
+        # `uv run` uses regression/pyproject.toml, whose editable path dep on
+        # ../cli pins `import physai` to THIS worktree (not a stray editable
+        # install elsewhere on the machine). `uv lock --check` fails on a
+        # stale uv.lock (out of sync with regression/ or cli/'s pyproject) —
+        # `--frozen` alone installs from the lock as-is and would NOT catch
+        # that. `--frozen` then installs strictly from the committed lock; uv
+        # auto-creates .venv on first run, so the hook is self-bootstrapping.
+        # The file filter also fires on the manifests (not just *.py) so a
+        # dependency edit that forgets to re-lock is caught.
+        entry: bash -c 'cd physai/regression && uv lock --check && uv run --frozen pytest -q tests/'
         language: system
         pass_filenames: false
-        files: ^physai/regression/.*\.py$
-        types_or: [python]
+        files: ^physai/(regression/.*\.py$|regression/(pyproject\.toml|uv\.lock)$|cli/pyproject\.toml$)
 
       - id: infra-tsc
         name: infra tsc --noEmit

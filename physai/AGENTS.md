@@ -54,11 +54,13 @@ First-time setup (run once):
 ```bash
 pip install -e "cli[dev]"     # installs physai CLI + ruff + pytest
 cd infra && npm install       # installs CDK dependencies
+cd regression && uv sync      # provisions the regression env (physai editable from ../cli, + boto3)
 
 # Pre-commit hooks (config lives at the repo root: ../.pre-commit-config.yaml).
 # Hooks are scoped to physai/ files and split between two stages:
 #   - pre-commit: ruff, ty (type check), cli pytest, regression unit
-#                 pytest, shellcheck, tsc --noEmit, whitespace/EOF/yaml/json
+#                 pytest (via uv run), shellcheck, tsc --noEmit,
+#                 whitespace/EOF/yaml/json
 #   - pre-push:   cdk synth
 pip install pre-commit
 pre-commit install --hook-type pre-commit --hook-type pre-push
@@ -97,7 +99,7 @@ Then pick one of:
 | `cli/` | `cd cli && ruff format` | ~1 s |
 | `infra/` | `cd infra && npm run build` | ~5 s |
 | `infra/` | `cd infra && npm run synth` | ~10 s |
-| `regression/` | `cd regression && python -m pytest tests/` | ~1 s |
+| `regression/` | `cd regression && uv run pytest tests/` | ~1 s |
 | Python (all) | `pre-commit run ty --all-files` (type-checks `cli/`, `regression/`, `infra/lifecycle/` in pre-commit's managed env) | ~3 s |
 | `examples/` | No automated validation yet | — |
 
