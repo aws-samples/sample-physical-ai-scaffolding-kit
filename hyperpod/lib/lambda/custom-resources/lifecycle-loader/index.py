@@ -98,35 +98,6 @@ def upload_file_to_s3(
     )
 
 
-def upload_local_overrides(s3_client, bucket, bucket_path):
-    """Upload local lifecycle script overrides after the upstream scripts."""
-    overrides_dir = os.path.join(os.path.dirname(__file__), "overrides")
-    if not os.path.isdir(overrides_dir):
-        logger.info("No local lifecycle overrides found")
-        return
-
-    for root, _, files in os.walk(overrides_dir):
-        rel_dir = os.path.relpath(root, overrides_dir)
-        for file_name in files:
-            file_path = os.path.join(root, file_name)
-            if rel_dir == ".":
-                s3_key = file_name
-            else:
-                s3_key = f"{rel_dir}/{file_name}"
-
-            logger.info(f"Uploading local override {s3_key}")
-            with open(file_path, "rb") as f:
-                file_content = f.read()
-            upload_file_to_s3(
-                s3_client,
-                bucket,
-                bucket_path,
-                file_content,
-                s3_key,
-                determine_content_type(file_name),
-            )
-
-
 def download_github_file(download_url):
     """Download file content from GitHub."""
     file_req = urllib.request.Request(download_url)
@@ -255,7 +226,6 @@ def handle_create_update(event, context):
                     f"{path}/{dir_name}",
                     dir_name,
                 )
-        upload_local_overrides(s3, bucket, bucket_path)
         return True, "Files uploaded successfully"
 
     except s3.exceptions.NoSuchBucket:
@@ -269,6 +239,36 @@ def handle_create_update(event, context):
         return False, f"Error uploading files: {str(e)}"
 
 
+def handle_delete(event, context):
+    """Handle Delete request type."""
+    s3 = boto3.client("s3")
+    bucket = os.environ["BUCKET_NAME"]
+    bucket_path = os.environ.get("BUCKET_PATH", "")
+
+    try:
+        # Check if bucket exists
+        s3.head_bucket(Bucket=bucket)
+
+        # Delete all objects under the bucket path
+        if bucket_path:
+            delete_prefix = f"{bucket_path}/"
+        else:
+            delete_prefix = ""
+
+        logger.info(f"Deleting objects with prefix: {delete_prefix}")
+        delete_s3_objects_recursively(s3, bucket, delete_prefix)
+
+        return True, "Files deleted successfully"
+
+    except s3.exceptions.NoSuchBucket:
+        # If bucket doesn't exist, still return success
+        logger.info(f"Bucket {bucket} does not exist, considering deletion successful")
+        return True, "Bucket does not exist"
+    except Exception as e:
+        logger.error(f"Error deleting files: {str(e)}")
+        return False, f"Error deleting files: {str(e)}"
+
+
 def handler(event, context):
     """Main Lambda handler function."""
     logger.info(f"Received event: {json.dumps(event)}")
@@ -277,8 +277,7 @@ def handler(event, context):
         if event["RequestType"] in ["Create", "Update"]:
             success, message = handle_create_update(event, context)
         elif event["RequestType"] == "Delete":
-            success = SUCCESS
-            message = "Bucket will be removed. Skip delete objects."
+            success, message = handle_delete(event, context)
         else:
             success, message = False, f"Unsupported RequestType: {event['RequestType']}"
 
