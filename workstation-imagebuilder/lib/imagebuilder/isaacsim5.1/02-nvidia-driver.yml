@@ -1,0 +1,75 @@
+name: install-nvidia-driver
+description: Install NVIDIA GPU driver and CUDA toolkit on Ubuntu 24.04
+schemaVersion: 1.0
+parameters:
+  - DriverBranch:
+      type: string
+      description: NVIDIA driver branch to install (e.g., 570, 560)
+  - CudaVersion:
+      type: string
+      description: CUDA toolkit version to install (e.g., 12-8, 12-6)
+phases:
+  - name: build
+    steps:
+      - name: InstallNvidiaDriver
+        action: ExecuteBash
+        inputs:
+          commands:
+            - |
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+
+              DRIVER_BRANCH="{{ DriverBranch }}"
+              CUDA_VERSION="{{ CudaVersion }}"
+
+              echo "Installing NVIDIA driver ${DRIVER_BRANCH} and CUDA toolkit ${CUDA_VERSION}..."
+
+              # Stop unattended-upgrades and wait for dpkg lock
+              systemctl stop unattended-upgrades.service || true
+              systemctl disable unattended-upgrades.service || true
+              while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+                echo "Waiting for dpkg lock to be released..."
+                sleep 5
+              done
+
+              # Add NVIDIA package repository
+              apt-get update -yq
+              apt-get install -yq --no-install-recommends \
+                software-properties-common \
+                linux-headers-$(uname -r) \
+                dkms
+
+              # Add NVIDIA CUDA repository directly
+              curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/3bf863cc.pub \
+                | gpg --dearmor -o /usr/share/keyrings/cuda-archive-keyring.gpg
+              echo "deb [signed-by=/usr/share/keyrings/cuda-archive-keyring.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/ /" \
+                > /etc/apt/sources.list.d/cuda.list
+
+              apt-get update -yq
+              apt-get install -yq --no-install-recommends \
+                "cuda-drivers-${DRIVER_BRANCH}" \
+                "cuda-toolkit-${CUDA_VERSION}"
+
+              echo "NVIDIA driver ${DRIVER_BRANCH} installation complete. Rebooting..."
+      - name: RebootAfterDriver
+        action: Reboot
+      - name: VerifyDriverPostReboot
+        action: ExecuteBash
+        inputs:
+          commands:
+            - |
+              set -euo pipefail
+              echo "Verifying NVIDIA driver after reboot..."
+              dkms status | grep nvidia
+              nvidia-smi
+  - name: validate
+    steps:
+      - name: ValidateNvidiaDriver
+        action: ExecuteBash
+        inputs:
+          commands:
+            - |
+              set -euo pipefail
+              export PATH="/usr/local/cuda/bin:$PATH"
+              nvidia-smi
+              nvcc --version

@@ -1,5 +1,7 @@
 # NVIDIA IsaacSim Development Workstation
 
+> **Note**: This sample is currently unavailable due to the AMI being made private and will be removed in the near future. Please use [isaacsim-imagebuilder](/isaacsim-imagebuilder/) instead.
+
 [日本語](/isaacsim-workstation/README.ja.md) | English
 
 Deploy a GPU instance using the NVIDIA Isaac Sim Development Workstation AMI with CDK, and build a workstation accessible via remote desktop through NICE DCV.

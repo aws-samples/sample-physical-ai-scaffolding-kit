@@ -1,0 +1,16 @@
+{
+  "baseImage": "ubuntu-server-24-lts-x86",
+  "buildInstanceType": "g6e.4xlarge",
+  "diskSizeGb": 100,
+  "parameters": {
+    "02-nvidia-driver.yml": {
+      "DriverBranch": "570",
+      "CudaVersion": "12-8"
+    },
+    "05-isaac-sim.yml": {
+      "IsaacSimVersion": "6.0.1",
+      "PythonVersion": "3.12",
+      "IsaacLabBranch": "v3.0.0-beta2.patch1"
+    }
+  }
+}
