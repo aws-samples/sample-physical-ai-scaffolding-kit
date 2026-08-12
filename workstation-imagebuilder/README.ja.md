@@ -24,7 +24,7 @@ EC2 Image Builder でカスタム AMI を作成し、Lambda 経由でワーク�
 ┌─────────────────────────────────────────────────────────┐
 │ EC2 インスタンス (手動ライフサイクル管理)                      │
 │ - カスタム AMI                                           │
-│ - Elastic IP 自動割当                                     │
+│ - 動的パブリック IP                                       │
 │ - S3 Files マウント (UserData)                            │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -75,7 +75,7 @@ Launch Lambda を呼び出してインスタンスを起動します:
 ```bash
 aws lambda invoke \
   --function-name <WorkstationEnv.LaunchFunctionName> \
-  --payload '{"imageName":"isaacsim6.0","instanceName":"my-workstation","instanceType":"g6e.4xlarge","diskSizeGb":200,"subnetId":"subnet-xxxxxxxx"}' \
+  --payload '{"imageName":"isaacsim6.0","instanceName":"my-workstation","instanceType":"g6e.4xlarge","diskSizeGb":100,"subnetId":"subnet-xxxxxxxx"}' \
   --cli-binary-format raw-in-base64-out \
   /dev/stdout
 ```
@@ -123,13 +123,31 @@ aws lambda invoke \
 {
   "instanceId": "i-0abc123def456789",
   "publicIp": "54.x.x.x",
-  "dcvWebUrl": "https://54.x.x.x:8443/#console?authToken=<token>",
-  "dcvAppUrl": "dcv://54.x.x.x:8443/console#<token>",
+  "dcvUrl": "https://54.x.x.x:8443/?authToken=<token>#console",
+  "dcvNativeCmd": "/Applications/DCV\\ Viewer.app/Contents/MacOS/dcvviewer --certificate-validation-policy=accept-untrusted \"https://54.x.x.x:8443/?authToken=<token>#console\" &>/dev/null &",
   "ssmCommand": "aws ssm start-session --target i-0abc123def456789"
 }
 ```
 
-ブラウザで `dcvWebUrl` を開くだけで接続できます（ユーザー名・パスワード入力不要）。
+**Web ブラウザ**: `dcvUrl` をブラウザで開いて接続します（自己署名証明書の警告を許可）。ユーザー名・パスワード入力不要です。
+
+**Native App (macOS)**: `dcvNativeCmd` をターミナルで実行するか、手動で:
+
+```bash
+/Applications/DCV\ Viewer.app/Contents/MacOS/dcvviewer \
+  --certificate-validation-policy=accept-untrusted \
+  "https://<IP>:8443/?authToken=<token>#console" &>/dev/null &
+```
+
+**Native App (Windows)**:
+
+```powershell
+& "C:\Program Files\NICE\DCV\Client\bin\dcvviewer.exe" `
+  --certificate-validation-policy=accept-untrusted `
+  "https://<IP>:8443/?authToken=<token>#console"
+```
+
+> **Note**: `dcv://` URI スキームは DCV 2025.0 ではサポートされていません。常に `https://` URL 形式を使用してください。
 
 トークンは発行から 10 分以内に接続を開始する必要があります。接続後のセッションには時間制限はありません。期限切れの場合は Connect Lambda を再実行してください。
 
@@ -223,9 +241,6 @@ aws ec2 start-instances --instance-ids <instance-id>
 # 削除
 aws ec2 terminate-instances --instance-ids <instance-id>
 
-# Elastic IP の解放（インスタンス削除後）
-aws ec2 release-address --allocation-id <allocation-id>
-
 # 起動中のワークステーション一覧
 aws ec2 describe-instances \
   --filters "Name=tag:ManagedBy,Values=workstation-imagebuilder" \
@@ -251,9 +266,9 @@ aws lambda invoke \
   /dev/stdout
 ```
 
-Elastic IP が割り当て済みのため、再開後も IP アドレスは変わりません。DCV サーバーはインスタンス起動時に自動起動します。
+DCV サーバーはインスタンス起動時に自動起動します。
 
-> **Note**: インスタンスの停止は OS のシャットダウンに相当するため、停止前に開いていたウィンドウや実行中のプロセスは復元されません。ディスク上のファイルはそのまま残ります。
+> **Note**: インスタンスの停止は OS のシャットダウンに相当するため、停止前に開いていたウィンドウや実行中のプロセスは復元されません。ディスク上のファイルはそのまま残ります。動的 IP を使用しているため、再開後に IP アドレスが変わる可能性があります。常に Connect Lambda で現在の IP とトークンを取得してください。
 
 ## データの利用
 
@@ -292,15 +307,14 @@ mount | grep s3files                             # S3 Files マウント
 |---------|------|------|
 | EC2 インスタンス | インスタンスタイプによる | オンデマンド料金、起動中のみ課金 |
 | EBS (gp3, 512 GiB) | ~$40.96/月 | $0.08/GiB/月、停止中も課金 |
-| Elastic IP | $0.005/時間 | 起動中・停止中ともに課金 |
 | S3 Files | S3 + EFS 料金 | 使用量に応じた従量課金 |
 | Lambda | ほぼ無料 | 起動・接続時のみ実行 |
 | Image Builder | EC2 ビルド時間のみ | パイプライン自体は無料 |
 
 ### コスト削減のヒント
 
-- 使わない時はインスタンスを停止する（EBS + EIP 料金のみ）
-- 不要なインスタンスは terminate + EIP 解放
+- 使わない時はインスタンスを停止する（EBS 料金のみ）
+- 不要なインスタンスは terminate する
 - 用途に応じて小さいインスタンスタイプを選択する
 
 ## 削除

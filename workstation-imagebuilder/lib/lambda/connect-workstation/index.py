@@ -1,8 +1,8 @@
 """
 Connect Workstation Lambda
 
-Generates a DCV session token for an existing workstation instance.
-The token provides time-limited, session-only authentication (no OS password needed).
+Generates a DCV connection token for an existing workstation instance.
+Writes a token file via SSM that the dcv-token-verifier service validates.
 
 Input event:
 {
@@ -13,8 +13,8 @@ Returns:
 {
   "instanceId": "i-xxxx",
   "publicIp": "x.x.x.x",
-  "dcvWebUrl": "https://x.x.x.x:8443/#console?authToken=<token>",
-  "dcvAppUrl": "dcv://x.x.x.x:8443/console#<token>",
+  "dcvUrl": "https://x.x.x.x:8443/?authToken=<token>#console",
+  "dcvNativeCmd": "/Applications/DCV\\ Viewer.app/... <url> &>/dev/null &",
   "ssmCommand": "aws ssm start-session --target i-xxxx"
 }
 """
@@ -32,7 +32,6 @@ def handler(event, context):
     if not instance_id:
         raise ValueError("instanceId is required")
 
-    # Get instance public IP
     desc = ec2.describe_instances(InstanceIds=[instance_id])
     reservations = desc["Reservations"]
     if not reservations or not reservations[0]["Instances"]:
@@ -49,8 +48,6 @@ def handler(event, context):
     if not public_ip:
         raise ValueError(f"Instance {instance_id} has no public IP address")
 
-    # Generate a random token and write it to the instance's token directory
-    # via SSM. The dcv-token-verifier service validates tokens on DCV connection.
     import secrets
 
     token = secrets.token_urlsafe(32)
@@ -86,10 +83,16 @@ def handler(event, context):
             f"Error: {stderr}"
         )
 
+    dcv_url = f"https://{public_ip}:8443/?authToken={token}#console"
+
     return {
         "instanceId": instance_id,
         "publicIp": public_ip,
-        "dcvWebUrl": f"https://{public_ip}:8443/?authToken={token}#console",
-        "dcvAppUrl": f"dcv://{public_ip}:8443/console#{token}",
+        "dcvUrl": dcv_url,
+        "dcvNativeCmd": (
+            '/Applications/DCV\\ Viewer.app/Contents/MacOS/dcvviewer'
+            ' --certificate-validation-policy=accept-untrusted'
+            f' "{dcv_url}" &>/dev/null &'
+        ),
         "ssmCommand": f"aws ssm start-session --target {instance_id}",
     }

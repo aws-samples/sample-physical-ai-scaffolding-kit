@@ -1,0 +1,5 @@
+[Desktop Entry]
+Name=Fcitx 5
+Exec=fcitx5
+Type=Application
+X-GNOME-Autostart-Phase=Applications

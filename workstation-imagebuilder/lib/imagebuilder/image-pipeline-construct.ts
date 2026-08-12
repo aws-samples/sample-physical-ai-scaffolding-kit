@@ -7,6 +7,7 @@ import {
   aws_iam,
   aws_lambda,
   aws_logs,
+  aws_s3_assets,
   aws_ssm,
   custom_resources,
 } from "aws-cdk-lib";
@@ -44,6 +45,7 @@ export class ImagePipelineConstruct extends Construct {
 
     const { imageName, imageConfig, amiParameterPrefix } = props;
     const componentDir = path.join(__dirname, imageName);
+    const sharedDir = path.join(__dirname, "shared");
     const region = cdk.Stack.of(this).region;
     const account = cdk.Stack.of(this).account;
 
@@ -51,6 +53,22 @@ export class ImagePipelineConstruct extends Construct {
       .readdirSync(componentDir)
       .filter((f) => f.endsWith(".yml"))
       .sort();
+
+    const fileAssets = new Map<string, aws_s3_assets.Asset>();
+    for (const file of componentFiles) {
+      const dirName = file.replace(".yml", "");
+      const localDirPath = path.join(componentDir, dirName);
+      const sharedDirPath = path.join(sharedDir, dirName);
+      const dirPath = fs.existsSync(localDirPath)
+        ? localDirPath
+        : sharedDirPath;
+      if (fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory()) {
+        const asset = new aws_s3_assets.Asset(this, `Asset-${dirName}`, {
+          path: dirPath,
+        });
+        fileAssets.set(file, asset);
+      }
+    }
 
     const components = componentFiles.map((file) => {
       const constructId = file.replace(/^\d+-/, "").replace(".yml", "");
@@ -62,11 +80,22 @@ export class ImagePipelineConstruct extends Construct {
       });
 
       const params = imageConfig.parameters?.[file];
+      const parameters: Record<string, ComponentParameterValue> = {};
+
       if (params) {
-        const parameters: Record<string, ComponentParameterValue> = {};
         for (const [key, value] of Object.entries(params)) {
           parameters[key] = ComponentParameterValue.fromString(value);
         }
+      }
+
+      const asset = fileAssets.get(file);
+      if (asset) {
+        parameters["FilesS3Uri"] = ComponentParameterValue.fromString(
+          asset.s3ObjectUrl,
+        );
+      }
+
+      if (Object.keys(parameters).length > 0) {
         return { component, parameters };
       }
 
@@ -144,6 +173,12 @@ export class ImagePipelineConstruct extends Construct {
       amiParameter.grantWrite(pipeline.executionRole);
     }
 
+    if (infraConfig.role) {
+      for (const asset of fileAssets.values()) {
+        asset.grantRead(infraConfig.role);
+      }
+    }
+
     const triggerLogGroup = new aws_logs.LogGroup(this, "TriggerLogGroup", {
       retention: aws_logs.RetentionDays.ONE_MONTH,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -198,12 +233,39 @@ export class ImagePipelineConstruct extends Construct {
     imageConfig: ImageConfig,
   ): string {
     const hash = crypto.createHash("sha256");
-    const files = fs
-      .readdirSync(componentDir)
-      .filter((f) => f.endsWith(".yml"))
+    const sharedDir = path.join(__dirname, "shared");
+    const entries = fs.readdirSync(componentDir, { withFileTypes: true });
+    const files = entries
+      .filter((e) => e.isFile() && e.name.endsWith(".yml"))
+      .map((e) => e.name)
       .sort();
     for (const file of files) {
       hash.update(fs.readFileSync(path.join(componentDir, file)));
+    }
+    const dirs = entries
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+    for (const dir of dirs) {
+      const dirPath = path.join(componentDir, dir);
+      const dirFiles = fs.readdirSync(dirPath).sort();
+      for (const f of dirFiles) {
+        hash.update(fs.readFileSync(path.join(dirPath, f)));
+      }
+    }
+    for (const file of files) {
+      const dirName = file.replace(".yml", "");
+      if (dirs.includes(dirName)) continue;
+      const sharedDirPath = path.join(sharedDir, dirName);
+      if (
+        fs.existsSync(sharedDirPath) &&
+        fs.statSync(sharedDirPath).isDirectory()
+      ) {
+        const dirFiles = fs.readdirSync(sharedDirPath).sort();
+        for (const f of dirFiles) {
+          hash.update(fs.readFileSync(path.join(sharedDirPath, f)));
+        }
+      }
     }
     hash.update(JSON.stringify(imageConfig));
     return hash.digest("hex").slice(0, 16);

@@ -186,8 +186,6 @@ export class WorkstationStack extends cdk.Stack {
         actions: [
           "ec2:RunInstances",
           "ec2:CreateTags",
-          "ec2:AllocateAddress",
-          "ec2:AssociateAddress",
           "ec2:DescribeInstances",
           "ec2:DescribeInstanceStatus",
           "ec2:DescribeSubnets",

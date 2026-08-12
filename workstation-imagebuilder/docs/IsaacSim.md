@@ -7,7 +7,7 @@
 | Image Name | Isaac Sim | Isaac Lab | Python |
 |-----------|-----------|-----------|--------|
 | [`isaacsim6.0`](../lib/imagebuilder/isaacsim6.0/) | 6.0.1 | v3.0.0-beta2.patch1 | 3.12 |
-| [`isaacsim5.1`](../lib/imagebuilder/isaacsim5.1/) | 5.1.0 | release/2.3.0 | 3.11 |
+| [`isaacsim5.1`](../lib/imagebuilder/isaacsim5.1/) | 5.1.0 | v2.3.2 | 3.11 |
 
 ### Included in the AMI
 
@@ -27,7 +27,6 @@ After connecting to the remote desktop via DCV, open a terminal.
 
 ```bash
 conda activate env_isaaclab
-export OMNI_KIT_ACCEPT_EULA=yes
 isaacsim
 ```
 
@@ -35,8 +34,7 @@ isaacsim
 
 ```bash
 conda activate env_isaaclab
-export OMNI_KIT_ACCEPT_EULA=yes
-python -m isaacsim
+isaacsim
 ```
 
 First launch may take several minutes while assets are loaded.
@@ -75,7 +73,6 @@ python scripts/reinforcement_learning/rsl_rl/train.py --task=Isaac-Ant-v0
 
 ```bash
 conda activate env_isaaclab
-export OMNI_KIT_ACCEPT_EULA=yes
 export ROS_DISTRO=jazzy
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 isaacsim

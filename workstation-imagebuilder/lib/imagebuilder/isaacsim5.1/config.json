@@ -1,7 +1,7 @@
 {
   "baseImage": "ubuntu-server-24-lts-x86",
   "buildInstanceType": "g6e.4xlarge",
-  "diskSizeGb": 100,
+  "diskSizeGb": 60,
   "parameters": {
     "02-nvidia-driver.yml": {
       "DriverBranch": "570",

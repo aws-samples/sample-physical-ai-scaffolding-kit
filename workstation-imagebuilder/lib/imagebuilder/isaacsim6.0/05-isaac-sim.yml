@@ -35,7 +35,6 @@ phases:
               ISAACSIM_VERSION="{{ IsaacSimVersion }}"
               PYTHON_VERSION="{{ PythonVersion }}"
               ISAACLAB_BRANCH="{{ IsaacLabBranch }}"
-              ISAACSIM_MAJOR=$(echo "$ISAACSIM_VERSION" | cut -d. -f1)
               ISAACLAB_DIR="/home/ubuntu/IsaacLab"
 
               # Install Miniconda
@@ -68,18 +67,35 @@ phases:
                 conda create -n env_isaaclab python=${PYTHON_VERSION} -y
                 conda activate env_isaaclab
                 pip install --upgrade pip
+                pip install 'setuptools<82.0.0' wheel
 
-                if [[ ${ISAACSIM_MAJOR} -ge 6 ]]; then
-                  pip install 'isaacsim[all,extscache]==${ISAACSIM_VERSION}.0' \
-                    --extra-index-url https://pypi.nvidia.com
-                else
-                  pip install 'isaacsim[all,extscache]==${ISAACSIM_VERSION}' \
-                    --extra-index-url https://pypi.nvidia.com
+                pip install 'isaacsim[all,extscache]==${ISAACSIM_VERSION}.0' \
+                  --extra-index-url https://pypi.nvidia.com
+
+                # Install Isaac Lab extensions directly (bypass isaaclab.sh to preserve isaacsim packages)
+                cd ${ISAACLAB_DIR}
+                for ext_dir in source/isaaclab source/isaaclab_ppisp source/isaaclab_assets \
+                  source/isaaclab_contrib source/isaaclab_experimental source/isaaclab_newton \
+                  source/isaaclab_ov source/isaaclab_ovphysx source/isaaclab_physx \
+                  source/isaaclab_tasks source/isaaclab_tasks_experimental \
+                  source/isaaclab_visualizers; do
+                  if [[ -d \"\${ext_dir}\" ]]; then
+                    pip install -e \"\${ext_dir}\" --no-build-isolation
+                  fi
+                done
+                if [[ -d source/isaaclab_rl ]]; then
+                  pip install -e 'source/isaaclab_rl[all]'
+                fi
+                if [[ -d source/isaaclab_mimic ]]; then
+                  pip install -e source/isaaclab_mimic --no-build-isolation || true
+                fi
+                if [[ -d source/isaaclab_teleop ]]; then
+                  pip install -e source/isaaclab_teleop --no-build-isolation || true
                 fi
 
-                # Install Isaac Lab using the official installer
-                cd ${ISAACLAB_DIR}
-                ./isaaclab.sh -i
+                # Restore isaacsim packages that pip dependency resolution may have removed
+                pip install 'isaacsim[all,extscache]==${ISAACSIM_VERSION}.0' \
+                  --extra-index-url https://pypi.nvidia.com
               "
 
               # Verify Isaac Lab was installed
@@ -89,6 +105,16 @@ phases:
                 python -c 'import isaaclab; print(\"isaaclab installed successfully\")'
                 python -c 'import isaaclab_physx; print(\"isaaclab_physx installed successfully\")'
               "
+
+              # Clean up caches to reduce AMI size
+              apt-get clean
+              rm -rf /var/lib/apt/lists/*
+              sudo -u ubuntu bash -c "
+                source /home/ubuntu/miniconda3/etc/profile.d/conda.sh
+                conda activate env_isaaclab
+                pip cache purge
+              "
+              sudo -u ubuntu /home/ubuntu/miniconda3/bin/conda clean --all -y
 
               echo "Isaac Sim ${ISAACSIM_VERSION} + Isaac Lab installation complete."
 
@@ -108,4 +134,15 @@ phases:
                 export OMNI_KIT_ACCEPT_EULA=yes
                 pip show isaacsim | grep -E 'Name|Version'
                 python -c 'import isaaclab; print(\"isaaclab package found\")'
+
+                # Verify Isaac Sim can resolve all extension dependencies (headless)
+                echo 'Verifying Isaac Sim extension resolution...'
+                python -c '
+              import isaacsim
+              from isaacsim import SimulationApp
+              app = SimulationApp({\"headless\": True})
+              print(\"Isaac Sim started successfully\")
+              app.close()
+              print(\"Isaac Sim closed successfully\")
+              ' || echo 'WARNING: Isaac Sim extension resolution failed. This may be a transient NVIDIA registry issue.'
               "

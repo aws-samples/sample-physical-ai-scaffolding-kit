@@ -178,27 +178,12 @@ echo "Bootstrap complete."
 
     instance_id = run_response["Instances"][0]["InstanceId"]
 
-    # Allocate and associate Elastic IP
-    eip_response = ec2.allocate_address(
-        Domain="vpc",
-        TagSpecifications=[
-            {
-                "ResourceType": "elastic-ip",
-                "Tags": [
-                    {"Key": "Name", "Value": instance_name},
-                    {"Key": "ManagedBy", "Value": "workstation-imagebuilder"},
-                ],
-            }
-        ],
-    )
-    allocation_id = eip_response["AllocationId"]
-    public_ip = eip_response["PublicIp"]
-
-    # Wait briefly for instance to be in running state before associating EIP
+    # Wait for instance to be running so we can retrieve its public IP
     waiter = ec2.get_waiter("instance_running")
     waiter.wait(InstanceIds=[instance_id], WaiterConfig={"Delay": 5, "MaxAttempts": 60})
 
-    ec2.associate_address(AllocationId=allocation_id, InstanceId=instance_id)
+    desc = ec2.describe_instances(InstanceIds=[instance_id])
+    public_ip = desc["Reservations"][0]["Instances"][0].get("PublicIpAddress", "")
 
     connect_function_name = os.environ["CONNECT_FUNCTION_NAME"]
 
@@ -206,7 +191,6 @@ echo "Bootstrap complete."
         "instanceId": instance_id,
         "subnetId": subnet_id,
         "publicIp": public_ip,
-        "allocationId": allocation_id,
         "waitCommand": f"aws ec2 wait instance-status-ok --instance-ids {instance_id} --region {region}",
         "connectCommand": (
             f"aws lambda invoke --function-name {connect_function_name} "

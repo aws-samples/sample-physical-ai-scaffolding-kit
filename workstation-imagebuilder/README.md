@@ -24,7 +24,7 @@ The included `isaacsim6.0` / `isaacsim5.1` image definitions let you deploy NVID
 ┌─────────────────────────────────────────────────────────┐
 │ EC2 Instance (manual lifecycle management)               │
 │ - Custom AMI                                            │
-│ - Elastic IP auto-assigned                              │
+│ - Dynamic public IP                                     │
 │ - S3 Files mount (UserData)                             │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -75,7 +75,7 @@ Invoke the Launch Lambda to start an instance:
 ```bash
 aws lambda invoke \
   --function-name <WorkstationEnv.LaunchFunctionName> \
-  --payload '{"imageName":"isaacsim6.0","instanceName":"my-workstation","instanceType":"g6e.4xlarge","diskSizeGb":200,"subnetId":"subnet-xxxxxxxx"}' \
+  --payload '{"imageName":"isaacsim6.0","instanceName":"my-workstation","instanceType":"g6e.4xlarge","diskSizeGb":100,"subnetId":"subnet-xxxxxxxx"}' \
   --cli-binary-format raw-in-base64-out \
   /dev/stdout
 ```
@@ -123,13 +123,31 @@ aws lambda invoke \
 {
   "instanceId": "i-0abc123def456789",
   "publicIp": "54.x.x.x",
-  "dcvWebUrl": "https://54.x.x.x:8443/#console?authToken=<token>",
-  "dcvAppUrl": "dcv://54.x.x.x:8443/console#<token>",
+  "dcvUrl": "https://54.x.x.x:8443/?authToken=<token>#console",
+  "dcvNativeCmd": "/Applications/DCV\\ Viewer.app/Contents/MacOS/dcvviewer --certificate-validation-policy=accept-untrusted \"https://54.x.x.x:8443/?authToken=<token>#console\" &>/dev/null &",
   "ssmCommand": "aws ssm start-session --target i-0abc123def456789"
 }
 ```
 
-Open `dcvWebUrl` in a browser to connect (no username/password required).
+**Web browser**: Open `dcvUrl` in a browser to connect (accept the self-signed certificate warning). No username/password required.
+
+**Native App (macOS)**: Run `dcvNativeCmd` in a terminal, or manually:
+
+```bash
+/Applications/DCV\ Viewer.app/Contents/MacOS/dcvviewer \
+  --certificate-validation-policy=accept-untrusted \
+  "https://<IP>:8443/?authToken=<token>#console" &>/dev/null &
+```
+
+**Native App (Windows)**:
+
+```powershell
+& "C:\Program Files\NICE\DCV\Client\bin\dcvviewer.exe" `
+  --certificate-validation-policy=accept-untrusted `
+  "https://<IP>:8443/?authToken=<token>#console"
+```
+
+> **Note**: The `dcv://` URI scheme is NOT supported with DCV 2025.0. Always use the `https://` URL format.
 
 Tokens must be used to initiate a connection within 10 minutes of issuance. Once connected, the session has no time limit. Re-run the Connect Lambda if the token has expired.
 
@@ -223,9 +241,6 @@ aws ec2 start-instances --instance-ids <instance-id>
 # Terminate
 aws ec2 terminate-instances --instance-ids <instance-id>
 
-# Release Elastic IP (after termination)
-aws ec2 release-address --allocation-id <allocation-id>
-
 # List running workstations
 aws ec2 describe-instances \
   --filters "Name=tag:ManagedBy,Values=workstation-imagebuilder" \
@@ -251,9 +266,9 @@ aws lambda invoke \
   /dev/stdout
 ```
 
-The Elastic IP remains assigned, so the IP address stays the same after restart. The DCV server starts automatically with the instance.
+The DCV server starts automatically with the instance.
 
-> **Note**: Stopping an instance is equivalent to an OS shutdown — windows and running processes from before the stop are not preserved. Files on disk remain intact.
+> **Note**: Stopping an instance is equivalent to an OS shutdown — windows and running processes from before the stop are not preserved. Files on disk remain intact. The public IP address may change after restart since dynamic IP is used — always use the Connect Lambda to get the current IP and token.
 
 ## Using Data
 
@@ -292,15 +307,14 @@ mount | grep s3files                             # S3 Files mount
 |----------|------|-------|
 | EC2 Instance | Varies by instance type | On-Demand pricing, charged while running |
 | EBS (gp3, 512 GiB) | ~$40.96/month | $0.08/GiB/month, charged even when stopped |
-| Elastic IP | $0.005/hour | Charged while running and stopped |
 | S3 Files | S3 + EFS pricing | Pay-as-you-go |
 | Lambda | Nearly free | Only runs at launch/connect time |
 | Image Builder | EC2 build time only | Pipeline itself is free |
 
 ### Cost Saving Tips
 
-- Stop instances when not in use (only EBS + EIP charges)
-- Terminate unused instances + release EIPs
+- Stop instances when not in use (only EBS charges)
+- Terminate unused instances
 - Choose a smaller instance type appropriate for your workload
 
 ## Cleanup

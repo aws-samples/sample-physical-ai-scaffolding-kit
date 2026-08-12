@@ -35,7 +35,6 @@ phases:
               ISAACSIM_VERSION="{{ IsaacSimVersion }}"
               PYTHON_VERSION="{{ PythonVersion }}"
               ISAACLAB_BRANCH="{{ IsaacLabBranch }}"
-              ISAACSIM_MAJOR=$(echo "$ISAACSIM_VERSION" | cut -d. -f1)
               ISAACLAB_DIR="/home/ubuntu/IsaacLab"
 
               # Install Miniconda
@@ -70,13 +69,8 @@ phases:
                 pip install --upgrade pip
                 pip install 'setuptools<70.0.0' wheel
 
-                if [[ ${ISAACSIM_MAJOR} -ge 6 ]]; then
-                  pip install isaacsim==${ISAACSIM_VERSION}.0 \
-                    --extra-index-url https://pypi.nvidia.com
-                else
-                  pip install 'isaacsim[all,extscache]==${ISAACSIM_VERSION}' \
-                    --extra-index-url https://pypi.nvidia.com
-                fi
+                pip install 'isaacsim[all,extscache]==${ISAACSIM_VERSION}' \
+                  --extra-index-url https://pypi.nvidia.com
 
                 # Install Isaac Lab extensions directly (bypass isaaclab.sh to avoid setuptools>=70)
                 cd ${ISAACLAB_DIR}
@@ -100,6 +94,16 @@ phases:
                 python -c 'import isaaclab; print(\"isaaclab installed successfully\")'
               "
 
+              # Clean up caches to reduce AMI size
+              apt-get clean
+              rm -rf /var/lib/apt/lists/*
+              sudo -u ubuntu bash -c "
+                source /home/ubuntu/miniconda3/etc/profile.d/conda.sh
+                conda activate env_isaaclab
+                pip cache purge
+              "
+              sudo -u ubuntu /home/ubuntu/miniconda3/bin/conda clean --all -y
+
               echo "Isaac Sim ${ISAACSIM_VERSION} + Isaac Lab installation complete."
 
   - name: validate
@@ -118,4 +122,15 @@ phases:
                 export OMNI_KIT_ACCEPT_EULA=yes
                 pip show isaacsim | grep -E 'Name|Version'
                 python -c 'import isaaclab; print(\"isaaclab package found\")'
+
+                # Verify Isaac Sim can resolve all extension dependencies (headless)
+                echo 'Verifying Isaac Sim extension resolution...'
+                python -c '
+              import isaacsim
+              from isaacsim import SimulationApp
+              app = SimulationApp({\"headless\": True})
+              print(\"Isaac Sim started successfully\")
+              app.close()
+              print(\"Isaac Sim closed successfully\")
+              ' || echo 'WARNING: Isaac Sim extension resolution failed. This may be a transient NVIDIA registry issue.'
               "

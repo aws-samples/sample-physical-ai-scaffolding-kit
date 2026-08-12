@@ -1,0 +1,12 @@
+[Unit]
+Description=Generate xorg.conf with NVIDIA BusID
+After=nvidia-persistenced.service
+Before=gdm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/generate-xorg-conf.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
