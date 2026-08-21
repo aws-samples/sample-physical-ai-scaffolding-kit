@@ -2,7 +2,10 @@
 import http.server
 import json
 import os
+import re
 import time
+
+_SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 TOKEN_DIR = "/var/run/dcv-tokens"
 PORT = 8445
@@ -14,7 +17,7 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
         body = self.rfile.read(length).decode()
         params = dict(p.split("=", 1) for p in body.split("&") if "=" in p)
         token = params.get("authenticationToken", "").strip()
-        if not token:
+        if not token or not _SAFE_TOKEN_RE.match(token):
             self.send_response(200)
             self.send_header("Content-Type", "text/xml")
             self.end_headers()

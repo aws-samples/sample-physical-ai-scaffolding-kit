@@ -1,6 +1,6 @@
 # NVIDIA IsaacSim Development Workstation
 
-> **Note**: This sample is currently unavailable due to the AMI being made private and will be removed in the near future. Please use [isaacsim-imagebuilder](/isaacsim-imagebuilder/) instead.
+> **Note**: This sample is currently unavailable due to the AMI being made private and will be removed in the near future. Please use [workstation-imagebuilder](/workstation-imagebuilder/) instead.
 
 [日本語](/isaacsim-workstation/README.ja.md) | English
 
