@@ -1,0 +1,61 @@
+name: install-ros2-jazzy
+description: Install ROS2 Jazzy Desktop on Ubuntu 24.04
+schemaVersion: 1.0
+phases:
+  - name: build
+    steps:
+      - name: InstallROS2
+        action: ExecuteBash
+        inputs:
+          commands:
+            - |
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+
+              echo "Installing ROS2 Jazzy..."
+
+              # Stop unattended-upgrades and wait for dpkg lock
+              systemctl stop unattended-upgrades.service || true
+              systemctl disable unattended-upgrades.service || true
+              while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+                echo "Waiting for dpkg lock to be released..."
+                sleep 5
+              done
+
+              # Add ROS2 repository
+              curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+                -o /usr/share/keyrings/ros-archive-keyring.gpg
+
+              echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" \
+                > /etc/apt/sources.list.d/ros2.list
+
+              apt-get update -yq
+              apt-get install -yq --no-install-recommends \
+                ros-jazzy-desktop \
+                ros-dev-tools \
+                ros-jazzy-rosbridge-suite \
+                ros-jazzy-rosbridge-server \
+                ros-jazzy-topic-tools \
+                python3-rosdep \
+                python3-colcon-common-extensions \
+                cmake \
+                build-essential
+
+              # Add ROS2 sourcing to ubuntu user's bashrc
+              if ! grep -q "source /opt/ros/jazzy/setup.bash" /home/ubuntu/.bashrc; then
+                echo "source /opt/ros/jazzy/setup.bash" >> /home/ubuntu/.bashrc
+              fi
+
+              echo "ROS2 Jazzy installation complete."
+
+  - name: validate
+    steps:
+      - name: ValidateROS2
+        action: ExecuteBash
+        inputs:
+          commands:
+            - |
+              set -eo pipefail
+              source /opt/ros/jazzy/setup.bash
+              ros2 --help > /dev/null
+              echo "ROS2 Jazzy validated."

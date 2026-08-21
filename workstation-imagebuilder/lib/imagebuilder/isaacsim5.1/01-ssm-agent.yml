@@ -1,0 +1,35 @@
+name: install-ssm-agent
+description: Ensure AWS SSM Agent is installed and enabled on Ubuntu 24.04
+schemaVersion: 1.0
+phases:
+  - name: build
+    steps:
+      - name: InstallSSMAgent
+        action: ExecuteBash
+        inputs:
+          commands:
+            - |
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+
+              echo "Installing AWS SSM Agent..."
+
+              # SSM Agent is typically pre-installed on Ubuntu AMIs from AWS,
+              # but ensure it's present and enabled
+              if ! command -v amazon-ssm-agent &>/dev/null; then
+                snap install amazon-ssm-agent --classic
+              fi
+
+              systemctl enable snap.amazon-ssm-agent.amazon-ssm-agent.service || true
+
+              echo "SSM Agent installation complete."
+
+  - name: validate
+    steps:
+      - name: ValidateSSMAgent
+        action: ExecuteBash
+        inputs:
+          commands:
+            - |
+              set -euo pipefail
+              snap list amazon-ssm-agent

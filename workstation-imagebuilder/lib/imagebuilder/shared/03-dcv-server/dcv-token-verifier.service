@@ -1,0 +1,13 @@
+[Unit]
+Description=DCV Auth Token Verifier
+After=network.target
+Before=dcvserver.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/dcv-token-verifier.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

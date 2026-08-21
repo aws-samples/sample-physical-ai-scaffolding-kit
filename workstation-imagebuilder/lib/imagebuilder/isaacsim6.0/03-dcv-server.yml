@@ -1,0 +1,141 @@
+name: install-dcv-server
+description: Install NICE DCV server with automatic console session on Ubuntu 24.04
+schemaVersion: 1.0
+parameters:
+  - FilesS3Uri:
+      type: string
+      description: S3 URI of the files archive (zip) containing configuration files
+phases:
+  - name: build
+    steps:
+      - name: DownloadFiles
+        action: S3Download
+        inputs:
+          - source: "{{ FilesS3Uri }}"
+            destination: /tmp/dcv-server-files.zip
+
+      - name: ExtractFiles
+        action: ExecuteBash
+        inputs:
+          commands:
+            - |
+              set -euo pipefail
+              apt-get update -yq
+              apt-get install -yq unzip
+              WORK_DIR="/tmp/dcv-server-files"
+              mkdir -p "$WORK_DIR"
+              unzip -o /tmp/dcv-server-files.zip -d "$WORK_DIR"
+              rm -f /tmp/dcv-server-files.zip
+              echo "Files extracted."
+
+      - name: InstallDesktopEnvironment
+        action: ExecuteBash
+        inputs:
+          commands:
+            - |
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+              WORK_DIR="/tmp/dcv-server-files"
+
+              echo "Installing Ubuntu Desktop (minimal)..."
+              apt-get update -yq
+              apt-get install -yq --no-install-recommends \
+                ubuntu-desktop-minimal \
+                gdm3 \
+                mesa-utils \
+                xdg-utils \
+                fcitx5 \
+                fcitx5-mozc \
+                fcitx5-config-qt \
+                language-pack-ja \
+                fonts-noto-cjk
+
+              # Prevent NetworkManager from managing the primary interface.
+              systemctl disable NetworkManager.service || true
+              systemctl disable NetworkManager-wait-online.service || true
+              systemctl enable systemd-networkd.service
+              systemctl enable systemd-networkd-wait-online.service
+
+              # Deploy configuration files
+              install -m 600 "$WORK_DIR/01-netcfg.yaml" /etc/netplan/01-netcfg.yaml
+
+              mkdir -p /etc/gdm3
+              install -m 644 "$WORK_DIR/gdm-custom.conf" /etc/gdm3/custom.conf
+
+              echo "allowed_users=anybody" > /etc/X11/Xwrapper.config
+
+              install -m 755 "$WORK_DIR/generate-xorg-conf.sh" /usr/local/bin/generate-xorg-conf.sh
+              install -m 644 "$WORK_DIR/generate-xorg-conf.service" /etc/systemd/system/generate-xorg-conf.service
+              systemctl enable generate-xorg-conf.service
+
+              # dconf settings for disabling screen lock
+              mkdir -p /etc/dconf/profile
+              install -m 644 "$WORK_DIR/dconf-profile-user" /etc/dconf/profile/user
+              mkdir -p /etc/dconf/db/local.d
+              install -m 644 "$WORK_DIR/00-disable-lock" /etc/dconf/db/local.d/00-disable-lock
+              dconf update || true
+
+              # Input method (fcitx5)
+              mkdir -p /etc/environment.d
+              install -m 644 "$WORK_DIR/99-im.conf" /etc/environment.d/99-im.conf
+              mkdir -p /etc/xdg/autostart
+              install -m 644 "$WORK_DIR/fcitx5.desktop" /etc/xdg/autostart/fcitx5.desktop
+
+              systemctl set-default graphical.target
+
+      - name: InstallDCV
+        action: ExecuteBash
+        inputs:
+          commands:
+            - |
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+              WORK_DIR="/tmp/dcv-server-files"
+
+              echo "Installing NICE DCV server..."
+
+              # Download DCV packages tarball for Ubuntu 24.04
+              DCV_URL="https://d1uj6qtbmh3dt5.cloudfront.net/nice-dcv-ubuntu2404-x86_64.tgz"
+              curl -fsSL -o /tmp/nice-dcv.tgz "$DCV_URL"
+              tar -xzf /tmp/nice-dcv.tgz -C /tmp/
+
+              # Install DCV packages from extracted directory
+              DCV_DIR=$(find /tmp -maxdepth 1 -type d -name "nice-dcv-*-x86_64" | head -1)
+              apt-get install -yq \
+                "${DCV_DIR}"/nice-dcv-server_*.deb \
+                "${DCV_DIR}"/nice-dcv-web-viewer_*.deb \
+                "${DCV_DIR}"/nice-dcv-gl_*.deb \
+                "${DCV_DIR}"/nice-xdcv_*.deb
+
+              rm -rf /tmp/nice-dcv.tgz "$DCV_DIR"
+
+              # Enable DCV server
+              systemctl enable dcvserver
+
+              # Deploy DCV configuration
+              mkdir -p /etc/dcv
+              install -m 644 "$WORK_DIR/dcv.conf" /etc/dcv/dcv.conf
+
+              # Deploy token verifier
+              install -m 755 "$WORK_DIR/dcv-token-verifier.py" /usr/local/bin/dcv-token-verifier.py
+              install -m 644 "$WORK_DIR/dcv-token-verifier.service" /etc/systemd/system/dcv-token-verifier.service
+              systemctl enable dcv-token-verifier.service
+
+              # Deploy console session service
+              install -m 644 "$WORK_DIR/dcv-console-session.service" /etc/systemd/system/dcv-console-session.service
+              systemctl enable dcv-console-session.service
+
+              # Cleanup
+              rm -rf "$WORK_DIR"
+
+              echo "DCV server installation complete."
+  - name: validate
+    steps:
+      - name: ValidateDCV
+        action: ExecuteBash
+        inputs:
+          commands:
+            - |
+              set -euo pipefail
+              dcv version || echo "DCV version check"
+              systemctl is-enabled dcvserver

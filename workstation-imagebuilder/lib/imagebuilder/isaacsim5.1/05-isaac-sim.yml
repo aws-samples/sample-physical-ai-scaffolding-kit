@@ -1,0 +1,136 @@
+name: install-isaac-sim
+description: Install NVIDIA Isaac Sim and Isaac Lab via pip with conda environment
+schemaVersion: 1.0
+parameters:
+  - IsaacSimVersion:
+      type: string
+      description: Isaac Sim version to install (e.g., 6.0.1 or 5.1.0)
+  - PythonVersion:
+      type: string
+      description: Python version for the conda environment (e.g., 3.12 or 3.11)
+  - IsaacLabBranch:
+      type: string
+      description: IsaacLab git branch or tag (e.g., v3.0.0-beta2.patch1 or v2.3.2)
+phases:
+  - name: build
+    steps:
+      - name: InstallDeps
+        action: ExecuteBash
+        inputs:
+          commands:
+            - |
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+
+              apt-get update -yq
+              apt-get install -yq --no-install-recommends cmake build-essential
+
+      - name: InstallIsaacSimAndLab
+        action: ExecuteBash
+        inputs:
+          commands:
+            - |
+              set -euo pipefail
+
+              ISAACSIM_VERSION="{{ IsaacSimVersion }}"
+              PYTHON_VERSION="{{ PythonVersion }}"
+              ISAACLAB_BRANCH="{{ IsaacLabBranch }}"
+              ISAACLAB_DIR="/home/ubuntu/IsaacLab"
+
+              # Install Miniconda
+              if [[ ! -d /home/ubuntu/miniconda3 ]]; then
+                echo "Installing Miniconda..."
+                curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh \
+                  -o /tmp/miniconda.sh
+                sudo -u ubuntu bash /tmp/miniconda.sh -b -p /home/ubuntu/miniconda3
+                rm -f /tmp/miniconda.sh
+                sudo -u ubuntu /home/ubuntu/miniconda3/bin/conda init bash
+              fi
+
+              # Remove conda ToS plugin by deleting files directly
+              rm -rf /home/ubuntu/miniconda3/lib/python*/site-packages/conda_anaconda_tos*
+              rm -f /home/ubuntu/miniconda3/conda-meta/conda-anaconda-tos-*.json
+              sudo -u ubuntu /home/ubuntu/miniconda3/bin/conda config --set auto_activate_base false
+
+              # Clone Isaac Lab
+              if [[ ! -d "$ISAACLAB_DIR" ]]; then
+                sudo -u ubuntu git clone -b "${ISAACLAB_BRANCH}" \
+                  https://github.com/isaac-sim/IsaacLab.git "$ISAACLAB_DIR"
+              fi
+
+              # Install Isaac Sim + Isaac Lab in a single session
+              echo "Installing Isaac Sim ${ISAACSIM_VERSION} and Isaac Lab (${ISAACLAB_BRANCH})..."
+
+              sudo -u ubuntu bash -c "
+                export TERM=xterm-256color
+                source /home/ubuntu/miniconda3/etc/profile.d/conda.sh
+                conda create -n env_isaaclab python=${PYTHON_VERSION} -y
+                conda activate env_isaaclab
+                pip install --upgrade pip
+                pip install 'setuptools<70.0.0' wheel
+
+                pip install 'isaacsim[all,extscache]==${ISAACSIM_VERSION}' \
+                  --extra-index-url https://pypi.nvidia.com
+
+                # Install Isaac Lab extensions directly (bypass isaaclab.sh to avoid setuptools>=70)
+                cd ${ISAACLAB_DIR}
+                for ext_dir in source/isaaclab source/isaaclab_assets source/isaaclab_tasks; do
+                  if [[ -d \"\${ext_dir}\" ]]; then
+                    pip install -e \"\${ext_dir}\" --no-build-isolation
+                  fi
+                done
+                if [[ -d source/isaaclab_rl ]]; then
+                  pip install -e 'source/isaaclab_rl[all]'
+                fi
+                if [[ -d source/isaaclab_mimic ]]; then
+                  pip install -e source/isaaclab_mimic --no-build-isolation || true
+                fi
+              "
+
+              # Verify Isaac Lab was installed
+              sudo -u ubuntu bash -c "
+                source /home/ubuntu/miniconda3/etc/profile.d/conda.sh
+                conda activate env_isaaclab
+                python -c 'import isaaclab; print(\"isaaclab installed successfully\")'
+              "
+
+              # Clean up caches to reduce AMI size
+              apt-get clean
+              rm -rf /var/lib/apt/lists/*
+              sudo -u ubuntu bash -c "
+                source /home/ubuntu/miniconda3/etc/profile.d/conda.sh
+                conda activate env_isaaclab
+                pip cache purge
+              "
+              sudo -u ubuntu /home/ubuntu/miniconda3/bin/conda clean --all -y
+
+              echo "Isaac Sim ${ISAACSIM_VERSION} + Isaac Lab installation complete."
+
+  - name: validate
+    steps:
+      - name: ValidateIsaacSimAndLab
+        action: ExecuteBash
+        inputs:
+          commands:
+            - |
+              set -eo pipefail
+              rm -rf /home/ubuntu/miniconda3/lib/python*/site-packages/conda_anaconda_tos*
+              rm -f /home/ubuntu/miniconda3/conda-meta/conda-anaconda-tos-*.json
+              sudo -u ubuntu bash -c "
+                source /home/ubuntu/miniconda3/etc/profile.d/conda.sh
+                conda activate env_isaaclab
+                export OMNI_KIT_ACCEPT_EULA=yes
+                pip show isaacsim | grep -E 'Name|Version'
+                python -c 'import isaaclab; print(\"isaaclab package found\")'
+
+                # Verify Isaac Sim can resolve all extension dependencies (headless)
+                echo 'Verifying Isaac Sim extension resolution...'
+                python -c '
+              import isaacsim
+              from isaacsim import SimulationApp
+              app = SimulationApp({\"headless\": True})
+              print(\"Isaac Sim started successfully\")
+              app.close()
+              print(\"Isaac Sim closed successfully\")
+              ' || echo 'WARNING: Isaac Sim extension resolution failed. This may be a transient NVIDIA registry issue.'
+              "

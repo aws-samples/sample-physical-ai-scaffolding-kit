@@ -1,5 +1,7 @@
 # NVIDIA IsaacSim Development Workstation
 
+> **Note**: 現在このサンプルはAMIの非公開に伴い利用できません。近いうちに削除予定です。今後は [workstation-imagebuilder](/workstation-imagebuilder/) のサンプルを使用してください。
+
 日本語 | [English](/isaacsim-workstation/README.md)
 
 NVIDIA Isaac Sim Development Workstation AMI を使用した GPU インスタンスを CDK でデプロイし、NICE DCV 経由でリモートデスクトップ接続できるワークステーションを構築します。

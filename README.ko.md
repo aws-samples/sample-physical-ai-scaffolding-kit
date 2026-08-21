@@ -15,7 +15,7 @@ Amazon SageMaker HyperPod는 generative AI model 구축에 필요한 undifferent
   * 표준 Slurm cluster만 구축하려는 경우, 이 sample을 참고하여 Amazon SageMaker HyperPod 환경을 구축하세요
 * [Physical AI Pipeline Platform SDK](physai/README.md)
   * Amazon SageMaker HyperPod용으로 개발된 SDK를 활용한 pipeline을 사용하려는 경우, 이 sample을 참고하여 환경을 구축하세요
-* [NVIDIA IsaacSim Development Workstation](/isaacsim-workstation/README.ko.md)
+* [NVIDIA IsaacSim Development Workstation](/workstation-imagebuilder/README.md)
   * EC2 instance에서 NVIDIA Isaac Sim을 사용하기 위한 sample입니다
   * NVIDIA Isaac Sim / Lab 환경을 이용할 수 있습니다
 

@@ -1,0 +1,13 @@
+[Unit]
+Description=Create DCV Console Session
+After=dcvserver.service
+Requires=dcvserver.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sleep 5
+ExecStart=/usr/bin/dcv create-session --owner ubuntu --type console console
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
