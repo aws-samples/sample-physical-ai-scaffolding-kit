@@ -4,43 +4,51 @@
 # GDM3 boots Xorg (with the NVIDIA driver) under ubuntu's PAM session, and
 # dcvsessionlauncher hooks dcvagent into that session at start-up.
 #
-# Pins xserver-xorg-video-nvidia to match the kernel module version (HyperPod
-# AMI ships a specific NVIDIA driver; mismatched userspace fails Xorg startup).
+# NVIDIA userspace is NOT installed here: the HyperPod GPU AMI ships the driver
+# via NVIDIA's runfile installer (kernel module + libnvidia-* + nvidia_drv.so all
+# at the same version, e.g. 595.91.07). apt's libnvidia-*-<major> debs are (a) a
+# different version (e.g. 595.84), which fails Xorg's userspace/kernel version
+# check, and (b) file-conflict with the runfile-installed .so files, which fails
+# dpkg. So we only install ubuntu-desktop-minimal + gdm3 and rely on the AMI's
+# pre-installed NVIDIA Xorg driver.
 set -e
 # shellcheck source=_lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 require_node_type compute
 
-# Skip non-GPU compute nodes.
+# Skip non-GPU compute nodes. The HyperPod compute AMI can ship `nvidia-smi`
+# on CPU-only instances too, so binary presence alone is not sufficient — we
+# must confirm at least one GPU is actually enumerable.
 if ! command -v nvidia-smi >/dev/null 2>&1; then
     echo "nvidia-smi not present — not a GPU node, skipping GDM install"
     exit 0
 fi
+if ! nvidia-smi -L 2>/dev/null | grep -q '^GPU '; then
+    echo "nvidia-smi -L reports no GPUs — not a GPU node, skipping GDM install"
+    exit 0
+fi
 
 DRIVER_VERSION=$(grep "NVRM version" /proc/driver/nvidia/version | grep -oP '\d+\.\d+\.\d+' | head -1)
-if [[ -z "$DRIVER_VERSION" ]]; then
-  echo "WARNING: Could not detect NVIDIA driver version, skipping GDM install"
-  exit 0
-fi
-echo "NVIDIA kernel module version: $DRIVER_VERSION"
-MAJOR=$(echo "$DRIVER_VERSION" | cut -d. -f1)
-V="${DRIVER_VERSION}-1ubuntu1"
+echo "NVIDIA kernel module version: ${DRIVER_VERSION:-unknown} (using AMI-provided userspace)"
+
+# Sanity check: the runfile installer should have placed these on the AMI. If
+# they are missing, the AMI's driver provisioning is broken and Xorg will not
+# start regardless of what we do here — surface it early.
+for f in \
+    /usr/lib/x86_64-linux-gnu/nvidia/xorg/nvidia_drv.so \
+    /usr/lib/x86_64-linux-gnu/nvidia/xorg/libglxserver_nvidia.so; do
+    if [[ ! -e "$f" ]]; then
+        echo "WARNING: $f not found — expected from HyperPod AMI's runfile installer"
+    fi
+done
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 
-# GNOME desktop + GDM3 + matching NVIDIA Xorg driver.
-apt-get install -y -qq --allow-downgrades --no-install-recommends \
+# Only the desktop shell — no NVIDIA packages (see file header for why).
+apt-get install -y -qq --no-install-recommends \
   ubuntu-desktop-minimal \
-  gdm3 \
-  "xserver-xorg-video-nvidia-${MAJOR}=${V}" \
-  "nvidia-persistenced=${V}" \
-  "libnvidia-cfg1-${MAJOR}=${V}" \
-  "libnvidia-common-${MAJOR}=${V}" \
-  "libnvidia-compute-${MAJOR}=${V}" \
-  "libnvidia-decode-${MAJOR}=${V}" \
-  "libnvidia-gl-${MAJOR}=${V}" \
-  "libnvidia-gpucomp-${MAJOR}=${V}"
+  gdm3
 
 # NVIDIA Xorg modules live under /usr/lib/x86_64-linux-gnu/nvidia/xorg/ on
 # Ubuntu; OutputClass in /usr/share/X11/xorg.conf.d/10-nvidia.conf normally
@@ -52,7 +60,16 @@ ln -sf /usr/lib/x86_64-linux-gnu/nvidia/xorg/nvidia_drv.so \
 ln -sf /usr/lib/x86_64-linux-gnu/nvidia/xorg/libglxserver_nvidia.so \
        /usr/lib/xorg/modules/extensions/libglxserver_nvidia.so
 
-systemctl enable --now nvidia-persistenced
+# nvidia-persistenced is optional. HyperPod DLAMIs typically ship the unit via
+# the runfile installer; if it is absent we do not fail — the driver still
+# works, we just lose the "keep GPU state warm across process boundaries"
+# optimisation, which is not required for the Xorg-based DCV path.
+if systemctl list-unit-files nvidia-persistenced.service >/dev/null 2>&1 \
+    && systemctl list-unit-files nvidia-persistenced.service | grep -q '^nvidia-persistenced\.service'; then
+    systemctl enable --now nvidia-persistenced
+else
+    echo "nvidia-persistenced.service not present on this AMI — skipping enable"
+fi
 
 # Generate xorg.conf via nvidia-xconfig — the supported recipe for headless
 # data-center GPUs (a virtual DFP display head instead of a physical monitor)
