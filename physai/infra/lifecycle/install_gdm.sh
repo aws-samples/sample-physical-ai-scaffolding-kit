@@ -16,31 +16,53 @@ set -e
 . "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 require_node_type compute
 
-# Skip non-GPU compute nodes. The HyperPod compute AMI can ship `nvidia-smi`
-# on CPU-only instances too, so binary presence alone is not sufficient — we
-# must confirm at least one GPU is actually enumerable.
-if ! command -v nvidia-smi >/dev/null 2>&1; then
-    echo "nvidia-smi not present — not a GPU node, skipping GDM install"
+# Separate "no NVIDIA hardware" from "NVIDIA hardware but no working driver".
+# The HyperPod compute AMI can ship the nvidia-smi binary even on CPU-only
+# instances, so binary presence alone is not sufficient. Use lspci for the
+# hardware check (works even when the kernel driver isn't loaded) and
+# nvidia-smi -L to confirm the driver actually enumerates the GPUs.
+if ! command -v lspci >/dev/null 2>&1 || ! lspci 2>/dev/null | grep -qi 'nvidia'; then
+    echo "No NVIDIA GPU hardware detected (lspci) — skipping GDM install"
     exit 0
 fi
-if ! nvidia-smi -L 2>/dev/null | grep -q '^GPU '; then
-    echo "nvidia-smi -L reports no GPUs — not a GPU node, skipping GDM install"
-    exit 0
+if ! command -v nvidia-smi >/dev/null 2>&1 \
+   || ! nvidia-smi -L 2>/dev/null | grep -q '^GPU '; then
+    echo "ERROR: NVIDIA GPU hardware present but nvidia-smi cannot enumerate it." >&2
+    echo "       The kernel driver is not loaded or is malfunctioning; the AMI's" >&2
+    echo "       NVIDIA runfile installation is broken. Fix the AMI before rerunning." >&2
+    exit 1
 fi
 
 DRIVER_VERSION=$(grep "NVRM version" /proc/driver/nvidia/version | grep -oP '\d+\.\d+\.\d+' | head -1)
+DRIVER_MAJOR="${DRIVER_VERSION%%.*}"
 echo "NVIDIA kernel module version: ${DRIVER_VERSION:-unknown} (using AMI-provided userspace)"
 
-# Sanity check: the runfile installer should have placed these on the AMI. If
-# they are missing, the AMI's driver provisioning is broken and Xorg will not
-# start regardless of what we do here — surface it early.
-for f in \
-    /usr/lib/x86_64-linux-gnu/nvidia/xorg/nvidia_drv.so \
-    /usr/lib/x86_64-linux-gnu/nvidia/xorg/libglxserver_nvidia.so; do
-    if [[ ! -e "$f" ]]; then
-        echo "WARNING: $f not found — expected from HyperPod AMI's runfile installer"
+# Cleanup: purge apt-installed NVIDIA display-driver userspace debs whose
+# version does not match the runfile-installed kernel driver. Prior versions
+# of this script attempted to install these on runfile-based AMIs, where they
+# end up as stale packages that conflict with the runfile's .so files.
+#
+# Scope carefully: match ONLY packages whose name ends with the driver major
+# (e.g. libnvidia-common-595, libnvidia-compute-595, xserver-xorg-video-nvidia-595).
+# Do NOT touch libnvidia-container-tools / libnvidia-container1 — those are the
+# NVIDIA Container Toolkit CLI that enroot's 98-nvidia.sh hook depends on;
+# their versioning (e.g. 1.17.0-1) has nothing to do with the display driver
+# version and blindly matching `libnvidia-*` would purge them.
+if [[ -n "$DRIVER_VERSION" && -n "$DRIVER_MAJOR" ]]; then
+    STALE=$(dpkg-query -W -f='${Package} ${Version}\n' \
+                'libnvidia-*' 'xserver-xorg-video-nvidia-*' 2>/dev/null \
+                | awk -v v="$DRIVER_VERSION" -v m="$DRIVER_MAJOR" '
+                    $1 ~ ("-" m "$") && $2 !~ ("^" v) { print $1 }
+                  ')
+    if [[ -n "$STALE" ]]; then
+        echo "Purging stale NVIDIA display-driver apt packages (not matching runfile driver $DRIVER_VERSION):"
+        # shellcheck disable=SC2086
+        printf '  %s\n' $STALE
+        export DEBIAN_FRONTEND=noninteractive
+        # shellcheck disable=SC2086
+        apt-get -y purge $STALE || true
     fi
-done
+fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
@@ -51,21 +73,34 @@ apt-get install -y -qq --no-install-recommends \
   gdm3
 
 # NVIDIA Xorg modules live under /usr/lib/x86_64-linux-gnu/nvidia/xorg/ on
-# Ubuntu; OutputClass in /usr/share/X11/xorg.conf.d/10-nvidia.conf normally
-# picks them up, but symlink anyway as belt-and-braces for environments where
-# the OutputClass file is missing.
+# apt-managed Ubuntu installations; symlink into /usr/lib/xorg/modules/ as
+# belt-and-braces for environments where /usr/share/X11/xorg.conf.d/10-nvidia.conf
+# OutputClass file is missing. The HyperPod runfile installer instead writes
+# nvidia_drv.so / libglxserver_nvidia.so directly under /usr/lib/xorg/modules/,
+# so if the apt-style source path is absent we deliberately skip — creating a
+# dangling symlink here would clobber the real runfile-installed file and
+# prevent Xorg from loading the nvidia module.
 mkdir -p /usr/lib/xorg/modules/drivers /usr/lib/xorg/modules/extensions
-ln -sf /usr/lib/x86_64-linux-gnu/nvidia/xorg/nvidia_drv.so \
-       /usr/lib/xorg/modules/drivers/nvidia_drv.so
-ln -sf /usr/lib/x86_64-linux-gnu/nvidia/xorg/libglxserver_nvidia.so \
-       /usr/lib/xorg/modules/extensions/libglxserver_nvidia.so
+for pair in \
+    "/usr/lib/x86_64-linux-gnu/nvidia/xorg/nvidia_drv.so:/usr/lib/xorg/modules/drivers/nvidia_drv.so" \
+    "/usr/lib/x86_64-linux-gnu/nvidia/xorg/libglxserver_nvidia.so:/usr/lib/xorg/modules/extensions/libglxserver_nvidia.so"; do
+    src="${pair%%:*}"
+    dst="${pair##*:}"
+    if [[ -e "$src" ]]; then
+        ln -sf "$src" "$dst"
+    else
+        echo "Skipping symlink: $src not present (AMI provides driver at $dst directly)"
+    fi
+done
 
 # nvidia-persistenced is optional. HyperPod DLAMIs typically ship the unit via
 # the runfile installer; if it is absent we do not fail — the driver still
 # works, we just lose the "keep GPU state warm across process boundaries"
 # optimisation, which is not required for the Xorg-based DCV path.
-if systemctl list-unit-files nvidia-persistenced.service >/dev/null 2>&1 \
-    && systemctl list-unit-files nvidia-persistenced.service | grep -q '^nvidia-persistenced\.service'; then
+# (systemctl list-unit-files exits 0 even when nothing matches, so the grep
+# check alone is authoritative.)
+if systemctl list-unit-files nvidia-persistenced.service 2>/dev/null \
+    | grep -q '^nvidia-persistenced\.service'; then
     systemctl enable --now nvidia-persistenced
 else
     echo "nvidia-persistenced.service not present on this AMI — skipping enable"

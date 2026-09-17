@@ -33,6 +33,16 @@
         }
       }
     },
+    "rosbag": {
+      "type": "object",
+      "description": "rosbag2 convert parameters (optional). Used by the so101-rosbag-converter container. All keys are passed through to the container as-is.",
+      "properties": {
+        "language_instruction": {
+          "type": "string",
+          "description": "Fallback task label for episodes whose rosbag2 metadata.custom_data.task is empty. metadata.custom_data.task is preferred when present."
+        }
+      }
+    },
     "model": {
       "type": "object",
       "description": "Model identification. Used to resolve the model config directory.",
