@@ -51,3 +51,10 @@ mount_file /etc/vulkan/implicit_layer.d/nvidia_layers.json
 mount_file /usr/share/glvnd/egl_vendor.d/10_nvidia.json
 mount_file /usr/share/egl/egl_external_platform.d/10_nvidia_wayland.json
 mount_file /usr/share/egl/egl_external_platform.d/15_nvidia_gbm.json
+
+# OptiX signed shader blob. Required by libnvoptix.so at runtime for RT core
+# init; nvidia-container-cli mounts libnvoptix.so.<ver> under `--graphics`
+# but does not mount /usr/share/nvidia/nvoptix.bin, so OptiX fails to
+# initialise inside the container and RTX plugins (e.g. IsaacSim's
+# librtx.scenedb.plugin.so) SEGV at startup.
+mount_file /usr/share/nvidia/nvoptix.bin
