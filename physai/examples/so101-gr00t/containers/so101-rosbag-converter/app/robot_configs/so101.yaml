@@ -1,0 +1,53 @@
+robot_type: so101_follower
+fps: 30
+
+topics:
+  follower_joint_states: /follower/joint_states
+  follower_commands: /follower/forward_controller/commands
+  cameras:
+    front: /static_camera/image_raw/compressed
+    wrist: /follower/image_raw/compressed
+
+# pask-edge の /follower/joint_states は LeRobot と同名の joint 名を出す
+# (shoulder_pan / shoulder_lift / elbow_flex / wrist_flex / wrist_roll / gripper)
+# ため identity マッピング。ROS 側が別名 (例: follower_base 等) を使うロボットに
+# 差し替える場合は、この表を "ros_name: lerobot_name" に書き換える。
+follower_joint_mapping:
+  shoulder_pan: shoulder_pan
+  shoulder_lift: shoulder_lift
+  elbow_flex: elbow_flex
+  wrist_flex: wrist_flex
+  wrist_roll: wrist_roll
+  gripper: gripper
+
+follower_commands_order:
+  - shoulder_pan
+  - shoulder_lift
+  - elbow_flex
+  - wrist_flex
+  - wrist_roll
+  - gripper
+
+joint_names:
+  - shoulder_pan
+  - shoulder_lift
+  - elbow_flex
+  - wrist_flex
+  - wrist_roll
+  - gripper
+
+joint_limits_deg:
+  shoulder_pan: [-110.0, 110.0]
+  shoulder_lift: [-100.0, 100.0]
+  elbow_flex: [-100.0, 90.0]
+  wrist_flex: [-95.0, 95.0]
+  wrist_roll: [-160.0, 160.0]
+  gripper: [-10.0, 100.0]
+
+motor_limits:
+  shoulder_pan: [-100.0, 100.0]
+  shoulder_lift: [-100.0, 100.0]
+  elbow_flex: [-100.0, 100.0]
+  wrist_flex: [-100.0, 100.0]
+  wrist_roll: [-100.0, 100.0]
+  gripper: [0.0, 100.0]
