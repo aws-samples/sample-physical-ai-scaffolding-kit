@@ -139,6 +139,20 @@ class Session:
             if r.returncode != 0:
                 raise RuntimeError(f"rsync to {self.host}:{dst}: {r.stderr.strip()}")
 
+    def run_streaming(self, cmd: str) -> None:
+        r"""Run a remote command with stdout/stderr inherited from the caller.
+
+        Use this for commands whose *progress* the user needs to see live —
+        long-running transfers like `aws s3 cp --recursive` that emit their
+        own \r-based progress lines. `run()` captures output and only returns
+        it at the end, which turns a 20-minute copy into a silent black box.
+        """
+        r = subprocess.run(self._ssh_args() + [cmd], check=False)
+        if r.returncode != 0:
+            raise RuntimeError(
+                f"ssh {self.host}: command failed (exit {r.returncode}): {cmd}"
+            )
+
     def write_file(self, path: str, content: str) -> None:
         """Write content to a file on the remote host."""
         r = subprocess.run(

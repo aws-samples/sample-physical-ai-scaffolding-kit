@@ -26,6 +26,7 @@ def cli_env(monkeypatch):
             "host": host_override or "cfg-host",
             "ssh_config": ssh_config_override,
             "model_config_roots": ["/cfg/root"],
+            "data_bucket": "cfg-bucket",
         },
     )
     monkeypatch.setattr(cli.config, "load", config_load)
@@ -43,6 +44,7 @@ def cli_env(monkeypatch):
         "cancel_job": MagicMock(name="jobs.cancel_job"),
         "ls": MagicMock(name="data.ls"),
         "upload": MagicMock(name="data.upload"),
+        "save": MagicMock(name="data.save"),
         "run_clean": MagicMock(name="clean.run_clean"),
         "run_doctor": MagicMock(name="doctor.run_doctor"),
     }
@@ -57,6 +59,7 @@ def cli_env(monkeypatch):
     monkeypatch.setattr(cli.jobs, "cancel_job", stubs["cancel_job"])
     monkeypatch.setattr(cli.data, "ls", stubs["ls"])
     monkeypatch.setattr(cli.data, "upload", stubs["upload"])
+    monkeypatch.setattr(cli.data, "save", stubs["save"])
     monkeypatch.setattr(cli.clean, "run_clean", stubs["run_clean"])
     monkeypatch.setattr(cli.doctor, "run_doctor", stubs["run_doctor"])
 
@@ -267,6 +270,61 @@ def test_ls_with_path(cli_env, monkeypatch):
 def test_upload(cli_env, monkeypatch):
     run_cli(monkeypatch, "upload", "raw", "/local/path")
     cli_env["upload"].assert_called_once_with(cli_env["session"], "raw", "/local/path")
+
+
+def test_save_defaults(cli_env, monkeypatch):
+    run_cli(monkeypatch, "save", "checkpoints", "my-run")
+    cli_env["save"].assert_called_once_with(
+        cli_env["session"],
+        "checkpoints",
+        "my-run",
+        data_bucket="cfg-bucket",
+        force=False,
+        dry_run=False,
+        submit_job=False,
+        stream=True,
+        delete=False,
+    )
+
+
+def test_save_force_and_dry_run(cli_env, monkeypatch):
+    run_cli(monkeypatch, "save", "checkpoints", "my-run", "-f", "--dry-run")
+    cli_env["save"].assert_called_once_with(
+        cli_env["session"],
+        "checkpoints",
+        "my-run",
+        data_bucket="cfg-bucket",
+        force=True,
+        dry_run=True,
+        submit_job=False,
+        stream=True,
+        delete=False,
+    )
+
+
+def test_save_delete_flag(cli_env, monkeypatch):
+    run_cli(monkeypatch, "save", "checkpoints", "my-run", "--delete")
+    _, kwargs = cli_env["save"].call_args
+    assert kwargs["delete"] is True
+
+
+def test_save_job_flag(cli_env, monkeypatch):
+    run_cli(monkeypatch, "save", "checkpoints", "my-run", "--job")
+    _, kwargs = cli_env["save"].call_args
+    assert kwargs["submit_job"] is True
+    assert kwargs["stream"] is True
+
+
+def test_save_job_no_stream(cli_env, monkeypatch):
+    run_cli(monkeypatch, "save", "checkpoints", "my-run", "--job", "-n")
+    _, kwargs = cli_env["save"].call_args
+    assert kwargs["submit_job"] is True
+    assert kwargs["stream"] is False
+
+
+def test_save_rejects_other_categories(cli_env, monkeypatch):
+    with pytest.raises(SystemExit):
+        run_cli(monkeypatch, "save", "datasets", "my-run")
 
 
 def test_status(cli_env, monkeypatch):

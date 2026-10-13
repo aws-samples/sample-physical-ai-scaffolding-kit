@@ -13,6 +13,7 @@ DEFAULTS: dict[str, Any] = {
     "host": None,
     "ssh_config": None,
     "model_config_roots": [],
+    "data_bucket": None,
 }
 
 

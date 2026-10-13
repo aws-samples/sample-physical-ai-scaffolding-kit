@@ -43,6 +43,16 @@
         }
       }
     },
+    "dataset": {
+      "type": "object",
+      "description": "Dataset identity used by trainers that address datasets by repo_id (e.g. LeRobot policies via HF_LEROBOT_HOME).",
+      "properties": {
+        "repo_id": {
+          "type": "string",
+          "description": "HuggingFace-style dataset identifier (e.g. 'pask/so101_rosbag_sample'). LeRobot-based trainers symlink /fsx/datasets/<name> to HF_LEROBOT_HOME/<repo_id> and pass this value as --dataset.repo_id."
+        }
+      }
+    },
     "model": {
       "type": "object",
       "description": "Model identification. Used to resolve the model config directory.",

@@ -152,6 +152,44 @@ def main():
     p_up.add_argument("category", choices=data.CATEGORIES, help="Data category")
     p_up.add_argument("local_path", help="Local file or directory")
 
+    # save
+    p_save = sub.add_parser(
+        "save",
+        parents=[common],
+        help="Copy an artifact from /fsx/ to s3://<data_bucket>/",
+    )
+    p_save.add_argument(
+        "category", choices=data.SAVE_CATEGORIES, help="Data category"
+    )
+    p_save.add_argument("name", help="Artifact name (no slashes)")
+    p_save.add_argument(
+        "-f", "--force", action="store_true", help="Skip confirmation prompt"
+    )
+    p_save.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Pass --dryrun to aws s3 cp (no objects are copied)",
+    )
+    p_save.add_argument(
+        "--job",
+        dest="submit_job",
+        action="store_true",
+        help="Submit the copy as a Slurm job on the 'cpu' partition instead of "
+        "running it inline on the login node (recommended for >10 GB).",
+    )
+    p_save.add_argument(
+        "--delete",
+        action="store_true",
+        help="Remove /fsx/<category>/<name>/ after a successful copy. "
+        "Ignored under --dry-run.",
+    )
+    p_save.add_argument(
+        "-n",
+        "--no-stream",
+        action="store_true",
+        help="With --job: submit without streaming logs.",
+    )
+
     # rm
     p_rm = sub.add_parser(
         "rm", parents=[common], help="Remove a named artifact from /fsx/<category>/"
@@ -283,6 +321,18 @@ def main():
         data.ls(session, args.category, args.path)
     elif args.command == "upload":
         data.upload(session, args.category, args.local_path)
+    elif args.command == "save":
+        data.save(
+            session,
+            args.category,
+            args.name,
+            data_bucket=cfg.get("data_bucket"),
+            force=args.force,
+            dry_run=args.dry_run,
+            submit_job=args.submit_job,
+            stream=not args.no_stream,
+            delete=args.delete,
+        )
     elif args.command == "rm":
         data.rm(session, args.category, args.name, force=args.force)
     elif args.command == "status":

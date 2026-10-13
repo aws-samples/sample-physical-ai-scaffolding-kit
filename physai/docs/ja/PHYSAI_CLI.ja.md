@@ -133,6 +133,7 @@ physai clean -f                 # skip confirmation
 ```
 physai ls <category> [<path>] [--host HOST]     # list remote data
 physai upload <category> <local-path> [--host HOST]  # upload data to cluster
+physai save <category> <name> [-f] [--dry-run] [--job] [-n] [--delete] [--host HOST]  # copy /fsx/<category>/<name>/ to s3://<data_bucket>/<category>/<name>/
 physai rm <category> <name> [-f] [--host HOST]  # remove a remote artifact
 ```
 
@@ -212,7 +213,57 @@ S3 にメタデータを持たないため常に root 所有です。FSx ツリ�
 [FSx for Lustre POSIX メタデータ](https://docs.aws.amazon.com/fsx/latest/LustreGuide/posix-metadata-support.html)
 を参照してください。
 
-#### 3.2.3. physai rm
+#### 3.2.3. physai save
+
+`/fsx/<category>/<name>/` を S3 データバケット（DRA が参照しているのと同じバケット）の `s3://<data_bucket>/<category>/<name>/` にコピーします。実行の実体は login node 上の `aws s3 cp --recursive` なので、大容量のチェックポイントもローカル PC を経由せず AWS 内で完結します。
+
+```bash
+physai save checkpoints gr00t-n1.6-liftcube-30k
+physai save checkpoints gr00t-n1.6-liftcube-30k -f             # 確認プロンプトをスキップ
+physai save checkpoints gr00t-n1.6-liftcube-30k --dry-run      # aws s3 cp --dryrun で確認だけ
+physai save checkpoints gr00t-n1.6-liftcube-30k --job          # Slurm ジョブとして cpu パーティションに投入
+physai save checkpoints gr00t-n1.6-liftcube-30k --job -n       # 投入だけしてログを追わない
+physai save checkpoints gr00t-n1.6-liftcube-30k --delete       # コピー成功後に /fsx/checkpoints/gr00t-n1.6-liftcube-30k/ を削除
+physai save checkpoints gr00t-n1.6-liftcube-30k --job --delete # ジョブとして投入し、成功時に自動削除
+```
+
+`--delete` を付けると、S3 へのコピーが**成功した場合に限り** `/fsx/<category>/<name>/` を削除します。inline モードでは Python 側で `run_streaming` が例外を投げなかったときだけ `rm -rf` を実行し、`--job` モードでは sbatch 内で `set -eo pipefail` が `aws s3 cp` の失敗を検知して `rm -rf` を抑止します。`--dry-run` と組み合わせた場合は削除も抑止されます。FSx の空き容量を確保しつつアーカイブしたいときに使用します。
+
+デフォルト（inline 実行）は login node 上で `aws s3 cp` を同期実行するため、数 GB 程度までは進捗を眺めるのに便利です。ただし 20 GB を超えるようなチェックポイントではローカル shell を長時間占有してしまうため、`--job` を付けて **Slurm の `cpu` パーティション**に投入することを推奨します。`--job` 実行時の挙動:
+
+- sbatch スクリプトを `/fsx/physai/jobs/save-<category>-<name>.sbatch` に書き出し、`sbatch --parsable` で投入します。
+- ジョブ名は `physai/save/<category>/<name>` で、`physai list` / `physai status` / `physai logs` / `physai cancel` から通常のジョブと同じように扱えます。
+- デフォルトでは `session.stream_log(job_id)` でログを追跡します（Ctrl-C で detach、ジョブ自体は継続）。`-n` / `--no-stream` を付ければ投入だけして即座に戻ります。
+- 同一 `(category, name)` の save ジョブが既に投入されている場合、二重投入を防ぐため拒否します。
+
+対応カテゴリは `checkpoints` のみです。`raw` は既に `s3://<bucket>/raw/` に存在し、`datasets` は生成物なので現時点では対象外です（必要に応じて `SAVE_CATEGORIES` を拡張してください）。
+
+事前準備として `~/.physai/config.yaml` に `data_bucket` を設定します:
+
+```yaml
+host: hyperpod-login
+data_bucket: physai-cluster-data-123456789012-us-west-2
+```
+
+バケット名は `PhysaiInfraStack` の CloudFormation Output から取得できます:
+
+```bash
+aws cloudformation describe-stacks --stack-name PhysaiInfraStack \
+  --query 'Stacks[0].Outputs[?OutputKey==`DataBucketName`].OutputValue' \
+  --output text
+```
+
+コピー前に `save` は次の処理を行います:
+
+- name のバリデーション（スラッシュ、空白、`.` / `..` を拒否 — `rm` と同じ規則）。
+- `/fsx/<category>/<name>/` の存在確認とディレクトリ判定（ファイルは対象外）。
+- `_find_active_job_producing` により、同じパスに書き込み中のパイプラインジョブがあれば拒否します。書き途中のチェックポイントを S3 に上げないためです。
+- `aws s3 ls` で送信先 prefix にオブジェクトが既にあれば警告を表示し、`-f` / `--force` 指定時のみ上書きを許可します。
+- 進捗は `aws s3 cp` の標準出力がそのまま流れます（`ControlMaster` 経由の SSH で stdout/stderr を継承）。
+
+送信先 prefix `s3://<bucket>/checkpoints/` は DRA の対象外（DRA は `s3://<bucket>/raw/` のみ）なので、コピー後に `/fsx/checkpoints/` へ自動反映されることはありません。ローカルに落としたい場合は、別マシンから `aws s3 cp --recursive s3://<bucket>/checkpoints/<name>/ ./<name>/` を実行してください。
+
+#### 3.2.4. physai rm
 
 指定した名前のアーティファクトをクラスターから削除します:
 

@@ -133,6 +133,7 @@ These commands are used to manage the data.
 ```
 physai ls <category> [<path>] [--host HOST]     # list remote data
 physai upload <category> <local-path> [--host HOST]  # upload data to cluster
+physai save <category> <name> [-f] [--dry-run] [--job] [-n] [--delete] [--host HOST]  # copy /fsx/<category>/<name>/ to s3://<data_bucket>/<category>/<name>/
 physai rm <category> <name> [-f] [--host HOST]  # remove a remote artifact
 ```
 
@@ -225,7 +226,83 @@ login node and run `sudo rm -rf /fsx/raw/<name>`. See
 [FSx for Lustre POSIX metadata](https://docs.aws.amazon.com/fsx/latest/LustreGuide/posix-metadata-support.html)
 for the full list of `x-amz-meta-file-*` fields you can set.
 
-#### 3.2.3. physai rm
+#### 3.2.3. physai save
+
+Copy `/fsx/<category>/<name>/` to `s3://<data_bucket>/<category>/<name>/` on
+the same bucket the DRA points at. The transfer runs as
+`aws s3 cp --recursive` on the login node, so multi-GB checkpoints stay inside
+AWS and never round-trip through the operator's laptop.
+
+```bash
+physai save checkpoints gr00t-n1.6-liftcube-30k
+physai save checkpoints gr00t-n1.6-liftcube-30k -f             # skip confirmation
+physai save checkpoints gr00t-n1.6-liftcube-30k --dry-run      # aws s3 cp --dryrun
+physai save checkpoints gr00t-n1.6-liftcube-30k --job          # submit as a Slurm job on partition `cpu`
+physai save checkpoints gr00t-n1.6-liftcube-30k --job -n       # submit without tailing logs
+physai save checkpoints gr00t-n1.6-liftcube-30k --delete       # remove /fsx/checkpoints/<name>/ after a successful copy
+physai save checkpoints gr00t-n1.6-liftcube-30k --job --delete # submit as a job; delete on success
+```
+
+`--delete` removes `/fsx/<category>/<name>/` **only when the S3 copy
+succeeds**. In inline mode, the Python code only runs `rm -rf` after
+`run_streaming` returns without raising. In `--job` mode, `set -eo pipefail`
+inside the sbatch script fails the job (and skips the `rm`) if `aws s3 cp`
+exits non-zero. `--dry-run` suppresses the delete step in both modes. Useful
+when archiving a checkpoint to reclaim FSx capacity.
+
+The default (inline) mode runs `aws s3 cp` synchronously on the login node,
+which is fine for a few-GB checkpoint. For 20 GB+ transfers, add `--job` to
+submit the copy to the **`cpu` partition** as a regular Slurm job so the
+local shell isn't tied up. With `--job`:
+
+- Writes an sbatch script to
+  `/fsx/physai/jobs/save-<category>-<name>.sbatch` and submits it via
+  `sbatch --parsable`.
+- Job name is `physai/save/<category>/<name>`, so
+  `physai list` / `status` / `logs` / `cancel` all work as usual.
+- By default tails the log via `session.stream_log(job_id)` — Ctrl-C
+  detaches without killing the job. Pass `-n` / `--no-stream` to return
+  immediately after submission.
+- Refuses to submit if another `physai/save/<category>/<name>` job is
+  already in flight.
+
+Only `checkpoints` is supported today. `raw` already lives at
+`s3://<bucket>/raw/` via the DRA, and `datasets` are regenerated on demand —
+extend `SAVE_CATEGORIES` if you need more.
+
+Set `data_bucket` in `~/.physai/config.yaml`:
+
+```yaml
+host: hyperpod-login
+data_bucket: physai-cluster-data-123456789012-us-west-2
+```
+
+Look up the bucket name via CloudFormation:
+
+```bash
+aws cloudformation describe-stacks --stack-name PhysaiInfraStack \
+  --query 'Stacks[0].Outputs[?OutputKey==`DataBucketName`].OutputValue' \
+  --output text
+```
+
+Before copying, `save`:
+
+- Validates `<name>` (rejects slashes, whitespace, `.`/`..` — same rule as `rm`).
+- Verifies `/fsx/<category>/<name>/` exists and is a directory (files are
+  rejected).
+- Asks `_find_active_job_producing` whether an active pipeline job is writing
+  to that path and refuses if so — avoids uploading a half-written checkpoint.
+- Runs `aws s3 ls` against the destination prefix and warns if it is
+  non-empty; requires `-f` / `--force` to overwrite.
+- Streams `aws s3 cp`'s stdout/stderr live over the same SSH ControlMaster.
+
+The destination prefix `s3://<bucket>/checkpoints/` is **outside the DRA
+scope** (the DRA only covers `s3://<bucket>/raw/`), so nothing gets
+auto-imported back into `/fsx/checkpoints/`. To pull the checkpoint to a
+different machine, run `aws s3 cp --recursive s3://<bucket>/checkpoints/<name>/ ./<name>/`
+locally.
+
+#### 3.2.4. physai rm
 
 Remove a named artifact from the cluster:
 

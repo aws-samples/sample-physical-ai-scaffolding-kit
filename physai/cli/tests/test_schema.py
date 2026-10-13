@@ -57,3 +57,28 @@ def test_container_missing_name():
 def test_run_config_missing_model():
     with pytest.raises(SystemExit, match="run-config"):
         validate({"stages": {"train": {"container": "tr"}}}, "run-config")
+
+
+def test_run_config_with_dataset_repo_id():
+    validate(
+        {
+            "pipeline": {"stages": ["train"]},
+            "model": {"name": "smolvla", "config_dir": "smolvla/so101-dualcam"},
+            "dataset": {"repo_id": "pask/so101_rosbag_sample"},
+            "stages": {"train": {"container": "smolvla-trainer"}},
+        },
+        "run-config",
+    )
+
+
+def test_run_config_dataset_repo_id_wrong_type():
+    with pytest.raises(SystemExit, match="run-config"):
+        validate(
+            {
+                "pipeline": {"stages": ["train"]},
+                "model": {"name": "smolvla", "config_dir": "smolvla/so101"},
+                "dataset": {"repo_id": 42},
+                "stages": {"train": {"container": "tr"}},
+            },
+            "run-config",
+        )

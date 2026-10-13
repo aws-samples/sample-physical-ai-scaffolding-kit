@@ -31,3 +31,19 @@ def test_load_no_host_raises(tmp_path, monkeypatch):
     monkeypatch.setattr("physai.config.CONFIG_PATH", tmp_path / "nonexistent.yaml")
     with pytest.raises(SystemExit):
         load()
+
+
+def test_load_data_bucket(tmp_path, monkeypatch):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("host: filehost\ndata_bucket: my-bucket\n")
+    monkeypatch.setattr("physai.config.CONFIG_PATH", config_file)
+    cfg = load()
+    assert cfg["data_bucket"] == "my-bucket"
+
+
+def test_load_data_bucket_defaults_to_none(tmp_path, monkeypatch):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("host: filehost\n")
+    monkeypatch.setattr("physai.config.CONFIG_PATH", config_file)
+    cfg = load()
+    assert cfg["data_bucket"] is None

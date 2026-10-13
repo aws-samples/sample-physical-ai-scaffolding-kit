@@ -382,6 +382,45 @@ singlecam モデル（`gr00t-n1.6/so101-singlecam`）を使う場合は `model.c
 `gr00t-n1.6/so101-singlecam` にし、`robot_configs/so101.yaml` の `topics.cameras`
 から `wrist` を削除して `front` のみに絞ってください。
 
+### モデル選択: GR00T N1.6 vs SmolVLA
+
+パス C の rosbag は LeRobot v2.1 形式で吐き出されるため、**同じデータで別モデルを
+学習させる**ことができます。同梱の選択肢:
+
+| モデル | run_config の例 | 使い分け |
+|---|---|---|
+| GR00T N1.6 (3B) | `configs/so101_pen_gr00t-n1.6_rosbag.yaml`（自作） | 大規模データがある / 汎化を狙いたい / 学習ノードが H100/L40S クラス |
+| SmolVLA (450M) | [`configs/so101_pen_smolvla_rosbag.yaml`](../../examples/so101-gr00t/configs/so101_pen_smolvla_rosbag.yaml) | 少エピソード / 短時間で回したい / エッジ推論も視野 |
+
+同梱のサンプルデータ `/fsx/raw/rosbag-sample/episode_20260906084813/` は SO-101 が
+ペンを拾って別の場所に置くタスクを 1 エピソードだけテレオペ収録したもので、
+**LeIsaac に対応 sim env が無いため eval ステージは省略**しています（GR00T 版の
+pen サンプルと同じ扱い）。実機評価は `pask-edge` 側で行う想定です。
+
+SmolVLA を使う場合、まず trainer コンテナをビルドします:
+
+```bash
+physai build examples/so101-gr00t/containers/smolvla-trainer
+```
+
+同梱の [`so101_pen_smolvla_rosbag.yaml`](../../examples/so101-gr00t/configs/so101_pen_smolvla_rosbag.yaml)
+は `/fsx/raw/rosbag-sample/` を入力に、`stages.convert.container: so101-rosbag-converter`
+→ `stages.train.container: smolvla-trainer` の 2 段構成でパイプラインを回します。
+`dataset.repo_id` に `pask/so101_pen_rosbag_sample` を指定していますが、
+`lerobot-train` は `HF_LEROBOT_HOME` 経由でローカルの `/fsx/datasets/<name>/` を
+参照するだけなので、HuggingFace Hub へのアップロードは**必要ありません**。
+
+```bash
+physai run --config examples/so101-gr00t/configs/so101_pen_smolvla_rosbag.yaml \
+  --raw rosbag-sample
+```
+
+eval をこのサンプル向けに追加したい場合は、対応する LeIsaac sim env（例:
+`LeIsaac-SO101-PickPen-v0`）を LeIsaac 側で新設した上で eval コンテナ
+（LeRobot の `lerobot.async_inference.policy_server` を gRPC 起動し
+`policy_inference.py --policy_type=lerobot-smolvla` から接続する構成）を追加します。
+どちらも本サンプルには同梱していません。
+
 ## 次のステップ
 
 これでサンプルプロジェクトを使ったパイプライン入門は終了です。サンプル自体

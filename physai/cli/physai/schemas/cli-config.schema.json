@@ -18,6 +18,10 @@
       "items": { "type": "string" },
       "default": [],
       "description": "List of local directory paths to search for model config directories referenced by run_config.yaml model.config_dir."
+    },
+    "data_bucket": {
+      "type": "string",
+      "description": "Name of the S3 data bucket that the FSx DRA points at (from PhysaiInfraStack's DataBucketName output). Required for `physai save`, which copies /fsx/<category>/<name> to s3://<data_bucket>/<category>/<name>/."
     }
   },
   "additionalProperties": false
