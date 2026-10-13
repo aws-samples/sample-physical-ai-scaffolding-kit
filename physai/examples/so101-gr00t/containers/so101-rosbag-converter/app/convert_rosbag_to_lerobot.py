@@ -1,7 +1,12 @@
-"""rosbag2 (mcap) → LeRobot v2.1 変換スクリプト
+"""rosbag2 (mcap) → LeRobot v3.0 変換スクリプト
 
-pask-edge の実機テレオペで記録した rosbag2 (mcap) を、PASK (lerobot==0.3.3)
-で使える LeRobot v2.1 形式に変換する。
+pask-edge の実機テレオペで記録した rosbag2 (mcap) を、SmolVLA / lerobot-train
+(lerobot==0.6.2) が読み込める LeRobot v3.0 形式に変換する。
+
+v3.0 は lerobot 0.6 で導入された新スキーマで、v2.1 とは互換性が無い。
+本サンプルは SmolVLA を主要ターゲットにするため v3.0 のみをサポートする。
+既存 GR00T / OpenPI 系トレーナは lerobot 0.3.x に依存しており v2.1 を要求する
+点に注意（詳細は container/README.md 参照）。
 
 想定入力レイアウト:
     <input_dir>/
@@ -45,12 +50,9 @@ from PIL import Image
 from rosbags.highlevel import AnyReader
 from rosbags.typesys import Stores, get_typestore
 
-try:
-    # lerobot >= 0.3
-    from lerobot.datasets.lerobot_dataset import LeRobotDataset
-except ImportError:
-    # lerobot < 0.3 (legacy path)
-    from lerobot.common.datasets.lerobot_dataset import LeRobotDataset  # type: ignore
+# lerobot 0.6+ ships LeRobotDataset under `lerobot.datasets`. Earlier legacy
+# paths (`lerobot.common.datasets.*`) are not supported by this container.
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 
 def load_config(config_path: str) -> dict[str, Any]:
@@ -351,9 +353,12 @@ def convert(
             else:
                 action = state
 
+            # lerobot 0.6 requires the frame dict itself to include the task
+            # string (was a `task=` kwarg on add_frame in 0.3).
             frame_dict: dict[str, Any] = {
                 "observation.state": np.array(state, dtype=np.float32),
                 "action": np.array(action, dtype=np.float32),
+                "task": task,
             }
 
             all_cameras_available = True
@@ -368,28 +373,18 @@ def convert(
                 skipped += 1
                 continue
 
-            # LeRobot 0.3 requires per-frame `task`. Older versions accepted it
-            # only on save_episode; support both call shapes so a downgrade of
-            # lerobot doesn't break the container.
-            try:
-                dataset.add_frame(frame_dict, task=task)
-            except TypeError:
-                dataset.add_frame(frame_dict)
+            dataset.add_frame(frame_dict)
 
-        try:
-            dataset.save_episode()
-        except TypeError:
-            dataset.save_episode(task=task)
+        dataset.save_episode()
         saved_episodes += 1
         kept = len(frames) - skipped
         total_frames += kept
         total_skipped += skipped
         print(f"  [{ep_idx}] {ep_path.name}: {kept} frames (skipped {skipped}) task='{task}'")
 
-    # consolidate() was removed in newer lerobot versions (save_episode now
-    # writes final artifacts directly). Call it only if it still exists.
-    if hasattr(dataset, "consolidate"):
-        dataset.consolidate()
+    # lerobot 0.6 requires an explicit finalize() to flush parquet footers and
+    # close writers; without it the dataset is left in a partial state.
+    dataset.finalize()
 
     print("Conversion complete:")
     print(f"  Output:   {output_dir}")
@@ -399,7 +394,7 @@ def convert(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="rosbag2 (mcap) → LeRobot v2.1 converter for PASK",
+        description="rosbag2 (mcap) → LeRobot v3.0 converter for PASK",
     )
     parser.add_argument(
         "--input-dir",

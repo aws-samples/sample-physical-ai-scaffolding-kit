@@ -1,0 +1,31 @@
+pipeline:
+  # eval は "Pen pick-and-place" 用の LeIsaac sim env が同梱されていないので省略。
+  # 実機評価は pask-edge 側から Phase B のクライアントで行うか、自作 sim env を
+  # 用意した上で stages に "eval" を戻して leisaac-smolvla コンテナに切り替える。
+  stages: [convert, train]
+
+rosbag:
+  # 各エピソードの metadata.custom_data.task が欠けている場合の fallback。
+  # 通常は rosbag 側の task が優先される。
+  language_instruction: "Pick up the pen and place it on the target"
+
+model:
+  name: smolvla
+  config_dir: smolvla/so101-dualcam
+
+dataset:
+  # 任意の HuggingFace 形式 id。trainer が /fsx/datasets/<name>/ を
+  # $HF_LEROBOT_HOME/<repo_id>/ にシンボリンクするだけなので、Hub への
+  # 実アップロードは不要。
+  repo_id: pask/so101_pen_rosbag_sample
+
+stages:
+  convert:
+    partition: cpu
+    container: so101-rosbag-converter
+  train:
+    partition: gpu
+    gres: "gpu:1"
+    constraint: l40s
+    container: smolvla-trainer
+    max_steps: 30000

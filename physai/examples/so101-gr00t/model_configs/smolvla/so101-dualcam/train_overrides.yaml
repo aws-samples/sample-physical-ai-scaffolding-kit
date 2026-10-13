@@ -1,0 +1,22 @@
+# Overrides passed through to `lerobot-train` by /app/read_overrides.py.
+# Nested keys are joined with `.` (see read_overrides.py). Booleans go
+# lowercase, sequences serialize as JSON. String-valued dict blobs (like
+# `rename_map`) are kept as a single JSON blob per lerobot's CLI contract.
+
+policy:
+  # SmolVLA can be fine-tuned with the VLM tower frozen when data is scarce.
+  # Our sample dataset is a single episode, so freezing keeps overfit bounded.
+  freeze_vision_encoder: true
+  # smolvla_base was trained with 3 camera streams (camera1/camera2/camera3).
+  # `empty_cameras` is an int COUNT (see SmolVLAConfig.validate_features): at
+  # forward time SmolVLA fills that many missing input_features with zeroed
+  # image tensors. We have 2 cameras (front, wrist), so set 1 to cover camera3.
+  empty_cameras: 1
+
+# rename_map is a top-level string→string dict on TrainPipelineConfig. lerobot's
+# CLI takes it as a single JSON blob (see error message from lerobot-train:
+# `--rename_map='{"observation.images.left": "observation.images.camera1", ...}'`).
+# When rename_map is set, validate_visual_features_consistency is skipped
+# (lerobot 0.6 factory.py L382); the model runs with camera1/camera2 fed by
+# rename and camera3 filled by empty_cameras above.
+rename_map: '{"observation.images.front": "observation.images.camera1", "observation.images.wrist": "observation.images.camera2"}'

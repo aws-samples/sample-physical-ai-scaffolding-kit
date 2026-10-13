@@ -1,0 +1,13 @@
+name: smolvla-trainer
+# Build on GPU: the base image is nvcr.io/nvidia/cuda (inherited from
+# project.yaml), and enroot's 98-nvidia.sh runs at container start before any
+# env.txt is applied, so cpu partition can't start the container. GPU is not
+# strictly needed for pip installs / hf download, but this matches
+# gr00t-n1.6-trainer and keeps the container start path happy.
+partition: gpu
+gres: "gpu:1"
+env:
+  LEROBOT_REPO: "https://github.com/huggingface/lerobot.git"
+  LEROBOT_REF: "main"
+  SMOLVLA_MODEL: "lerobot/smolvla_base"
+  SMOLVLA_HOME: "/opt/smolvla"
