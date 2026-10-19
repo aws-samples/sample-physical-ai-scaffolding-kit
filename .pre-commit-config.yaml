@@ -43,11 +43,11 @@ repos:
     hooks:
       - id: ruff
         name: ruff (check)
-        files: ^physai/(cli/.*|infra/lifecycle/.*|regression/.*)\.py$
+        files: ^physai/(cli/.*|infra/lambda/.*|infra/lifecycle/.*|regression/.*)\.py$
       - id: ruff-format
         name: ruff (format-check)
         args: [--check]
-        files: ^physai/(cli/.*|infra/lifecycle/.*|regression/.*)\.py$
+        files: ^physai/(cli/.*|infra/lambda/.*|infra/lifecycle/.*|regression/.*)\.py$
 
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.10.0.1
@@ -69,11 +69,11 @@ repos:
         # so `ty.toml`'s relative `extra-paths`/`exclude` resolve. The
         # whole ruff-checked source tree is passed so a single file's edit
         # still type-checks against the package it belongs to.
-        entry: bash -c 'cd physai && ty check cli regression infra/lifecycle'
+        entry: bash -c 'cd physai && ty check cli regression infra/lifecycle infra/lambda'
         language: python
-        additional_dependencies: [ty, jsonschema, pyyaml, pytest, boto3]
+        additional_dependencies: [ty, jsonschema, pyyaml, pytest, boto3, paramiko]
         pass_filenames: false
-        files: ^physai/(cli/.*|infra/lifecycle/.*|regression/.*)\.py$
+        files: ^physai/(cli/.*|infra/lambda/.*|infra/lifecycle/.*|regression/.*)\.py$
         types_or: [python]
 
       - id: cli-pytest
@@ -86,6 +86,22 @@ repos:
         language: system
         pass_filenames: false
         files: ^physai/cli/.*\.py$
+        types_or: [python]
+
+      - id: lambda-pytest
+        name: lambda pytest (unit)
+        # A `python`-language hook so pre-commit supplies boto3 and paramiko:
+        # the handlers import them at module scope, and nothing installs them
+        # for `infra/lambda/` otherwise — they reach the deployed bundle through
+        # `build.py`, not a local environment.
+        #
+        # Python 3.12 to match the Lambda runtime and ty.toml.
+        entry: bash -c 'cd physai/infra/lambda && python -m pytest -q tests/'
+        language: python
+        language_version: python3.12
+        additional_dependencies: [pytest, boto3, paramiko]
+        pass_filenames: false
+        files: ^physai/infra/lambda/.*\.py$
         types_or: [python]
 
       - id: regression-pytest

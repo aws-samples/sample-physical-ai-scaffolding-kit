@@ -6,6 +6,8 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
 
+export const VPC_CIDR = '10.0.0.0/16';
+
 export interface InfraStackProps extends cdk.StackProps {
   clusterName: string;
   fsxCapacityGiB: number;
@@ -32,7 +34,7 @@ export class InfraStack extends cdk.Stack {
 
     this.vpc = new ec2.Vpc(this, 'Vpc', {
       vpcName: `${clusterName}-vpc`,
-      ipAddresses: ec2.IpAddresses.cidr('10.0.0.0/16'),
+      ipAddresses: ec2.IpAddresses.cidr(VPC_CIDR),
       maxAzs: 2,
       natGateways: 1,
       subnetConfiguration: [

@@ -249,6 +249,8 @@ npx cdk deploy PhysaiClusterStack      # 約 15 分
 
 遅く（合計約 25 分）、実行中のジョブはすべて失われます。しかし安全です： `PhysaiClusterStack` は設計上ステートレス（IAM ロール、HyperPod クラスター、ライフサイクルバケット）で、永続状態をすべて保持する `PhysaiInfraStack`（FSx、RDS、S3 データバケット）は変更されません。
 
+ジョブインテークが有効な場合、`cdk destroy PhysaiClusterStack` はそれに依存する `PhysaiJobIntakeStack` も削除します。両方を戻すには `npx cdk deploy --all` で再デプロイしてください。[INFRA.ja.md](INFRA.ja.md) を参照してください。
+
 ## クラスターへのアクセス
 
 login ノードにはパブリック IP がありません。AWS SSM を経由した SSH トンネルでアクセスします。

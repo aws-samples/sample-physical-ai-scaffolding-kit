@@ -1,5 +1,5 @@
 # Type-checker config for the physai Python sources (cli/, regression/,
-# infra/lifecycle/). Scoped to match `ruff check`.
+# infra/lifecycle/, infra/lambda/). Scoped to match `ruff check`.
 #
 # Enforced via the `ty` pre-commit hook (see ../.pre-commit-config.yaml),
 # which installs ty plus the third-party runtime deps into its own
@@ -12,6 +12,10 @@
 # regression code imports `physai.ssh`; pointing ty here means the check
 # does not depend on `physai` being pip-installed.
 extra-paths = ["cli"]
+
+# ty otherwise uses its venv's interpreter (3.10), which lacks what the
+# Lambda and regression code use from 3.11 on. Matches the Lambda runtime.
+python-version = "3.12"
 
 [src]
 # `cli/build/` is stale setuptools build output, not source.
