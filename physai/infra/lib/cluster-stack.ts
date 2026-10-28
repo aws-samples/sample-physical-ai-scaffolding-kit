@@ -10,6 +10,9 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
+import { VPC_CIDR } from './infra-stack';
+
+export const LOGIN_GROUP_NAME = 'login-group';
 
 export interface GpuWorkerConfig {
   name: string;
@@ -31,6 +34,7 @@ export interface ClusterStackProps extends cdk.StackProps {
   gpuWorkers: GpuWorkerConfig[];
   cpuWorkerType: string;
   cpuWorkerCount: number;
+  jobIntakeEnabled: boolean;
 }
 
 function hashDirectory(dir: string): string {
@@ -53,6 +57,9 @@ function hashDirectory(dir: string): string {
 }
 
 export class ClusterStack extends cdk.Stack {
+  public readonly clusterName: string;
+  public readonly jobIntakeKey?: ec2.KeyPair;
+
   constructor(scope: Construct, id: string, props: ClusterStackProps) {
     super(scope, id, props);
     const {
@@ -68,6 +75,7 @@ export class ClusterStack extends cdk.Stack {
       gpuWorkers,
       cpuWorkerType,
       cpuWorkerCount,
+      jobIntakeEnabled,
     } = props;
 
     const account = cdk.Stack.of(this).account;
@@ -80,12 +88,21 @@ export class ClusterStack extends cdk.Stack {
     // AWS::StackId format: arn:...:stack/<name>/<guid>
     const stackGuid = cdk.Fn.select(2, cdk.Fn.split('/', this.stackId));
     const stackSuffix = cdk.Fn.select(0, cdk.Fn.split('-', stackGuid));
-    const clusterName = `${baseClusterName}-${stackSuffix}`;
+    this.clusterName = `${baseClusterName}-${stackSuffix}`;
+
+    // Here rather than in PhysaiJobIntakeStack, which deploys after this stack:
+    // the login node installs the key's public half as it first boots.
+    if (jobIntakeEnabled) {
+      this.jobIntakeKey = new ec2.KeyPair(this, 'JobIntakeSshKey', {
+        keyPairName: `${this.clusterName}-job-intake`,
+        type: ec2.KeyPairType.ED25519,
+      });
+    }
 
     // ── Lifecycle Scripts Bucket ──
 
     const lifecycleBucket = new s3.Bucket(this, 'LifecycleBucket', {
-      bucketName: `${clusterName}-lifecycle-${account}-${this.region}`,
+      bucketName: `${this.clusterName}-lifecycle-${account}-${this.region}`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -97,10 +114,17 @@ export class ClusterStack extends cdk.Stack {
     // HyperPod to pick up new scripts (node replacement alone does not
     // re-fetch from S3). Old prefixes are left behind — they're tiny.
     const lifecycleDir = path.join(__dirname, '..', 'lifecycle');
-    const lifecycleHash = hashDirectory(lifecycleDir).slice(0, 12);
+    // Job intake changes physai-config.json without changing a script, so
+    // turning it on or off has to change the prefix too.
+    const lifecycleHash = crypto
+      .createHash('sha256')
+      .update(hashDirectory(lifecycleDir))
+      .update(jobIntakeEnabled ? 'job-intake' : '')
+      .digest('hex')
+      .slice(0, 12);
     const lifecyclePrefix = `lifecycle/${lifecycleHash}`;
 
-    new s3deploy.BucketDeployment(this, 'DeployLifecycleScripts', {
+    const lifecycleDeployment = new s3deploy.BucketDeployment(this, 'DeployLifecycleScripts', {
       sources: [
         s3deploy.Source.asset(lifecycleDir, {
           exclude: ['.mypy_cache/**', '__pycache__/**', '*.pyc'],
@@ -110,6 +134,11 @@ export class ClusterStack extends cdk.Stack {
           rds_port: 3306,
           rds_database: 'slurm_acct_db',
           secret_arn: dbSecret.secretArn,
+          ...(this.jobIntakeKey && {
+            job_intake_key_pair_id: this.jobIntakeKey.keyPairId,
+            job_intake_key_name: this.jobIntakeKey.keyPairName,
+            vpc_cidr: VPC_CIDR,
+          }),
         }),
       ],
       destinationBucket: lifecycleBucket,
@@ -122,7 +151,7 @@ export class ClusterStack extends cdk.Stack {
     // ── IAM Execution Role ──
 
     const executionRole = new iam.Role(this, 'ExecutionRole', {
-      roleName: `${clusterName}-ExecutionRole`,
+      roleName: `${this.clusterName}-ExecutionRole`,
       assumedBy: new iam.ServicePrincipal('sagemaker.amazonaws.com'),
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSageMakerClusterInstanceRolePolicy'),
@@ -159,6 +188,19 @@ export class ClusterStack extends cdk.Stack {
     );
 
     dbSecret.grantRead(executionRole);
+
+    // For install_job_intake_key.sh. EC2 offers no resource-level permissions
+    // for this action, so it cannot be narrowed to one key pair; the script
+    // asks only for the id in its config.
+    if (this.jobIntakeKey) {
+      executionRole.addToPolicy(
+        new iam.PolicyStatement({
+          sid: 'JobIntakeDescribeKeyPair',
+          actions: ['ec2:DescribeKeyPairs'],
+          resources: ['*'],
+        }),
+      );
+    }
 
     // DCV license bucket (automatic EC2 licensing)
     executionRole.addToPolicy(
@@ -209,7 +251,7 @@ export class ClusterStack extends cdk.Stack {
         InstanceStorageConfigs: [fsxConfig],
       },
       {
-        InstanceGroupName: 'login-group',
+        InstanceGroupName: LOGIN_GROUP_NAME,
         InstanceType: 'ml.c5.large',
         InstanceCount: 1,
         LifeCycleConfig: lifecycleConfig,
@@ -245,7 +287,7 @@ export class ClusterStack extends cdk.Stack {
     const cluster = new cdk.CfnResource(this, 'HyperPodCluster', {
       type: 'AWS::SageMaker::Cluster',
       properties: {
-        ClusterName: clusterName,
+        ClusterName: this.clusterName,
         InstanceGroups: [...fixedGroups, ...gpuGroups, cpuGroup],
         VpcConfig: {
           SecurityGroupIds: [clusterSg.securityGroupId],
@@ -260,16 +302,18 @@ export class ClusterStack extends cdk.Stack {
       },
     });
     cluster.node.addDependency(executionRole);
+    // Nodes read the lifecycle scripts and physai-config.json as they boot.
+    cluster.node.addDependency(lifecycleDeployment);
 
     new cdk.CfnOutput(this, 'ClusterName', {
-      value: clusterName,
+      value: this.clusterName,
       exportName: `${this.stackName}-ClusterName`,
     });
 
     // ── CloudWatch Alarm ──
 
     new cloudwatch.Alarm(this, 'FsxCapacityAlarm', {
-      alarmName: `${clusterName}-fsx-low-capacity`,
+      alarmName: `${this.clusterName}-fsx-low-capacity`,
       metric: new cloudwatch.Metric({
         namespace: 'AWS/FSx',
         metricName: 'FreeStorageCapacity',

@@ -321,6 +321,12 @@ Model config directory is reused since the robot is unchanged.
 - Setup/teardown runs in sbatch host context (before/after the container); `eval.sh` is unchanged
 - `physai doctor` checks for `session-manager-plugin` on the developer machine
 
+#### Job intake (opt-in)
+
+- `PhysaiJobIntakeStack`, deployed when `jobIntakeCallers` is non-empty, and a login-node SSH key pair in `PhysaiClusterStack` that a lifecycle script installs whenever a login node is created or replaced
+- Submit Lambda: connects to the login node over the cluster VPC and probes it
+- See [JOB_INTAKE.md](JOB_INTAKE.md)
+
 ### Not yet implemented
 
 #### Next up (blocking full pipeline)
@@ -330,6 +336,11 @@ Model config directory is reused since the robot is unchanged.
 - `train.sh` output contract — define `train_summary.json` (final loss, steps, checkpoint paths) so `register` can consume training outputs; currently `train.sh` only writes model checkpoints
 - Export stage outputs to S3 — datasets, checkpoints, evaluations under `/fsx/` should be published to `s3://<data-bucket>/{datasets,checkpoints,results}/` at the end of each stage. The pipeline orchestrator performs the export explicitly (e.g., `aws s3 cp`); it is NOT done via FSx data-repository export. `/fsx/` is treated as working storage only.
 - MLflow tracking server in CDK
+
+#### Job intake
+
+- Accepting job specs from a queue and launching them as Slurm jobs
+- Reporting a run's outcome back to the caller
 
 #### Stretch
 

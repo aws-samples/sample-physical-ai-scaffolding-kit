@@ -320,6 +320,12 @@ LeIsaac 以外の変更:
 - セットアップ／ティアダウンは sbatch ホストコンテキスト（コンテナ実行の前後）で行うため、`eval.sh` は変更不要です
 - `physai doctor` は開発者マシンに `session-manager-plugin` があるかチェックします
 
+#### ジョブインテーク（オプトイン）
+
+- `PhysaiJobIntakeStack`（`jobIntakeCallers` が空でない場合にデプロイ）と、`PhysaiClusterStack` 内のログインノードの SSH キーペア。鍵はログインノードの作成時と置き換え時にライフサイクルスクリプトがインストールします
+- submit Lambda: クラスター VPC 経由でログインノードに接続し、疎通を確認します
+- [JOB_INTAKE.ja.md](JOB_INTAKE.ja.md) を参照
+
 ### 未実装
 
 #### 次の優先事項（フルパイプラインのブロッカー）
@@ -329,6 +335,11 @@ LeIsaac 以外の変更:
 - `train.sh` 出力契約 — `train_summary.json`（最終ロス、ステップ数、チェックポイントパス）を定義し、`register` がトレーニング出力を利用できるようにします。現在 `train.sh` はモデルチェックポイントのみを書き出します
 - ステージ出力の S3 エクスポート — `/fsx/` 配下のデータセット、チェックポイント、評価結果を各ステージ終了時に `s3://<data-bucket>/{datasets,checkpoints,results}/` に公開します。パイプラインオーケストレータが明示的にエクスポートを実行します（例: `aws s3 cp`）。FSx の data-repository export は使用しません。`/fsx/` はワーキングストレージとしてのみ扱います
 - CDK での MLflow トラッキングサーバ
+
+#### ジョブインテーク
+
+- キューからジョブ仕様を受け取り、Slurm ジョブとして起動すること
+- 実行結果を呼び出し元に報告すること
 
 #### ストレッチ
 

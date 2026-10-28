@@ -139,6 +139,9 @@ def main():
     run("./install_gdm.sh", env=env)
     run("./install_dcv.sh", env=env)
 
+    # 7. Login-node-only: the job-intake SSH key (self-guarded)
+    run("./install_job_intake_key.sh")
+
     print("Lifecycle setup complete")
 
 

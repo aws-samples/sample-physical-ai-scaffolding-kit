@@ -274,6 +274,10 @@ It's slow (~25 min) and all running jobs are lost. But it's safe:
 lifecycle bucket), and `PhysaiInfraStack` — which holds every piece of
 persistent state (FSx, RDS, S3 data bucket) — is untouched.
 
+With job intake enabled, `cdk destroy PhysaiClusterStack` also destroys
+`PhysaiJobIntakeStack`, which depends on it. Redeploy with
+`npx cdk deploy --all` to bring both back; see [INFRA.md](INFRA.md).
+
 ## Accessing the Cluster
 
 The login node has no public IP. Access is via SSH tunneled through AWS SSM.

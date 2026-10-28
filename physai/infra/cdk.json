@@ -11,6 +11,7 @@
       }
     ],
     "cpuWorkerType": "ml.m5.2xlarge",
-    "cpuWorkerCount": 1
+    "cpuWorkerCount": 1,
+    "jobIntakeCallers": []
   }
 }

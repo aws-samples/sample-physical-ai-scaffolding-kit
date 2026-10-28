@@ -52,6 +52,26 @@ The regression suite lives under `regression/` and is a uv virtual project (`reg
 
 ---
 
+## Python (`infra/lambda/`)
+
+Lambda handlers for job intake (see [en/JOB_INTAKE.md](en/JOB_INTAKE.md)). Each subdirectory is one function's source, bundled into a zip by `infra/lambda/build.py`. A handler MUST be self-contained — only its own directory is bundled, so there is no shared package to import from.
+
+Same Python rules as `cli/` (3.10+ type hints, docstrings, `_`-prefixed private functions, ruff), with these differences:
+
+- The `cli/` "minimal deps" rule does NOT apply; the handlers target the Lambda runtime's Python 3.12, so 3.11+ features are fine
+- A handler module's only public function is `lambda_handler`. A helper module it imports (e.g. `submit/transport.py`) keeps public whatever the handler calls
+- Dependencies go in the function's `requirements.txt`, **fully pinned including transitive dependencies**, because `build.py` resolves them at bundle time and an unpinned transitive dependency means two people deploying the same commit ship different code. `boto3` is provided by the Lambda runtime — do NOT pin it
+- DO NOT add a `Dockerfile`. Docker is not a prerequisite for this project (see [en/DEPLOYMENT.md](en/DEPLOYMENT.md)) and only ever runs on cluster nodes. `build.py` runs on the host and there is no container fallback: CDK invokes it through `Code.fromCustomCommand`, so a bundle that cannot be built fails the synth with the build's own error
+- Native dependencies MUST be ones that work without an Amazon Linux build environment — a statically linked binary, or a wheel published for `manylinux_*`. `build.py` installs with `--only-binary :all:` and an explicit `--python-platform`, so a missing wheel fails the build rather than silently compiling against the host's platform
+- MUST install bundle dependencies with `uv`, not `pip`. pip checks a package's `Requires-Python` against the interpreter running pip rather than the `--python-version` being targeted, so an old pip rejects wheels the Lambda runs perfectly well; uv resolves for the target version without needing it installed. uv is already required by `regression/`
+- `build.py` MUST write the zip itself rather than leave a directory for CDK to zip, because CDK copies each entry's mode and timestamp from the host filesystem. Both are set explicitly and entries are written in sorted order, so the zip — which CDK hashes — is identical across rebuilds of the same sources
+- Tests live in `infra/lambda/tests/`, outside every bundle, so test files are not shipped. Run with `pre-commit run lambda-pytest --all-files`, whose environment supplies `boto3` and `paramiko`; nothing installs them locally
+- MUST mock all AWS and SSH boundaries in tests — no real `boto3` calls and no real SSH connections
+- No ruff config applies here (the nearest `pyproject.toml` is `cli/`'s, which is not an ancestor), so ruff defaults are in force — notably 88-column formatting. `ruff format` before committing; the pre-commit hook checks it
+- A handler MUST read its environment inside the function, not at import time, so tests can import the module without a configured environment. This includes constructing `boto3` clients
+
+---
+
 ## TypeScript (`infra/`)
 
 - MUST use strict mode (`"strict": true` in tsconfig.json)

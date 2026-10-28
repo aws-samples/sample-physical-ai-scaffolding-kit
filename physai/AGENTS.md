@@ -58,9 +58,9 @@ cd regression && uv sync      # provisions the regression env (physai editable f
 
 # Pre-commit hooks (config lives at the repo root: ../.pre-commit-config.yaml).
 # Hooks are scoped to physai/ files and split between two stages:
-#   - pre-commit: ruff, ty (type check), cli pytest, regression unit
-#                 pytest (via uv run), shellcheck, tsc --noEmit,
-#                 whitespace/EOF/yaml/json
+#   - pre-commit: ruff, ty (type check), cli pytest, lambda pytest,
+#                 regression unit pytest (via uv run), shellcheck,
+#                 tsc --noEmit, whitespace/EOF/yaml/json
 #   - pre-push:   cdk synth
 pip install pre-commit
 pre-commit install --hook-type pre-commit --hook-type pre-push
@@ -98,9 +98,10 @@ Then pick one of:
 | `cli/` | `cd cli && ruff check` | ~1 s |
 | `cli/` | `cd cli && ruff format` | ~1 s |
 | `infra/` | `cd infra && npm run build` | ~5 s |
-| `infra/` | `cd infra && npm run synth` | ~10 s |
+| `infra/` | `cd infra && npm run synth` | ~10 s (rebuilds the `infra/lambda/` zip bundle every time. Needs `uv` and `python3`) |
 | `regression/` | `cd regression && uv run pytest tests/` | ~1 s |
-| Python (all) | `pre-commit run ty --all-files` (type-checks `cli/`, `regression/`, `infra/lifecycle/` in pre-commit's managed env) | ~3 s |
+| `infra/lambda/` | `pre-commit run lambda-pytest --all-files` (the handlers import boto3 and paramiko, which nothing installs locally — they reach the bundle via `build.py`. The hook's env supplies them) | ~1 s |
+| Python (all) | `pre-commit run ty --all-files` (type-checks `cli/`, `regression/`, `infra/lifecycle/`, `infra/lambda/` in pre-commit's managed env) | ~3 s |
 | `examples/` | No automated validation yet | — |
 
 The regression *checks* themselves (`python -m physai_regression fresh ...`, `... upgrade-existing ...`, or `... upgrade-from-ref ...`) talk to a live cluster — see the STOP block above.
@@ -151,6 +152,7 @@ and ask how to proceed — don't silently work from fragments.
 | [docs/en/PIPELINE_DEVELOP.md](docs/en/PIPELINE_DEVELOP.md) | Author your own pipeline: containers, entrypoint contracts, run configs |
 | [docs/en/PIPELINE_DESIGN.md](docs/en/PIPELINE_DESIGN.md) | Platform architecture and design rationale |
 | [docs/en/INFRA.md](docs/en/INFRA.md) | CDK stack layout, lifecycle scripts, deployment internals |
+| [docs/en/JOB_INTAKE.md](docs/en/JOB_INTAKE.md) | Opt-in job intake: enabling it, and the SSH transport to the login node |
 | [docs/en/STATUS.md](docs/en/STATUS.md) | Phase 1 scope and implementation status |
 | [docs/CONVENTIONS.md](docs/CONVENTIONS.md) | Code style and conventions across all workstreams |
 | [docs/TIMINGS.md](docs/TIMINGS.md) | Command timings and agent decision guide |
@@ -180,6 +182,10 @@ Japanese counterparts live under [docs/ja/](docs/ja/) with the same filenames + 
 | `infra/bin/app.ts` | CDK app entry point |
 | `infra/lib/infra-stack.ts` | VPC, S3, FSx, RDS, Secrets Manager |
 | `infra/lib/cluster-stack.ts` | HyperPod cluster, IAM, lifecycle bucket |
+| `infra/lib/job-intake-stack.ts` | Opt-in job intake: the submit Lambda |
+| `infra/lambda/build.py` | Bundles a Lambda source dir into a deterministic zip. Invoked by CDK as a custom command; needs `uv` |
+| `infra/lambda/submit/` | Submit Lambda (Python zip, VPC-attached): reaches the login node over SSH |
+| `infra/lambda/tests/` | Unit tests for the submit Lambda. The handler is loaded by path, since it is a bare `handler.py` — see `tests/conftest.py` |
 | `infra/lifecycle/on_create.sh` | Node bootstrap entry point (called by HyperPod) |
 | `infra/lifecycle/lifecycle_script.py` | Lifecycle orchestrator (Python, runs all scripts in order) |
 | `infra/lifecycle/_lib.sh` | Shared node-type detection + `require_node_type` guard |

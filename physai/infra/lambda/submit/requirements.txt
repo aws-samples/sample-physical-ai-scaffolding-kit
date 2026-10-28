@@ -1,0 +1,15 @@
+# Fully pinned, including transitive dependencies: build.py installs these with
+# --only-binary into the deployment bundle, so an unpinned transitive dependency
+# would mean two people deploying the same commit ship different code.
+#
+# Regenerate after changing paramiko:
+#   cd physai/infra/lambda && python3 build.py --source submit --output /tmp/submit.zip \
+#     --architecture arm64 --python-version 3.12
+#   unzip -l /tmp/submit.zip | grep dist-info
+paramiko==5.0.0
+bcrypt==5.0.0
+cffi==2.1.1
+cryptography==50.0.2
+invoke==3.0.3
+pycparser==3.0
+pynacl==1.6.2

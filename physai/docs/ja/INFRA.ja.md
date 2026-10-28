@@ -1,6 +1,6 @@
 # インフラストラクチャ (CDK)
 
-2つの CDK スタック (TypeScript) を使用して、physai プラットフォームを AWS 上にデプロイします。
+CDK スタック (TypeScript) を使用して、physai プラットフォームを AWS 上にデプロイします。
 
 ## スタック概要
 
@@ -8,8 +8,13 @@
 |-------|---------|----------|----------------------|
 | **PhysaiInfraStack** | ネットワーク、ストレージ、データベース | はい | ON |
 | **PhysaiClusterStack** | HyperPod クラスター、IAM、モニタリング | いいえ | OFF |
+| **PhysaiJobIntakeStack** | 外部呼び出し元向けのログインノードへの SSH トランスポート (オプトイン) | いいえ | OFF |
 
 PhysaiInfraStack のリソースは長期的に保持され、クラスターの再構築をまたいで維持されます。PhysaiClusterStack はデータを失うことなく安全に削除・再作成できます。
+
+PhysaiJobIntakeStack は `jobIntakeCallers` に呼び出し元が1つ以上設定されている場合にのみ作成されます。デフォルトでは存在しません。[JOB_INTAKE.ja.md](JOB_INTAKE.ja.md) を参照してください。
+
+ジョブインテークが有効な場合、PhysaiClusterStack を削除すると、それに依存する PhysaiJobIntakeStack も削除され、submit Lambdaも失われます。`npx cdk deploy PhysaiClusterStack` では元に戻らないため、`npx cdk deploy --all` を使ってください。
 
 ## PhysaiInfraStack
 
@@ -59,7 +64,7 @@ PhysaiInfraStack に依存します。
 ### ライフサイクルスクリプト
 
 - **ライフサイクルスクリプトバケット** (`<clusterName>-lifecycle-<account>-<region>`): `infra/lifecycle/` から `BucketDeployment` で配置されます
-- CDK はデプロイ時に `physai-config.json` を生成し (PhysaiInfraStack からの RDS エンドポイント、Secrets Manager ARN を含む)、スクリプトと一緒にデプロイします
+- CDK はデプロイ時に `physai-config.json` を生成し (PhysaiInfraStack からの RDS エンドポイント、Secrets Manager ARN、およびジョブインテークが有効な場合はこのスタックが作成する、インストールするキーペアを含む)、スクリプトと一緒にデプロイします
 - HyperPod はノードプロビジョニング時にこのバケットからスクリプトをダウンロードします
 
 ### IAM
@@ -70,6 +75,7 @@ PhysaiInfraStack に依存します。
   - データバケットおよびライフサイクルスクリプトバケットへの S3 アクセス
   - FSx describe
   - RDS シークレットの Secrets Manager 読み取り (コントローラーが起動時に DB パスワードを取得します)
+  - `ec2:DescribeKeyPairs` (ジョブインテークが有効な間のみ、`install_job_intake_key.sh` 用)
 
 ### HyperPod クラスター
 
@@ -98,6 +104,16 @@ PhysaiInfraStack に依存します。
 
 - `ClusterName` — HyperPod クラスター名 (スタック GUID サフィックス付き) です。`setup-ssh.sh` やその他のツールがクラスターを特定するために使用します。`${stackName}-ClusterName` としてエクスポートされます。
 
+## PhysaiJobIntakeStack
+
+オプトイン。PhysaiClusterStack に依存します。`jobIntakeCallers` が空でない場合にのみデプロイされます。
+
+外部システムがクラスターにパイプライン実行を送信するためのトランスポートです。submit Lambda を所有します。submit Lambda は、ジョブインテークが有効な間 PhysaiClusterStack が作成するキーペアを使い、SSH でログインノードに到達します。
+
+リソース名はサフィックス**なし**の `clusterName` から導出されるため、PhysaiClusterStack の削除+再デプロイをまたいで維持されます。
+
+有効化の方法と各リソースの詳細については [JOB_INTAKE.ja.md](JOB_INTAKE.ja.md) を参照してください。
+
 ## 設定
 
 `cdk.json` context:
@@ -111,10 +127,13 @@ PhysaiInfraStack に依存します。
       { "name": "gpu-workers", "instanceType": "ml.g6e.2xlarge", "count": 1 }
     ],
     "cpuWorkerType": "ml.m5.2xlarge",
-    "cpuWorkerCount": 1
+    "cpuWorkerCount": 1,
+    "jobIntakeCallers": []
   }
 }
 ```
+
+`jobIntakeCallers` が空の間は何も作成されません。[JOB_INTAKE.ja.md](JOB_INTAKE.ja.md) を参照してください。
 
 `gpuWorkers` を調整して GPU インスタンスグループを追加・削除できます。例:
 
@@ -158,6 +177,7 @@ PhysaiInfraStack に依存します。
 | `register_slurm_features.sh` | Compute | ノードの Slurm `Feature`（例: `l40s`）を `scontrol update` で自己登録する systemd `.service` + `.path` ユニットをインストールします。`.path` ユニットは `/var/spool/slurmd/conf-cache/slurm.conf`（configless モードで `scontrol reconfigure` ごとに slurmd が書き直す）を監視するため、features は reconfigure の後に再適用されます — `scontrol update` で設定した features は slurmctld のメモリ上で reconfigure を生き延びないため必要です。 |
 | `install_gdm.sh` | Compute (GPU のみ) | GNOME デスクトップ + GDM3（`ubuntu` ユーザーで自動ログイン）、カーネルモジュールにバージョンを揃えた NVIDIA Xorg ドライバ、ヘッドレス向け `xorg.conf`（仮想ディスプレイヘッド `DFP-{0..3}`）をインストールします。この Xorg セッションが IsaacSim のレンダリング先であり、`--visual` 評価では DCV がここをキャプチャします。 |
 | `install_dcv.sh` | Compute (GPU のみ) | NICE DCV サーバーと、`ubuntu` 所有の永続的な `console` セッションをインストールします（ビジュアル評価用）。詳細は [PIPELINE_DESIGN.ja.md §5](PIPELINE_DESIGN.ja.md#5-dcv-によるビジュアル評価) を参照してください。 |
+| `install_job_intake_key.sh` | Login | ジョブインテークが有効な場合、submit Lambda の SSH 公開鍵を VPC 内からの接続に限定して `ubuntu` にインストールします。無効な場合は削除します。[JOB_INTAKE.ja.md](JOB_INTAKE.ja.md#ログインノードの-ssh-鍵) を参照してください。 |
 
 ### ライフサイクルスクリプトの作成: HyperPod のタイミング上の注意点
 

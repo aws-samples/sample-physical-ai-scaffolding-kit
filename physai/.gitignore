@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 cli/build/
 cli/physai.egg-info/
+infra/lambda/build/
 regression/.venv/
 
 # Editor
