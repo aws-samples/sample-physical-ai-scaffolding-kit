@@ -6,11 +6,25 @@ import {
   aws_ec2,
   aws_lambda,
   aws_fsx,
+  aws_s3_deployment,
   aws_sagemaker,
 } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
-import { Configuration } from '../types/configurations';
+import { Configuration, Vams } from '../types/configurations';
+import { requireNonEmpty, requireNumber } from './vams-integration';
 import * as path from 'path';
+
+/** Values the VAMS poller on the login node needs. Given only when the VAMS integration is enabled. */
+export interface VamsPollerProps {
+  /** URL of the queue the VAMS workflow sends training requests to. */
+  queueUrl: string;
+  /** Name of the table holding the state of the VAMS training runs. */
+  tableName: string;
+  /** Name of the PASK data bucket linked to Lustre. */
+  dataBucketName: string;
+  /** VAMS integration settings (config.Vams). */
+  config: Vams;
+}
 
 export interface HyperPodProps {
   config: Configuration;
@@ -20,6 +34,7 @@ export interface HyperPodProps {
   lfs: aws_fsx.LustreFileSystem;
   /** Destination of the S3 server access logs of the lifecycle script bucket. */
   accessLogsBucket: aws_s3.IBucket;
+  vamsPoller?: VamsPollerProps;
 }
 
 /**
@@ -29,11 +44,36 @@ export interface HyperPodProps {
  */
 const LIFECYCLE_SCRIPTS_GITHUB_REF = '240279b4a8f9c12297c72ef1bee37ad3a2558884';
 
+const VAMS_POLLER_DIR = path.join(__dirname, '../../vams-poller');
+/** Key prefix of the poller sources in the lifecycle script bucket, read by install_vams_poller.sh. */
+const VAMS_POLLER_KEY_PREFIX = 'vams_poller/';
+/** Files of hyperpod/vams-poller that the nodes do not need. Only src/, pyproject.toml and requirements.txt remain. */
+const VAMS_POLLER_EXCLUDES = [
+  '.gitignore',
+  '.venv',
+  '.pytest_cache',
+  '.ruff_cache',
+  'tests',
+  'uv.lock',
+  '**/__pycache__',
+];
+
 export class HyperPod extends Construct {
   public readonly clusterExecutionRole: aws_iam.Role;
+  /** Execution role of the login group. Same object as clusterExecutionRole unless VAMS is enabled. */
+  public readonly loginExecutionRole: aws_iam.Role;
 
   constructor(scope: Construct, id: string, props: HyperPodProps) {
     super(scope, id);
+
+    const isVamsEnabled = props.config.Vams?.Enabled === true;
+    if (isVamsEnabled !== (props.vamsPoller !== undefined)) {
+      throw new Error('HyperPodProps.vamsPoller must be given exactly when config.Vams.Enabled is true');
+    }
+    // Empty when the VAMS integration is disabled, so that the loader environment and
+    // properties, and thus the template, stay the same as without the integration.
+    const vamsPollerEnvironment =
+      props.vamsPoller !== undefined ? this.vamsPollerEnvironment(props.config, props.vamsPoller) : {};
 
     const lifeCycleScriptBucket = new aws_s3.Bucket(this, 'LifeCycleScript', {
       accessControl: aws_s3.BucketAccessControl.PRIVATE,
@@ -92,6 +132,7 @@ export class HyperPod extends Construct {
           GITHUB_REPO_URL: 'https://github.com/awslabs/awsome-distributed-ai',
           // Injected into the overrides/*.sh placeholders at upload time.
           LUSTRE_FILESYSTEM_PATH: props.config.Lustre.FileSystemPath,
+          ...vamsPollerEnvironment,
         },
       },
     );
@@ -108,10 +149,24 @@ export class HyperPod extends Construct {
           LoaderFingerprint: cdk.FileSystem.fingerprint(lifeCycleLoaderPath),
           GitHubRef: LIFECYCLE_SCRIPTS_GITHUB_REF,
           LustreFileSystemPath: props.config.Lustre.FileSystemPath,
+          ...(props.vamsPoller !== undefined ? { VamsPollerSettings: vamsPollerEnvironment } : {}),
         },
       },
     );
     loadLifeCycleScriptResource.node.addDependency(lifeCycleScriptBucket);
+
+    // The poller sources sit next to the lifecycle scripts, so that install_vams_poller.sh
+    // finds them in the directory HyperPod copies to the node. prune is off so that the
+    // files uploaded by the lifecycle loader are kept.
+    const vamsPollerDeployment =
+      props.vamsPoller !== undefined
+        ? new aws_s3_deployment.BucketDeployment(this, 'VamsPollerDeployment', {
+            sources: [aws_s3_deployment.Source.asset(VAMS_POLLER_DIR, { exclude: VAMS_POLLER_EXCLUDES })],
+            destinationBucket: lifeCycleScriptBucket,
+            destinationKeyPrefix: VAMS_POLLER_KEY_PREFIX,
+            prune: false,
+          })
+        : undefined;
 
     // Cluster
     const clusterLogsGroup = new aws_logs.LogGroup(this, 'LogGroup', {
@@ -188,25 +243,37 @@ export class HyperPod extends Construct {
         }),
       ],
     });
-    this.clusterExecutionRole = new aws_iam.Role(this, 'ExecutionRole', {
-      assumedBy: new aws_iam.ServicePrincipal('sagemaker.amazonaws.com'),
-      managedPolicies: [
-        aws_iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSageMakerClusterInstanceRolePolicy'),
-      ],
-      inlinePolicies: {
-        AllowInterface: interfacePolicy,
-        AllowClusterUpdate: clusterPolicy,
-        AllowEcrRepositoryPolicy: ecrPolicy,
-      },
-    });
+    const inlinePolicies = {
+      AllowInterface: interfacePolicy,
+      AllowClusterUpdate: clusterPolicy,
+      AllowEcrRepositoryPolicy: ecrPolicy,
+    };
+    this.clusterExecutionRole = this.createExecutionRole(
+      'ExecutionRole',
+      inlinePolicies,
+      clusterLogsGroup,
+      lifeCycleScriptBucket,
+    );
     const clusterExecutionRole = this.clusterExecutionRole;
 
-    clusterLogsGroup.grantWrite(clusterExecutionRole);
-    lifeCycleScriptBucket.grantReadWrite(clusterExecutionRole);
+    // The login group gets its own role only when the VAMS integration is enabled,
+    // so that the poller permissions are not granted to the controller and worker nodes.
+    // When disabled, the template stays identical to the one without the integration.
+    // HyperPod rejects changing the execution role of an existing instance group, so an
+    // existing cluster sets Vams.SeparateLoginRole to false and keeps the shared role.
+    this.loginExecutionRole =
+      isVamsEnabled && props.config.Vams?.SeparateLoginRole !== false
+        ? this.createExecutionRole(
+            'LoginExecutionRole',
+            inlinePolicies,
+            clusterLogsGroup,
+            lifeCycleScriptBucket,
+          )
+        : clusterExecutionRole;
 
     // https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-properties-sagemaker-cluster-clusterinstancegroup.html
     const loginGroup = {
-      executionRole: clusterExecutionRole.roleArn,
+      executionRole: this.loginExecutionRole.roleArn,
       instanceCount: props.config.Cluster.LoginGroup.Count,
       instanceGroupName: props.config.Cluster.LoginGroup.Name,
       instanceType: props.config.Cluster.LoginGroup.InstanceType,
@@ -319,6 +386,9 @@ export class HyperPod extends Construct {
 
     // Ensure cluster is created after lifecycle scripts are uploaded
     cfnCluster.node.addDependency(loadLifeCycleScriptResource);
+    if (vamsPollerDeployment !== undefined) {
+      cfnCluster.node.addDependency(vamsPollerDeployment);
+    }
 
     new cdk.CfnOutput(this, 'ClusterId', {
       value: props.config.Cluster.Name,
@@ -332,6 +402,12 @@ export class HyperPod extends Construct {
       value: clusterExecutionRole.roleArn,
       description: 'Role ARN for group',
     });
+    if (this.loginExecutionRole !== clusterExecutionRole) {
+      new cdk.CfnOutput(this, 'LoginExecutionRoleARN', {
+        value: this.loginExecutionRole.roleArn,
+        description: 'Role ARN for the login group',
+      });
+    }
     new cdk.CfnOutput(this, 'ClusterSecurityGroup', {
       value: props.lfsSecurityGroup.securityGroupId,
       description: 'Security group attached to the instance',
@@ -340,5 +416,70 @@ export class HyperPod extends Construct {
       value: props.privateSubnet.subnetId,
       description: 'Subnet Id to launch the node',
     });
+  }
+
+  /**
+   * Build the lifecycle loader environment that fills the placeholders of install_vams_poller.sh.
+   * Each key NAME replaces the placeholder __NAME__. The numeric settings are required, so that a
+   * missing value fails the synthesis instead of falling back to a value the user did not choose.
+   *
+   * @param config Stack configuration.
+   * @param vamsPoller Values of the resources created by the VAMS integration.
+   * @returns Environment variables of the lifecycle loader.
+   */
+  private vamsPollerEnvironment(config: Configuration, vamsPoller: VamsPollerProps): Record<string, string> {
+    const vams = vamsPoller.config;
+    const requiredNumberString = (value: number | undefined, name: string): string =>
+      String(requireNumber(value, name));
+    return {
+      VAMS_ENABLED: 'true',
+      LOGIN_GROUP_NAME: config.Cluster.LoginGroup.Name,
+      VAMS_QUEUE_URL: vamsPoller.queueUrl,
+      VAMS_TABLE_NAME: vamsPoller.tableName,
+      VAMS_DATA_BUCKET: vamsPoller.dataBucketName,
+      LUSTRE_S3_PREFIX: config.Lustre.S3Prefix,
+      VAMS_REGION: cdk.Stack.of(this).region,
+      VAMS_CONFIG_NAME: requireNonEmpty(vams.ConfigName, 'ConfigName'),
+      VAMS_VISIBILITY_TIMEOUT_SECONDS: requiredNumberString(
+        vams.QueueVisibilityTimeoutSeconds,
+        'QueueVisibilityTimeoutSeconds',
+      ),
+      VAMS_HEARTBEAT_INTERVAL_SECONDS: requiredNumberString(vams.HeartbeatIntervalSeconds, 'HeartbeatIntervalSeconds'),
+      VAMS_ABORT_GRACE_SECONDS: requiredNumberString(vams.AbortGraceSeconds, 'AbortGraceSeconds'),
+      VAMS_LEASE_SECONDS: requiredNumberString(vams.LeaseSeconds, 'LeaseSeconds'),
+      VAMS_ITEM_TTL_DAYS: requiredNumberString(vams.ItemTtlDays, 'ItemTtlDays'),
+      VAMS_INGEST_WAIT_SECONDS: requiredNumberString(vams.IngestWaitSeconds, 'IngestWaitSeconds'),
+      VAMS_MAX_CONCURRENT_RUNS: requiredNumberString(vams.MaxConcurrentRuns, 'MaxConcurrentRuns'),
+      // An empty partition lets Slurm use its default partition.
+      VAMS_SLURM_PARTITION: vams.SlurmPartition ?? '',
+      VAMS_MLFLOW_EXPERIMENT_NAME: requireNonEmpty(vams.MlflowExperimentName ?? '', 'MlflowExperimentName'),
+    };
+  }
+
+  /**
+   * Create an execution role for HyperPod instance groups with the permissions shared by all groups.
+   *
+   * @param id Construct id of the role.
+   * @param inlinePolicies Inline policies attached to the role.
+   * @param clusterLogsGroup Log group the nodes write to.
+   * @param lifeCycleScriptBucket Bucket holding the lifecycle scripts.
+   * @returns Created role.
+   */
+  private createExecutionRole(
+    id: string,
+    inlinePolicies: Record<string, aws_iam.PolicyDocument>,
+    clusterLogsGroup: aws_logs.LogGroup,
+    lifeCycleScriptBucket: aws_s3.Bucket,
+  ): aws_iam.Role {
+    const role = new aws_iam.Role(this, id, {
+      assumedBy: new aws_iam.ServicePrincipal('sagemaker.amazonaws.com'),
+      managedPolicies: [
+        aws_iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSageMakerClusterInstanceRolePolicy'),
+      ],
+      inlinePolicies,
+    });
+    clusterLogsGroup.grantWrite(role);
+    lifeCycleScriptBucket.grantReadWrite(role);
+    return role;
   }
 }

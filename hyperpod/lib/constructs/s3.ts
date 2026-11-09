@@ -33,4 +33,15 @@ export class S3Bucket extends Construct {
       description: 'Data Bucket',
     });
   }
+
+  /**
+   * Add a lifecycle rule that expires the objects under a prefix of the data bucket.
+   *
+   * @param id Identifier of the rule.
+   * @param prefix Object key prefix the rule applies to.
+   * @param days Number of days after creation when the objects expire.
+   */
+  public addExpirationRule(id: string, prefix: string, days: number): void {
+    this.dataBucket.addLifecycleRule({ id, prefix, expiration: cdk.Duration.days(days) });
+  }
 }

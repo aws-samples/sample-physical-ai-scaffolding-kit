@@ -66,6 +66,30 @@ run の状態は、ジョブの終わり方で決まります。
 | 学習がエラーで止まった | `FAILED` |
 | `scancel` や制限時間で止められた | `KILLED` |
 
+### VAMS から起動した run
+
+VAMS のワークフローから起動したジョブには、ポーラーが環境変数 `VAMS_CONTEXT_FILE` で `vams_context.json` のパスを渡します。
+`mlflow_train.py` は、この環境変数が設定されていれば VAMS からの実行、設定されていなければ手動の実行とみなします。
+設定されているのにファイルを読めない場合や、JSON が不正な場合は、run を作らずに学習を始める前に失敗します。
+入力の来歴が無い run を残さないためです。
+
+experiment は、ポーラーが `MLFLOW_EXPERIMENT_NAME` で渡す VAMS 専用の experiment（既定は `vams-training`）です。
+
+1 回の VAMS の実行（`pipelineExecutionId`）には、run を 1 つだけ作ります。
+`mlflow_train.py` は、新しい run を作る前に、experiment の中からタグ `vams.pipeline_execution_id` が同じ run を探します。
+見つかった場合は、その run を開いて記録を続けます。
+この場合、params はすでに記録されていて変更できないため、params と `train_config.json` は記録しません。
+
+run を開始すると、`vams_context.json` の `resultFile` が指すファイル（`mlflow_run.json`）に、run への逆リンクを書きます。
+ポーラーはジョブの終了後にこのファイルを読み、run ID を VAMS への結果に入れます。
+書き込みは一時ファイルに書いてから名前を変えるので、ポーラーが書きかけのファイルを読むことはありません。
+
+```json
+{"run_id": "...", "experiment_id": "...", "tracking_uri": "..."}
+```
+
+`vams_context.json` の形と、ポーラーが行う処理は [VAMS 連携の仕様](../../../../hyperpod/docs/ja/VAMS_INTEGRATION/SPEC.md#mlflow-に記録するもの) を参照してください。
+
 ## run に記録する内容
 
 ### params
@@ -75,7 +99,7 @@ run の状態は、ジョブの終わり方で決まります。
 1 つの値は 6000 文字までで、超えた部分は切り捨てます。
 
 MLflow の params は記録したあとに変更できません。
-そのため、params は run を作ったときだけ記録し、再開したときは記録しません。
+そのため、params は run を作ったときだけ記録し、再開したときと、同じ VAMS の実行の run を続けるときは記録しません。
 再開時に `STEPS` で総ステップ数を延ばしても、params の `steps` は最初の値のままです。
 
 ### metrics の `train/*`
@@ -144,11 +168,36 @@ GPU の metrics の `gpu_0` は GPU の番号です。
 | `train_config.json` | 学習の設定全体 | run を作ったとき |
 | `adapter/<step>/` | LoRA のアダプタ（`adapter_model.safetensors`、`adapter_config.json`、`config.json`） | 最終ステップ（`STEPS`）のチェックポイントを保存したとき |
 | `videos/eval/` | 評価の動画 | 評価を有効にした場合だけ |
+| `vams/input_manifest.json` | 入力のファイルの一覧（bucket、key、versionId、ETag、size）。curation のビューの場合は、元のアセットのファイルの一覧と元のアセットの情報（`source`） | VAMS から起動した run を開始したとき |
+| `vams/curation_manifest.json` | curation のビューのマニフェスト | VAMS から curation のビューで起動した run を開始したとき |
+| `vams/norm_stats.json` | 学習に使った正規化統計。`compute_view_stats.py` が残すエピソードから計算した `meta/stats.json` です | VAMS から curation のビューで起動した run を開始したとき |
 
 LoRA のアダプタは、3 つのファイルの合計が `MLFLOW_ADAPTER_MAX_MB`（既定は 200）以下で、`MLFLOW_DISABLE_ARTIFACT` が `false` のときだけ記録します。
 `LORA_R=16` のアダプタは約 5 MB です。
 `FINETUNE_MODE=expert_only` と `full` のチェックポイントにはアダプタが無く、重み全体は数 GB になるため、MLflow には記録しません。
 これらの重みは、タグ `pask.last_checkpoint_dir` のパスから FSx 上のチェックポイントを参照します。
+
+### dataset
+
+VAMS から起動した run では、入力のデータセットを `mlflow.log_input` で run の dataset として登録します。
+手動の実行では登録しません。
+
+| 項目 | 値 |
+|---|---|
+| source | `s3://<input.bucket>/<input.assetRootS3Key>`（VAMS のアセットのルート） |
+| name | アセット名（`input.assetName`）。無ければアセット ID（`input.assetId`） |
+| digest | `datasetDigest` の 16 進の先頭 36 文字 |
+| context | `training` |
+
+入力が curation のビューの場合、source は元のアセットのルート（`s3://<view.source.bucket>/<view.source.assetRootS3Key>`）です。
+ビューのアセットには学習に使うファイルが無く、学習するファイルは元のアセットにあるためです。
+name はビューのアセットの名前（無ければビューのアセット ID）のままです。
+
+MLflow は dataset の digest を 36 文字までに制限しているため、`sha256:<hex>` の形の値はそのまま入りません。
+そこで、dataset の digest には 16 進の先頭 36 文字を使い、完全な値はタグ `vams.dataset_digest` に残します。
+
+dataset の登録に失敗しても、警告をログに出して学習を続けます。
+入力の来歴は、タグ `vams.*` と artifact の `vams/input_manifest.json` に残るためです。
 
 ### タグ
 
@@ -167,8 +216,41 @@ run には、学習の条件と実行環境を示すタグを付けます。
 | `pask.image_tag` | コンテナイメージのタグ（`IMAGE_TAG`） |
 | `pask.cluster` | HyperPod のクラスタ名 |
 | `pask.run_type` | `train` |
+| `pask.trigger` | VAMS から起動した run は `vams`、手動の実行は `manual` |
 | `slurm.job_id` | 最後にこの run に記録したジョブの ID |
 | `slurm.job_ids` | この run に記録したすべてのジョブの ID（カンマ区切り） |
+
+VAMS から起動した run には、次のタグも付けます。
+値は `vams_context.json` から取ります。
+
+| タグ | 値 |
+|---|---|
+| `vams.workflow_database_id` | ワークフローの database ID（`workflowDatabaseId`） |
+| `vams.workflow_id` | ワークフローの ID（`workflowId`） |
+| `vams.workflow_execution_id` | ワークフローの実行の ID（`workflowExecutionId`） |
+| `vams.pipeline_execution_id` | パイプラインの実行の ID（`pipelineExecutionId`）。同じ実行の run を探すのに使います |
+| `vams.pipeline_name` | パイプラインの名前（`pipelineName`） |
+| `vams.executing_user_name` | ワークフローを実行したユーザーの名前（`executingUserName`） |
+| `vams.input.database_id` | 入力のアセットの database ID（`input.databaseId`） |
+| `vams.input.asset_id` | 入力のアセットの ID（`input.assetId`） |
+| `vams.input.asset_name` | 入力のアセットの名前（`input.assetName`） |
+| `vams.input.versioned` | 入力のファイルの版を固定できたか（`true` または `false`）。アセットのバケットのバージョニングが無効なら `false` です |
+| `vams.input.kind` | 入力の種類（`input.kind`）。curation のビューなら `view`、通常のデータセットなら `dataset` |
+| `vams.output.asset_id` | 学習済みモデルを取り込むアセットの ID（`output.assetId`） |
+| `vams.dataset_digest` | 入力のファイルの版から求めた digest（`sha256:<hex>`） |
+
+入力が VAMS の curation のビューの場合、`vams.input.*` のタグはビューのアセットの値です。
+ビューが指す元のアセットと、残したエピソードは、次のタグで記録します。
+値は `vams_context.json` の `view` から取ります。
+
+| タグ | 値 |
+|---|---|
+| `vams.source.database_id` | 元のアセットの database ID（`view.source.databaseId`） |
+| `vams.source.asset_id` | 元のアセットの ID（`view.source.assetId`） |
+| `vams.source.asset_version` | 元のアセットの版（`view.source.assetVersion`）。無ければ付けません |
+| `vams.view.episode_count` | 学習に使ったエピソードの数（`view.episodeCount`） |
+| `vams.view.excluded_episode_count` | ビューで除外したエピソードの数（`view.excludedEpisodeCount`） |
+| `vams.view.review_updated_at` | ビューのマニフェストの `source.review_updated_at`（`view.reviewUpdatedAt`）。無ければ付けません |
 
 `lerobot.pretrained_path` をタグとして別に残すのは、再開すると LeRobot が設定の `pretrained_path` をチェックポイントのパスに書き換えるためです。
 `slurm.job_ids` を見れば、再開を含めてどのジョブのログを確認すればよいかが分かります。

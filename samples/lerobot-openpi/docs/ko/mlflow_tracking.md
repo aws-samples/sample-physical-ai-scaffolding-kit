@@ -68,6 +68,30 @@ run의 상태는 job이 끝나는 방식에 따라 정해집니다.
 | training이 error로 멈춤 | `FAILED` |
 | `scancel`이나 제한 시간으로 중지됨 | `KILLED` |
 
+### VAMS에서 시작한 run
+
+VAMS workflow에서 시작한 job에는 poller가 환경 변수 `VAMS_CONTEXT_FILE`로 `vams_context.json`의 경로를 전달합니다.
+`mlflow_train.py`는 이 환경 변수가 설정되어 있으면 VAMS에서의 실행, 설정되어 있지 않으면 수동 실행으로 간주합니다.
+설정되어 있는데 file을 읽을 수 없거나 JSON이 올바르지 않으면 run을 만들지 않고 training을 시작하기 전에 실패합니다.
+입력의 이력이 없는 run을 남기지 않기 위해서입니다.
+
+experiment는 poller가 `MLFLOW_EXPERIMENT_NAME`으로 전달하는 VAMS 전용 experiment(기본값 `vams-training`)입니다.
+
+한 번의 VAMS 실행(`pipelineExecutionId`)에는 run을 하나만 만듭니다.
+`mlflow_train.py`는 새 run을 만들기 전에 experiment 안에서 tag `vams.pipeline_execution_id`가 같은 run을 찾습니다.
+찾은 경우에는 그 run을 열어 기록을 이어 갑니다.
+이 경우 params는 이미 기록되어 있어 변경할 수 없으므로 params와 `train_config.json`은 기록하지 않습니다.
+
+run을 시작하면 `vams_context.json`의 `resultFile`이 가리키는 file(`mlflow_run.json`)에 run으로의 역링크를 씁니다.
+poller는 job이 끝난 후 이 file을 읽어 run ID를 VAMS에 보내는 결과에 넣습니다.
+임시 file에 쓴 후 이름을 바꾸므로 poller가 쓰는 중인 file을 읽는 일은 없습니다.
+
+```json
+{"run_id": "...", "experiment_id": "...", "tracking_uri": "..."}
+```
+
+`vams_context.json`의 형식과 poller가 수행하는 처리는 [VAMS 연동 사양](../../../../hyperpod/docs/ko/VAMS_INTEGRATION/SPEC.md#mlflow에-기록하는-것)을 참조하십시오.
+
 ## run에 기록되는 내용
 
 ### params
@@ -77,7 +101,7 @@ training 설정 전체를 점으로 구분된 key로 펼쳐 params에 기록합�
 값 하나는 6000자까지이며, 초과한 부분은 잘립니다.
 
 MLflow의 params는 기록한 후 변경할 수 없습니다.
-그래서 params는 run을 생성할 때만 기록하고, 재개할 때는 기록하지 않습니다.
+그래서 params는 run을 생성할 때만 기록하고, 재개할 때와 같은 VAMS 실행의 run을 이어 갈 때는 기록하지 않습니다.
 재개할 때 `STEPS`로 총 step 수를 늘려도 params의 `steps`는 처음 값 그대로입니다.
 
 ### metrics `train/*`
@@ -146,11 +170,36 @@ GPU metrics의 `gpu_0`은 GPU 번호입니다.
 | `train_config.json` | training 설정 전체 | run을 생성했을 때 |
 | `adapter/<step>/` | LoRA adapter(`adapter_model.safetensors`, `adapter_config.json`, `config.json`) | 마지막 step(`STEPS`)의 checkpoint를 저장했을 때 |
 | `videos/eval/` | 평가 동영상 | 평가를 활성화한 경우에만 |
+| `vams/input_manifest.json` | 입력 file 목록(bucket, key, versionId, ETag, size). curation view인 경우 원본 asset의 file 목록과 원본 asset의 정보(`source`) | VAMS에서 시작한 run을 시작했을 때 |
+| `vams/curation_manifest.json` | curation view의 manifest | VAMS에서 curation view로 시작한 run을 시작했을 때 |
+| `vams/norm_stats.json` | training에 사용한 정규화 통계. `compute_view_stats.py`가 남긴 episode로 계산한 `meta/stats.json`입니다 | VAMS에서 curation view로 시작한 run을 시작했을 때 |
 
 LoRA adapter는 세 file의 합계가 `MLFLOW_ADAPTER_MAX_MB`(기본값 200) 이하이고 `MLFLOW_DISABLE_ARTIFACT`가 `false`일 때만 기록합니다.
 `LORA_R=16`의 adapter는 약 5 MB입니다.
 `FINETUNE_MODE=expert_only`와 `full`의 checkpoint에는 adapter가 없고 weight 전체가 수 GB가 되므로 MLflow에는 기록하지 않습니다.
 이 weight는 tag `pask.last_checkpoint_dir`의 경로로 FSx의 checkpoint를 참조합니다.
+
+### dataset
+
+VAMS에서 시작한 run에서는 입력 dataset을 `mlflow.log_input`으로 run의 dataset으로 등록합니다.
+수동 실행에서는 등록하지 않습니다.
+
+| 항목 | 값 |
+|---|---|
+| source | `s3://<input.bucket>/<input.assetRootS3Key>`(VAMS asset의 root) |
+| name | asset 이름(`input.assetName`). 없으면 asset ID(`input.assetId`) |
+| digest | `datasetDigest`의 16진수 앞 36자 |
+| context | `training` |
+
+입력이 curation view인 경우 source는 원본 asset의 root(`s3://<view.source.bucket>/<view.source.assetRootS3Key>`)입니다.
+view asset에는 training에 사용할 file이 없고, training할 file은 원본 asset에 있기 때문입니다.
+name은 view asset의 이름(없으면 view asset의 ID) 그대로입니다.
+
+MLflow는 dataset의 digest를 36자까지로 제한하므로 `sha256:<hex>` 형식의 값은 그대로 들어가지 않습니다.
+그래서 dataset의 digest에는 16진수 앞 36자를 사용하고, 전체 값은 tag `vams.dataset_digest`에 남깁니다.
+
+dataset 등록에 실패해도 경고를 log에 출력하고 training을 계속합니다.
+입력의 이력은 tag `vams.*`와 artifact `vams/input_manifest.json`에 남기 때문입니다.
 
 ### tag
 
@@ -169,8 +218,41 @@ run에는 training 조건과 실행 환경을 나타내는 tag를 붙입니다.
 | `pask.image_tag` | container image의 tag(`IMAGE_TAG`) |
 | `pask.cluster` | HyperPod cluster 이름 |
 | `pask.run_type` | `train` |
+| `pask.trigger` | VAMS에서 시작한 run은 `vams`, 수동 실행은 `manual` |
 | `slurm.job_id` | 마지막으로 이 run에 기록한 job의 ID |
 | `slurm.job_ids` | 이 run에 기록한 모든 job의 ID(쉼표 구분) |
+
+VAMS에서 시작한 run에는 다음 tag도 붙입니다.
+값은 `vams_context.json`에서 가져옵니다.
+
+| tag | 값 |
+|---|---|
+| `vams.workflow_database_id` | workflow의 database ID(`workflowDatabaseId`) |
+| `vams.workflow_id` | workflow의 ID(`workflowId`) |
+| `vams.workflow_execution_id` | workflow 실행의 ID(`workflowExecutionId`) |
+| `vams.pipeline_execution_id` | pipeline 실행의 ID(`pipelineExecutionId`). 같은 실행의 run을 찾는 데 사용합니다 |
+| `vams.pipeline_name` | pipeline의 이름(`pipelineName`) |
+| `vams.executing_user_name` | workflow를 실행한 사용자의 이름(`executingUserName`) |
+| `vams.input.database_id` | 입력 asset의 database ID(`input.databaseId`) |
+| `vams.input.asset_id` | 입력 asset의 ID(`input.assetId`) |
+| `vams.input.asset_name` | 입력 asset의 이름(`input.assetName`) |
+| `vams.input.versioned` | 입력 file의 버전을 고정할 수 있었는지(`true` 또는 `false`). asset bucket의 versioning이 비활성화되어 있으면 `false`입니다 |
+| `vams.input.kind` | 입력의 종류(`input.kind`). curation view이면 `view`, 일반 dataset이면 `dataset` |
+| `vams.output.asset_id` | training한 model을 가져올 asset의 ID(`output.assetId`) |
+| `vams.dataset_digest` | 입력 file의 버전으로 구한 digest(`sha256:<hex>`) |
+
+입력이 VAMS의 curation view인 경우 `vams.input.*` tag는 view asset의 값입니다.
+view가 가리키는 원본 asset과 남긴 episode는 다음 tag로 기록합니다.
+값은 `vams_context.json`의 `view`에서 가져옵니다.
+
+| tag | 값 |
+|---|---|
+| `vams.source.database_id` | 원본 asset의 database ID(`view.source.databaseId`) |
+| `vams.source.asset_id` | 원본 asset의 ID(`view.source.assetId`) |
+| `vams.source.asset_version` | 원본 asset의 버전(`view.source.assetVersion`). 없으면 붙이지 않습니다 |
+| `vams.view.episode_count` | training에 사용한 episode의 수(`view.episodeCount`) |
+| `vams.view.excluded_episode_count` | view에서 제외한 episode의 수(`view.excludedEpisodeCount`) |
+| `vams.view.review_updated_at` | view manifest의 `source.review_updated_at`(`view.reviewUpdatedAt`). 없으면 붙이지 않습니다 |
 
 `lerobot.pretrained_path`를 tag로 따로 남기는 이유는, 재개하면 LeRobot이 설정의 `pretrained_path`를 checkpoint 경로로 바꾸기 때문입니다.
 `slurm.job_ids`를 보면 재개를 포함하여 어떤 job의 log를 확인하면 되는지 알 수 있습니다.

@@ -27,9 +27,29 @@ export type Lustre = {
   S3Prefix: string;
   FileSystemPath: string;
 };
+export type Vams = {
+  Enabled: boolean;
+  ConfigName: string;
+  AssetBucketNames: string[];
+  WorkflowBucketName: string;
+  SeparateLoginRole?: boolean;
+  KmsKeyArns?: string[];
+  QueueVisibilityTimeoutSeconds?: number;
+  MaxReceiveCount?: number;
+  HeartbeatIntervalSeconds?: number;
+  AbortGraceSeconds?: number;
+  LeaseSeconds?: number;
+  ItemTtlDays?: number;
+  StagingExpirationDays?: number;
+  IngestWaitSeconds?: number;
+  MaxConcurrentRuns?: number;
+  SlurmPartition?: string;
+  MlflowExperimentName?: string;
+};
 export type Configuration = {
   StackName: string;
   ClusterVPC: ClusterVPC;
   Cluster: ClusterInfo;
   Lustre: Lustre;
+  Vams?: Vams;
 };

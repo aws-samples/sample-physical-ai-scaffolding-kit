@@ -98,6 +98,12 @@ CDK でデプロイされるアーキテクチャについて幾つかの設定�
 aws ec2 describe-instance-type-offerings --location-type availability-zone --filters Name=instance-type,Values=p4d.24xlarge
 ```
 
+#### 2.5.2.VAMS 連携の設定について
+
+VAMS のワークフローからクラスタで学習を実行する場合は、cdk.json の `Vams` を設定し、`Vams.Enabled` を `true` にしてからデプロイします。
+設定の項目と、デプロイの後に login node で行う手順は [VAMS 連携の導入と運用](/hyperpod/docs/ja/VAMS_INTEGRATION/OVERVIEW.md) を参照してください。
+VAMS 連携を使わない場合は、`Vams.Enabled` を `false` のままにします。
+
 ### 2.6.スタックのデプロイ
 
 以下のコマンドを実行して、環境を構築します。途中で権限の確認がありますので `y` と入力して進めます。このコマンドですべての環境を一気に作成するため、完了まで数十分かかります。
@@ -124,6 +130,17 @@ PASK.MlflowArtifactBucketName = MLflow の artifact を保存するS3バケッ�
 PASK.Region = リソースがデプロイされているリージョン
 PASK.S3LinkMountPath = S3 とリンクしている node 上の Lustre のパス
 PASK.S3LinkUri = Lustre のパスとリンクしている S3 の URI
+```
+
+`Vams.Enabled` を `true` にした場合は、次の Outputs も出力されます。
+詳細は [VAMS 連携の導入と運用](/hyperpod/docs/ja/VAMS_INTEGRATION/OVERVIEW.md) を参照してください。
+
+```bash
+PASK.HyperPodLoginExecutionRoleARN = login groupのnodeのRole arn
+PASK.VamsVamsDeadLetterQueueUrl = 受け付けられなかったVAMSのメッセージが入るDLQのURL
+PASK.VamsVamsQueueArn = VAMSのワークフローがメッセージを送るSQSキューのARN
+PASK.VamsVamsQueueUrl = VAMSのワークフローがメッセージを送るSQSキューのURL
+PASK.VamsVamsTableName = VAMSからの学習の状態を記録するDynamoDBテーブル名
 ```
 
 クラスタ上でこの情報を見たい場合は、以下のコマンドで取得することが可能です。(リージョンとStack名は実際に利用したたいを指定してください)

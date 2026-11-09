@@ -7,6 +7,7 @@ import { VpcOneAz } from './constructs/vpc';
 import { Lustre } from './constructs/lustre';
 import { HyperPod } from './constructs/hyperpod';
 import { Mlflow } from './constructs/mlflow';
+import { VamsIntegration } from './constructs/vams-integration';
 
 export interface PASKStackProps extends cdk.StackProps {
   config: Configuration;
@@ -27,6 +28,18 @@ export class PASKStack extends cdk.Stack {
       privateSubnet: clusterVpc.privateSubnet,
       lsfSecurityGroup: clusterVpc.lsfSecurityGroup,
     });
+    // The queue and the table come first because the login node lifecycle scripts need
+    // their names, and the permissions come after HyperPod because it owns the login role.
+    const vamsConfig = props.config.Vams;
+    const vamsIntegration =
+      vamsConfig?.Enabled === true
+        ? new VamsIntegration(this, 'Vams', {
+            config: props.config,
+            vamsConfig,
+            dataBucket: bucket.dataBucket,
+          })
+        : undefined;
+
     const hyperpodCluster = new HyperPod(this, 'HyperPod', {
       config: props.config,
       vpc: clusterVpc.vpc,
@@ -34,16 +47,32 @@ export class PASKStack extends cdk.Stack {
       lfsSecurityGroup: clusterVpc.lsfSecurityGroup,
       lfs: lustre.fs,
       accessLogsBucket: bucket.accessLogsBucket,
+      vamsPoller:
+        vamsIntegration !== undefined && vamsConfig !== undefined
+          ? {
+              queueUrl: vamsIntegration.queue.queueUrl,
+              tableName: vamsIntegration.table.tableName,
+              dataBucketName: bucket.dataBucket.bucketName,
+              config: vamsConfig,
+            }
+          : undefined,
     });
+    vamsIntegration?.grantPollerAccess(hyperpodCluster.loginExecutionRole);
 
     const mlflow = new Mlflow(this, 'Mlflow', { accessLogsBucket: bucket.accessLogsBucket });
-    hyperpodCluster.clusterExecutionRole.addToPolicy(
-      new aws_iam.PolicyStatement({
-        actions: ['sagemaker:CallMlflowAppApi', 'sagemaker:DescribeMlflowApp'],
-        resources: [mlflow.appArn],
-      }),
-    );
-    mlflow.artifactBucket.grantReadWrite(hyperpodCluster.clusterExecutionRole);
+    const mlflowUserRoles = new Set([
+      hyperpodCluster.clusterExecutionRole,
+      hyperpodCluster.loginExecutionRole,
+    ]);
+    for (const role of mlflowUserRoles) {
+      role.addToPolicy(
+        new aws_iam.PolicyStatement({
+          actions: ['sagemaker:CallMlflowAppApi', 'sagemaker:DescribeMlflowApp'],
+          resources: [mlflow.appArn],
+        }),
+      );
+      mlflow.artifactBucket.grantReadWrite(role);
+    }
 
     const s3LinkUriOutput = new cdk.CfnOutput(this, 'S3LinkUri', {
       value: `s3://${bucket.dataBucket.bucketName}/${props.config.Lustre.S3Prefix}`,

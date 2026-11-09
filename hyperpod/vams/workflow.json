@@ -1,0 +1,31 @@
+{
+    "workflowName": "PASK LeRobot OpenPI Training",
+    "category": "VLA Training",
+    "description": "Fine-tune pi0 / pi0.5 with LeRobot on the PASK HyperPod cluster. Select the whole dataset asset as the input and another asset as the output.",
+    "systemConfig": {
+        "inputFileArity": "one",
+        "assetScope": {
+            "crossAssetAllowed": false,
+            "singleAssetOnly": true,
+            "wholeAssetAllowed": true,
+            "folderAllowed": false
+        },
+        "metadataInputs": {
+            "assetMetadata": true,
+            "fileMetadata": false,
+            "fileAttributes": false,
+            "databaseMetadata": false
+        },
+        "inputFileFilters": {
+            "allow": [],
+            "exclude": []
+        },
+        "concurrencyRestriction": "none",
+        "outputTarget": {
+            "locationType": "asset",
+            "allowOverride": true
+        },
+        "allowWorkflowTriggerChaining": false,
+        "defaultOutputFileBaseExecutionPathExtension": ""
+    }
+}

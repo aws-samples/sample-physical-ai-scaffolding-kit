@@ -98,6 +98,12 @@ CDK가 deploy하는 architecture의 여러 설정을 구성할 수 있습니다.
 aws ec2 describe-instance-type-offerings --location-type availability-zone --filters Name=instance-type,Values=p4d.24xlarge
 ```
 
+#### 2.5.2. VAMS 연동 설정
+
+VAMS workflow에서 cluster로 training을 실행하려면 cdk.json의 `Vams`를 설정하고 `Vams.Enabled`를 `true`로 한 후 deploy합니다.
+설정 항목과 deploy 후 login node에서 수행할 절차는 [VAMS 연동 도입 및 운영](/hyperpod/docs/ko/VAMS_INTEGRATION/OVERVIEW.md)을 참고하세요.
+VAMS 연동을 사용하지 않는 경우에는 `Vams.Enabled`를 `false` 그대로 둡니다.
+
 ### 2.6. Deploy the Stack
 
 다음 command를 실행해 environment를 build합니다. Permission 확인 prompt가 표시되면 `y`를 입력해 진행합니다. 이 command는 모든 resource를 한 번에 생성하므로 완료까지 수십 분이 걸릴 수 있습니다.
@@ -124,6 +130,17 @@ PASK.MlflowArtifactBucketName = S3 bucket name for MLflow artifacts
 PASK.Region = Region where resources are deployed
 PASK.S3LinkMountPath = Lustre path on the nodes that is linked to S3
 PASK.S3LinkUri = S3 URI linked to the Lustre path
+```
+
+`Vams.Enabled`를 `true`로 한 경우에는 다음 Outputs도 출력됩니다.
+자세한 내용은 [VAMS 연동 도입 및 운영](/hyperpod/docs/ko/VAMS_INTEGRATION/OVERVIEW.md)을 참고하세요.
+
+```bash
+PASK.HyperPodLoginExecutionRoleARN = login group node의 Role ARN
+PASK.VamsVamsDeadLetterQueueUrl = 받아들여지지 않은 VAMS message가 들어가는 DLQ의 URL
+PASK.VamsVamsQueueArn = VAMS workflow가 message를 보내는 SQS queue의 ARN
+PASK.VamsVamsQueueUrl = VAMS workflow가 message를 보내는 SQS queue의 URL
+PASK.VamsVamsTableName = VAMS에서 요청한 training의 상태를 기록하는 DynamoDB table 이름
 ```
 
 Cluster에서 이 정보를 가져오려면 다음 command를 사용합니다. 실제로 사용하는 region과 stack name으로 바꿔 실행하세요.

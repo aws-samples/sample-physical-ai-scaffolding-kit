@@ -98,6 +98,12 @@ If you need to use other specific instance types, find the appropriate AZ using 
 aws ec2 describe-instance-type-offerings --location-type availability-zone --filters Name=instance-type,Values=p4d.24xlarge
 ```
 
+#### 2.5.2. VAMS Integration Settings
+
+To run training on the cluster from VAMS workflows, configure `Vams` in cdk.json and set `Vams.Enabled` to `true` before deploying.
+For the settings and the steps to run on the login node after the deployment, see [Setting Up and Operating the VAMS Integration](/hyperpod/docs/en/VAMS_INTEGRATION/OVERVIEW.md).
+If you do not use the VAMS integration, leave `Vams.Enabled` set to `false`.
+
 ### 2.6. Deploy the Stack
 
 Run the following command to build the environment. You will be prompted to confirm permissions -- enter `y` to proceed. This command creates all resources at once, so it may take several tens of minutes to complete.
@@ -124,6 +130,17 @@ PASK.MlflowArtifactBucketName = S3 bucket name for MLflow artifacts
 PASK.Region = Region where resources are deployed
 PASK.S3LinkMountPath = Lustre path on the nodes that is linked to S3
 PASK.S3LinkUri = S3 URI linked to the Lustre path
+```
+
+When `Vams.Enabled` is `true`, the following Outputs are also shown.
+For details, see [Setting Up and Operating the VAMS Integration](/hyperpod/docs/en/VAMS_INTEGRATION/OVERVIEW.md).
+
+```bash
+PASK.HyperPodLoginExecutionRoleARN = Role ARN of the login group nodes
+PASK.VamsVamsDeadLetterQueueUrl = URL of the DLQ that receives VAMS messages that were not accepted
+PASK.VamsVamsQueueArn = ARN of the SQS queue that VAMS workflows send messages to
+PASK.VamsVamsQueueUrl = URL of the SQS queue that VAMS workflows send messages to
+PASK.VamsVamsTableName = Name of the DynamoDB table that records the state of training requested from VAMS
 ```
 
 To retrieve this information from the cluster, use the following command. (Replace the region and stack name with the ones you are actually using.)
