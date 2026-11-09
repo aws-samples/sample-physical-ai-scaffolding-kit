@@ -13,7 +13,7 @@ MLflow App은 Amazon SageMaker AI가 server를 관리하는 MLflow tracking serv
 
 | Resource | 내용 |
 |---|---|
-| MLflow App | 이름은 `pask-mlflow`, MLflow 버전은 3.10입니다. 주간 maintenance는 일요일 18:00(UTC)에 시작됩니다. model 자동 등록은 비활성화되어 있습니다 |
+| MLflow App | 이름은 `pask-mlflow`입니다. MLflow 버전은 지정하지 않으므로 생성 시점의 SageMaker AI 기본 버전이 됩니다(2026년 11월 기준 3.16). 주간 maintenance는 일요일 18:00(UTC)에 시작됩니다. model 자동 등록은 비활성화되어 있습니다 |
 | artifact용 S3 bucket | artifact를 `s3://<bucket>/mlflow` 아래에 저장합니다. FSx for Lustre와 연결된 Data bucket과는 별도의 bucket입니다. stack을 삭제해도 bucket은 남습니다 |
 | MLflow App의 service role | MLflow App이 artifact용 bucket을 읽고 쓰기 위한 role입니다 |
 | ExecutionRole에 대한 권한 | HyperPod node가 MLflow App API(`sagemaker:CallMlflowAppApi`)를 호출하고 artifact용 bucket을 읽고 쓰기 위한 권한입니다 |
@@ -176,5 +176,5 @@ run에는 training 조건과 실행 환경을 나타내는 tag를 붙입니다.
 `slurm.job_ids`를 보면 재개를 포함하여 어떤 job의 log를 확인하면 되는지 알 수 있습니다.
 
 experiment에는 tag `mlflow.experimentKind=custom_model_development`를 붙입니다.
-MLflow 3.10의 UI에서는 이 tag를 붙여도 표시가 바뀌지 않습니다.
+MLflow 3.10의 UI에서 확인한 시점에서는 이 tag를 붙여도 표시가 바뀌지 않았습니다.
 model training용 표시는 UI의 전환으로 선택합니다.

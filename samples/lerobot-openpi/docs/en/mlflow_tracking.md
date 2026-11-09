@@ -11,7 +11,7 @@ The CDK in this repository (`hyperpod/lib/constructs/mlflow.ts`) creates the MLf
 
 | Resource | Description |
 |---|---|
-| MLflow App | Named `pask-mlflow`, running MLflow 3.10. The weekly maintenance starts on Sunday at 18:00 (UTC). Automatic model registration is disabled |
+| MLflow App | Named `pask-mlflow`. The MLflow version is not specified, so the App gets the default version of SageMaker AI at creation time (3.16 as of November 2026). The weekly maintenance starts on Sunday at 18:00 (UTC). Automatic model registration is disabled |
 | S3 bucket for artifacts | Artifacts are stored under `s3://<bucket>/mlflow`. This bucket is separate from the Data bucket linked to FSx for Lustre. The bucket is retained when the stack is deleted |
 | Service role of the MLflow App | The role that the MLflow App uses to read and write the artifact bucket |
 | Permissions on the ExecutionRole | Permissions for the HyperPod nodes to call the MLflow App API (`sagemaker:CallMlflowAppApi`) and to read and write the artifact bucket |
@@ -174,5 +174,5 @@ Tags with empty values are not set.
 `slurm.job_ids` tells which job logs to check, including resumed jobs.
 
 The experiment carries the tag `mlflow.experimentKind=custom_model_development`.
-In the MLflow 3.10 UI, this tag does not change the display.
+When checked with the MLflow 3.10 UI, this tag did not change the display.
 The view for model training is selected with the UI switch.

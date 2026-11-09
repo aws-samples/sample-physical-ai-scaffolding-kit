@@ -11,7 +11,7 @@ MLflow App は、Amazon SageMaker AI がサーバーを管理する MLflow の t
 
 | リソース | 内容 |
 |---|---|
-| MLflow App | 名前は `pask-mlflow`、MLflow のバージョンは 3.10 です。週次のメンテナンスは日曜 18:00（UTC）に始まります。モデルの自動登録は無効にしています |
+| MLflow App | 名前は `pask-mlflow` です。MLflow のバージョンは指定しないので、作成した時点の SageMaker AI の既定のバージョンになります（2026 年 11 月の時点では 3.16）。週次のメンテナンスは日曜 18:00（UTC）に始まります。モデルの自動登録は無効にしています |
 | artifact 用の S3 バケット | artifact を `s3://<バケット>/mlflow` 以下に保存します。FSx for Lustre と連携する Data バケットとは別のバケットです。スタックを削除してもバケットは残ります |
 | MLflow App のサービスロール | MLflow App が artifact 用のバケットを読み書きするためのロールです |
 | ExecutionRole への権限 | HyperPod のノードが MLflow App の API（`sagemaker:CallMlflowAppApi`）を呼び、artifact 用のバケットを読み書きするための権限です |
@@ -174,5 +174,5 @@ run には、学習の条件と実行環境を示すタグを付けます。
 `slurm.job_ids` を見れば、再開を含めてどのジョブのログを確認すればよいかが分かります。
 
 experiment には、タグ `mlflow.experimentKind=custom_model_development` を付けます。
-MLflow 3.10 の UI では、このタグを付けても表示は変わりません。
+MLflow 3.10 の UI で確かめた時点では、このタグを付けても表示は変わりませんでした。
 モデル学習向けの表示は、UI の切り替えで選びます。
