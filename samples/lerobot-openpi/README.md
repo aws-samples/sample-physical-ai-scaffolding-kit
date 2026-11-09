@@ -2,7 +2,7 @@
 
 # LeRobot π0.5 on Amazon SageMaker HyperPod
 
-This directory contains sample scripts for fine-tuning the π0.5 (and π0) policy of Hugging Face LeRobot on a single GPU of Amazon SageMaker HyperPod.
+This directory contains sample scripts for fine-tuning the π0.5 (and π0) policy of Hugging Face LeRobot on a single GPU of Amazon SageMaker HyperPod. The training config, metrics, and LoRA adapter can be recorded to an Amazon SageMaker AI MLflow App.
 
 ## Documentation
 

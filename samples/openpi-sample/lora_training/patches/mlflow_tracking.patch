@@ -1,0 +1,422 @@
+diff --git a/scripts/compute_norm_stats.py b/scripts/compute_norm_stats.py
+index c8aef87..30b86f3 100644
+--- a/scripts/compute_norm_stats.py
++++ b/scripts/compute_norm_stats.py
+@@ -13,6 +13,7 @@ import openpi.models.model as _model
+ import openpi.shared.normalize as normalize
+ import openpi.training.config as _config
+ import openpi.training.data_loader as _data_loader
++import openpi.training.mlflow_tracking as mlflow_tracking
+ import openpi.transforms as transforms
+ 
+ 
+@@ -112,6 +113,9 @@ def main(config_name: str, max_frames: int | None = None):
+     print(f"Writing stats to: {output_path}")
+     normalize.save(output_path, norm_stats)
+ 
++    if mlflow_tracking.enabled():
++        mlflow_tracking.record_norm_stats_run(config, config_name, data_config.repo_id, max_frames, output_path)
++
+ 
+ if __name__ == "__main__":
+     tyro.cli(main)
+diff --git a/scripts/train.py b/scripts/train.py
+index 5d28941..aede3af 100644
+--- a/scripts/train.py
++++ b/scripts/train.py
+@@ -22,6 +22,7 @@ import openpi.shared.nnx_utils as nnx_utils
+ import openpi.training.checkpoints as _checkpoints
+ import openpi.training.config as _config
+ import openpi.training.data_loader as _data_loader
++import openpi.training.mlflow_tracking as mlflow_tracking
+ import openpi.training.optimizer as _optimizer
+ import openpi.training.sharding as sharding
+ import openpi.training.utils as training_utils
+@@ -222,6 +223,11 @@ def main(config: _config.TrainConfig):
+         sharding=data_sharding,
+         shuffle=True,
+     )
++    data_config = data_loader.data_config()
++    asset_id = data_config.asset_id
++    use_mlflow = mlflow_tracking.enabled() and mlflow_tracking.init_train_run(
++        config, resuming=resuming, norm_stats_run_id=mlflow_tracking.read_norm_stats_run_id(config, asset_id)
++    )
+     data_iter = iter(data_loader)
+     batch = next(data_iter)
+     logging.info(f"Initialized data loader:\n{training_utils.array_tree_to_info(batch)}")
+@@ -255,6 +261,7 @@ def main(config: _config.TrainConfig):
+         dynamic_ncols=True,
+     )
+ 
++    lr_fn = config.lr_schedule.create()
+     infos = []
+     for step in pbar:
+         with sharding.set_mesh(mesh):
+@@ -266,15 +273,28 @@ def main(config: _config.TrainConfig):
+             info_str = ", ".join(f"{k}={v:.4f}" for k, v in reduced_info.items())
+             pbar.write(f"Step {step}: {info_str}")
+             wandb.log(reduced_info, step=step)
++            if use_mlflow:
++                mlflow_tracking.log_step(reduced_info, float(lr_fn(step)), step)
+             infos = []
+         batch = next(data_iter)
+ 
+         if (step % config.save_interval == 0 and step > start_step) or step == config.num_train_steps - 1:
+             _checkpoints.save_state(checkpoint_manager, train_state, data_loader, step)
++            if use_mlflow:
++                mlflow_tracking.log_checkpoint(step)
+ 
+     logging.info("Waiting for checkpoint manager to finish")
+     checkpoint_manager.wait_until_finished()
+ 
++    last_step = checkpoint_manager.latest_step()
++    s3_uri = mlflow_tracking.export_checkpoint(config, last_step) if jax.process_index() == 0 else None
++    if use_mlflow:
++        mlflow_tracking.finish_train_run(config, last_step, asset_id, s3_uri)
++
+ 
+ if __name__ == "__main__":
+-    main(_config.cli())
++    try:
++        main(_config.cli())
++    except BaseException:
++        mlflow_tracking.fail_run()
++        raise
+diff --git a/src/openpi/training/mlflow_tracking.py b/src/openpi/training/mlflow_tracking.py
+new file mode 100644
+index 0000000..8c00f6d
+--- /dev/null
++++ b/src/openpi/training/mlflow_tracking.py
+@@ -0,0 +1,332 @@
++"""Optional MLflow tracking for openpi training and norm stats jobs.
++
++Tracking runs only when ``MLFLOW_TRACKING_URI`` is set and only on JAX process 0.
++``mlflow`` is imported lazily so that the scripts keep working in environments
++where it is not installed.
++"""
++
++import dataclasses
++import json
++import logging
++import os
++import pathlib
++import re
++import shutil
++import signal
++import sys
++import types
++from typing import Any
++
++import jax
++
++import openpi.training.config as _config
++
++MAX_PARAM_LENGTH = 6000
++INVALID_KEY_CHARS = re.compile(r"[^/\w.\- :]")
++RUN_ID_FILE = "mlflow_run_id.txt"
++EXPERIMENT_KIND_TAG = "mlflow.experimentKind"
++EXPERIMENT_KIND = "custom_model_development"
++
++
++def _mlflow() -> types.ModuleType:
++    """Imports mlflow on first use.
++
++    Returns:
++        The mlflow module.
++    """
++    import mlflow  # noqa: PLC0415
++
++    return mlflow
++
++
++def enabled() -> bool:
++    """Returns whether MLflow tracking is enabled for this process.
++
++    Returns:
++        True when MLFLOW_TRACKING_URI is set and this is JAX process 0.
++    """
++    return bool(os.environ.get("MLFLOW_TRACKING_URI")) and jax.process_index() == 0
++
++
++def _flatten(d: dict[str, Any], prefix: str = "") -> dict[str, str]:
++    """Flattens a nested dict into MLflow params.
++
++    Args:
++        d: Nested dict to flatten.
++        prefix: Key prefix used for nested entries.
++
++    Returns:
++        Dict keyed by dot-joined keys with invalid characters replaced by "_",
++        and values converted to strings truncated to the MLflow param limit.
++    """
++    flat_params = {}
++    for name, value in d.items():
++        key = INVALID_KEY_CHARS.sub("_", f"{prefix}{name}")
++        if isinstance(value, dict):
++            flat_params.update(_flatten(value, f"{key}."))
++        else:
++            flat_params[key] = str(value)[:MAX_PARAM_LENGTH]
++    return flat_params
++
++
++def set_experiment(default_name: str) -> None:
++    """Activates the MLflow experiment and marks it as a model training experiment.
++
++    Args:
++        default_name: Experiment name used when MLFLOW_EXPERIMENT_NAME is not set.
++    """
++    mlflow = _mlflow()
++    mlflow.set_experiment(os.environ.get("MLFLOW_EXPERIMENT_NAME") or default_name)
++    mlflow.set_experiment_tag(EXPERIMENT_KIND_TAG, EXPERIMENT_KIND)
++
++
++def common_tags(config: _config.TrainConfig) -> dict[str, str]:
++    """Builds the run tags shared by training and norm stats runs.
++
++    Args:
++        config: Training config.
++
++    Returns:
++        Dict of tags, excluding tags whose values are empty.
++    """
++    tags = {
++        "openpi.config_name": config.name,
++        "openpi.git_commit": os.environ.get("OPENPI_GIT_COMMIT", ""),
++        "slurm.job_id": os.environ.get("SLURM_JOB_ID", ""),
++        "pask.cluster": os.environ.get("PASK_CLUSTER_NAME", ""),
++    }
++    return {key: value for key, value in tags.items() if value}
++
++
++def append_job_id(run_id: str) -> None:
++    """Records the current Slurm job ID on a resumed run.
++
++    Overwrites slurm.job_id and appends the job ID to the comma-separated
++    slurm.job_ids tag unless it is already listed.
++
++    Args:
++        run_id: ID of the run being resumed.
++    """
++    job_id = os.environ.get("SLURM_JOB_ID")
++    if not job_id:
++        return
++    mlflow = _mlflow()
++    existing = mlflow.MlflowClient().get_run(run_id).data.tags.get("slurm.job_ids", "")
++    job_ids = [entry for entry in existing.split(",") if entry]
++    if job_id not in job_ids:
++        job_ids.append(job_id)
++    mlflow.set_tags({"slurm.job_id": job_id, "slurm.job_ids": ",".join(job_ids)})
++
++
++def _end_run_on_sigterm(signum: int, frame: types.FrameType | None) -> None:
++    """Marks the active run as KILLED and exits.
++
++    Slurm sends SIGTERM at the time limit or on scancel, and atexit handlers do
++    not run on the default SIGTERM action.
++
++    Args:
++        signum: Received signal number.
++        frame: Current stack frame.
++    """
++    mlflow = _mlflow()
++    if mlflow.active_run():
++        mlflow.end_run(status="KILLED")
++    sys.exit(128 + signum)
++
++
++def read_norm_stats_run_id(config: _config.TrainConfig, asset_id: str | None) -> str | None:
++    """Reads the ID of the norm stats run recorded next to the norm stats.
++
++    Args:
++        config: Training config.
++        asset_id: Asset ID under which the norm stats are stored.
++
++    Returns:
++        The norm stats run ID, or None if the norm stats were not tracked.
++    """
++    if asset_id is None:
++        return None
++    run_id_file = config.assets_dirs / asset_id / RUN_ID_FILE
++    if not run_id_file.exists():
++        return None
++    return run_id_file.read_text().strip()
++
++
++def silence_credential_logs() -> None:
++    """Stops botocore from logging every credential lookup.
++
++    sagemaker-mlflow resolves credentials for every request, and openpi logs at
++    INFO, so botocore would log "Found credentials" each time metrics are sent.
++    """
++    logging.getLogger("botocore.credentials").setLevel(logging.WARNING)
++
++
++def install_sigterm_handler() -> None:
++    """Installs the SIGTERM handler that ends the active run as KILLED."""
++    signal.signal(signal.SIGTERM, _end_run_on_sigterm)
++
++
++def _start_new_train_run(config: _config.TrainConfig, norm_stats_run_id: str | None) -> None:
++    """Starts a new training run and records its config and tags.
++
++    Args:
++        config: Training config.
++        norm_stats_run_id: ID of the norm stats run used by this training, if known.
++    """
++    mlflow = _mlflow()
++    mlflow.start_run(run_name=config.exp_name, log_system_metrics=True)
++    (config.checkpoint_dir / RUN_ID_FILE).write_text(mlflow.active_run().info.run_id)
++    config_dict = dataclasses.asdict(config)
++    mlflow.log_params(_flatten(config_dict))
++    mlflow.log_dict(json.loads(json.dumps(config_dict, default=str)), "config.json")
++    tags = {
++        **common_tags(config),
++        "pask.checkpoint_dir": str(config.checkpoint_dir),
++        "pask.run_type": "train",
++    }
++    if "slurm.job_id" in tags:
++        tags["slurm.job_ids"] = tags["slurm.job_id"]
++    if norm_stats_run_id:
++        tags["pask.norm_stats_run_id"] = norm_stats_run_id
++    mlflow.set_tags(tags)
++
++
++def init_train_run(config: _config.TrainConfig, *, resuming: bool, norm_stats_run_id: str | None) -> bool:
++    """Starts or resumes the MLflow run for a training job.
++
++    A resumed training continues the run recorded in the checkpoint directory.
++    Otherwise a new run is started and its ID is written to the checkpoint directory.
++
++    Args:
++        config: Training config.
++        resuming: Whether the training resumes from an existing checkpoint.
++        norm_stats_run_id: ID of the norm stats run used by this training, if known.
++
++    Returns:
++        True once the run is active.
++    """
++    mlflow = _mlflow()
++    silence_credential_logs()
++    set_experiment(config.project_name)
++    run_id_file = config.checkpoint_dir / RUN_ID_FILE
++    if resuming and run_id_file.exists():
++        run_id = run_id_file.read_text().strip()
++        mlflow.start_run(run_id=run_id, log_system_metrics=True)
++        append_job_id(run_id)
++    else:
++        _start_new_train_run(config, norm_stats_run_id)
++    install_sigterm_handler()
++    return True
++
++
++def log_step(reduced_info: dict[str, Any], lr: float, step: int) -> None:
++    """Logs the averaged training metrics and the learning rate.
++
++    Args:
++        reduced_info: Metrics averaged over the log interval.
++        lr: Learning rate at this step.
++        step: Training step.
++    """
++    metrics = {key: float(value) for key, value in reduced_info.items()}
++    metrics["learning_rate"] = lr
++    _mlflow().log_metrics(metrics, step=step)
++
++
++def log_checkpoint(step: int) -> None:
++    """Logs the step at which a checkpoint was saved.
++
++    Args:
++        step: Training step of the saved checkpoint.
++    """
++    _mlflow().log_metric("checkpoint_step", step, step=step)
++
++
++def export_checkpoint(config: _config.TrainConfig, step: int | None) -> str | None:
++    """Copies a checkpoint to the S3-linked export directory.
++
++    The export directory is expected to be an FSx for Lustre path that is
++    automatically exported to S3. Export is skipped unless both
++    PASK_CHECKPOINT_EXPORT_DIR and PASK_CHECKPOINT_EXPORT_S3_URI are set.
++
++    Args:
++        config: Training config.
++        step: Step of the checkpoint to export, or None if there is no checkpoint.
++
++    Returns:
++        S3 URI of the exported checkpoint, or None if export was skipped.
++    """
++    export_dir = os.environ.get("PASK_CHECKPOINT_EXPORT_DIR")
++    export_s3_uri = os.environ.get("PASK_CHECKPOINT_EXPORT_S3_URI")
++    if not export_dir or not export_s3_uri or step is None:
++        return None
++    relative_path = f"{config.name}/{config.exp_name}/{step}"
++    shutil.copytree(
++        config.checkpoint_dir / str(step),
++        pathlib.Path(export_dir) / relative_path,
++        dirs_exist_ok=True,
++    )
++    return f"{export_s3_uri.rstrip('/')}/{relative_path}/"
++
++
++def finish_train_run(config: _config.TrainConfig, step: int | None, asset_id: str | None, s3_uri: str | None) -> None:
++    """Uploads the final norm stats, records the exported checkpoint, and ends the run.
++
++    Args:
++        config: Training config.
++        step: Step of the last checkpoint, or None if there is no checkpoint.
++        asset_id: Asset ID under which the norm stats are stored in the checkpoint.
++        s3_uri: S3 URI of the exported checkpoint, or None if it was not exported.
++    """
++    mlflow = _mlflow()
++    if step is not None and asset_id is not None:
++        norm_stats_path = config.checkpoint_dir / str(step) / "assets" / asset_id / "norm_stats.json"
++        if norm_stats_path.exists():
++            mlflow.log_artifact(str(norm_stats_path))
++    if s3_uri:
++        mlflow.set_tag("pask.checkpoint_s3_uri", s3_uri)
++    mlflow.end_run()
++
++
++def fail_run() -> None:
++    """Ends the active run as FAILED if mlflow has been used in this process."""
++    mlflow = sys.modules.get("mlflow")
++    if mlflow is not None and mlflow.active_run():
++        mlflow.end_run(status="FAILED")
++
++
++def record_norm_stats_run(
++    config: _config.TrainConfig, config_name: str, repo_id: str, max_frames: int | None, output_path: pathlib.Path
++) -> None:
++    """Records a completed norm stats computation as an MLflow run.
++
++    The run ID is written next to norm_stats.json so that training runs can
++    reference it through the pask.norm_stats_run_id tag.
++
++    Args:
++        config: Training config the norm stats were computed for.
++        config_name: Name of the training config.
++        repo_id: Dataset repo ID used to compute the norm stats.
++        max_frames: Maximum number of frames used, or None for the full dataset.
++        output_path: Directory that contains norm_stats.json.
++    """
++    mlflow = _mlflow()
++    silence_credential_logs()
++    install_sigterm_handler()
++    try:
++        set_experiment(config.project_name)
++        mlflow.start_run(run_name=f"norm_stats_{config_name}")
++        mlflow.set_tags({**common_tags(config), "pask.run_type": "norm_stats"})
++        mlflow.log_params(
++            {
++                "config_name": config_name,
++                "repo_id": repo_id,
++                "max_frames": str(max_frames),
++                "batch_size": str(config.batch_size),
++            }
++        )
++        mlflow.log_artifact(str(output_path / "norm_stats.json"))
++        (output_path / RUN_ID_FILE).write_text(mlflow.active_run().info.run_id)
++        mlflow.end_run()
++    except BaseException:
++        fail_run()
++        raise

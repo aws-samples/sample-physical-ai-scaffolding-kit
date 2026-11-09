@@ -16,6 +16,7 @@ The default configuration is as follows. Every value can be overridden with envi
 | GPU | 1 GPU (designed for `ml.g6.2xlarge`, NVIDIA L4 24 GB) |
 | Container | `nvidia/cuda:12.8.1-base-ubuntu24.04` + PyPI `lerobot[pi,training,peft]` |
 | ECR repository / Enroot image | `lerobot-pi-train` / `/fsx/enroot/data/lerobot-pi-train+latest.sqsh` |
+| Experiment tracking | Amazon SageMaker AI MLflow App when `MLFLOW_TRACKING_URI` is set (see [MLflow Tracking](#mlflow-tracking)) |
 
 The scripts are located in `samples/lerobot-openpi/training/`.
 
@@ -24,10 +25,11 @@ The scripts are located in `samples/lerobot-openpi/training/`.
 | `Dockerfile` | Training image. Installs LeRobot into `/opt/lerobot/.venv` |
 | `build_and_push_ecr.sh` | Builds the image for `linux/amd64` and pushes it to ECR. Runs on a local machine or a worker node |
 | `slurm_build_docker.sh` | Slurm job that runs `build_and_push_ecr.sh` on a worker node |
-| `setup.sh` | Creates the directories on FSx and adds the environment variable block to `~/.bashrc` |
+| `setup.sh` | Creates the directories on FSx, reads the MLflow App ARN from the stack outputs, and adds the environment variable block to `~/.bashrc` |
 | `hyperpod_import_container.sh` | Imports the ECR image to Enroot (`.sqsh`) on the login node |
 | `slurm_prepare_dataset.sh` | CPU job. Downloads the base weights, tokenizer, and dataset, and prepares the statistics required by π0.5 |
 | `slurm_train.sh` | GPU job. Runs `lerobot-train` on a single GPU |
+| `mlflow_train.py` | Runs `lerobot-train` with an MLflow logger in place of the W&B logger. Used when `MLFLOW_TRACKING_URI` is set |
 
 ***
 
@@ -41,6 +43,7 @@ flowchart TB
     login[Login Node<br/>Slurm, Enroot Import]
     fsx[FSx for Lustre<br/>/fsx shared]
     worker[Worker Node GPU<br/>srun --container-image<br/>Pyxis + Enroot]
+    mlflow[Amazon SageMaker AI<br/>MLflow App]
 
     worker -->|sbatch slurm_build_docker.sh<br/>Docker Build & Push| ecr
     local -.->|build_and_push_ecr.sh| ecr
@@ -49,6 +52,7 @@ flowchart TB
     login -->|sbatch| worker
     hf -->|slurm_prepare_dataset.sh| fsx
     fsx -.->|shared storage<br/>.cache, outputs, logs| worker
+    worker -->|params, metrics, adapter| mlflow
 
     style local fill:#e1f5ff
     style hf fill:#e1f5ff
@@ -56,6 +60,7 @@ flowchart TB
     style login fill:#f0f0f0
     style fsx fill:#f0f0f0
     style worker fill:#d4f4dd
+    style mlflow fill:#fff4e1
 ```
 
 The files are placed on FSx as follows. `<BASE>` is `samples/lerobot-openpi/` of the cloned repository (`LEROBOT_PI_BASE_DIR`), for example `/fsx/ubuntu/sample-physical-ai-scaffolding-kit/samples/lerobot-openpi`.
@@ -95,6 +100,7 @@ Enroot mounts the image read-only and runs it as the submitting user (`ubuntu`).
 4. **Only when building the image on a local PC** (not required when building on a worker node):
 	1. Docker (with `linux/amd64` build support)
 	2. AWS credentials that can create an ECR repository and push images
+5. **Only when tracking training with MLflow**: The stack outputs contain `MlflowAppArn`. The CDK of this repository creates the MLflow App and grants the HyperPod ExecutionRole the permissions to record to it. See [Deploy the Stack in DEPLOYMENT.md](/hyperpod/docs/en/DEPLOYMENT.md) for the outputs. Opening the MLflow UI from a local PC requires AWS CLI v2.34.5 or later.
 
 ***
 
@@ -128,6 +134,12 @@ source ~/.bashrc
 **Parameters**
 
 * `--hf-token` (optional): A Hugging Face token starting with `hf_`. If omitted, `HF_TOKEN` is not written. In that case, export `HF_TOKEN` yourself before submitting jobs, because the dataset preparation job and the training job stop with an error when `HF_TOKEN` is not set.
+* `--mlflow-tracking-uri <ARN>` (optional): The MLflow App ARN. Overrides `MlflowAppArn` of the stack outputs.
+* `--stack-name <name>` (optional, default `PASK`): The CloudFormation stack to read the outputs from.
+* `--region <region>` (optional, default: the region from EC2 instance metadata (IMDSv2)): The region of the stack.
+* `--no-mlflow` (optional): Does not write the MLflow settings to the block. Training is not recorded to MLflow.
+
+Without any MLflow option, the script reads the MLflow App ARN from the outputs of the stack `PASK` and writes the settings to record training to MLflow.
 
 **What the script does**
 
@@ -136,7 +148,8 @@ source ~/.bashrc
 	* `<BASE>/.cache/huggingface`, `<BASE>/.cache/huggingface/lerobot`
 	* `<BASE>/.cache/triton`, `<BASE>/.cache/torchinductor`, `<BASE>/.cache/home`
 	* `/fsx/enroot/data`, `/fsx/enroot/tmp`
-2. Adds the following block to `~/.bashrc`. If the block already exists, it is replaced (a backup is saved to `~/.bashrc.backup`). The script can be run again safely.
+2. Reads the stack outputs with `aws cloudformation describe-stacks` to get the MLflow App ARN (`MlflowAppArn`) and the HyperPod cluster name (the key starting with `HyperPodClusterId`). Skipped with `--no-mlflow`. If the ARN cannot be read, the script prints `WARNING: Continuing without MLflow` and continues without the MLflow settings.
+3. Adds the following block to `~/.bashrc`. If the block already exists, it is replaced (a backup is saved to `~/.bashrc.backup`). The script can be run again safely.
 
 	```bash
 	# LeRobot OpenPI Configuration
@@ -147,6 +160,9 @@ source ~/.bashrc
 	export LEROBOT_PI_HF_HOME=${LEROBOT_PI_CACHE_DIR}/huggingface
 	export LEROBOT_PI_HF_LEROBOT_HOME=${LEROBOT_PI_HF_HOME}/lerobot
 	export HF_TOKEN=<value of --hf-token>
+	export MLFLOW_TRACKING_URI=<MLflow App ARN>
+	export AWS_DEFAULT_REGION=<region of the MLflow App ARN>
+	export PASK_CLUSTER_NAME=<HyperPod cluster name>
 	export ENROOT_CACHE_PATH=/fsx/enroot
 	export ENROOT_DATA_PATH=/fsx/enroot/data
 	export ENROOT_TEMP_PATH=/fsx/enroot/tmp
@@ -154,14 +170,25 @@ source ~/.bashrc
 	```
 
 	* `HF_TOKEN` is written only when `--hf-token` is specified.
+	* `MLFLOW_TRACKING_URI` and `AWS_DEFAULT_REGION` are written only when the ARN is available. `AWS_DEFAULT_REGION` is the fourth field of the ARN (`<region>` in `arn:aws:sagemaker:<region>:...`), and the MLflow client in the container uses it as the region of the MLflow App API. `PASK_CLUSTER_NAME` is written only when the cluster name is also available.
 	* `ENROOT_CACHE_PATH` / `ENROOT_DATA_PATH` are written only when `export ENROOT_DATA_PATH=` does not exist elsewhere in `~/.bashrc` (for example, written by the OpenPI sample). The same applies to `ENROOT_TEMP_PATH`.
 	* `HF_HOME` and `HF_LEROBOT_HOME` are not exported in `~/.bashrc`, so other samples sharing `~/.bashrc` are not affected. The job scripts set them only for the container.
 
-**About Weights & Biases (wandb)**: `slurm_train.sh` passes `--wandb.enable=false`. To track training with wandb, add `export WANDB_API_KEY=<your_key>` to `~/.bashrc` and pass `EXTRA_ARGS="--wandb.enable=true"` (see [4.6](#46-running-fine-tuning-gpu-job)).
+**About Weights & Biases (W&B)**: `slurm_train.sh` does not connect to W&B. When `MLFLOW_TRACKING_URI` is set, the `--wandb.*` options are used for MLflow (see [MLflow Tracking](#mlflow-tracking)). Otherwise, it passes `--wandb.enable=false`.
 
 ### 4.3. Building the Docker Image & Pushing to ECR
 
 #### Building on a Worker Node (Recommended)
+
+In addition to LeRobot, the image installs the following packages at fixed versions to record training to MLflow.
+
+| Package | Version | Purpose |
+|---|---|---|
+| `mlflow-skinny` | `3.10.1` | MLflow client, matching the server of the MLflow App (MLflow 3.10) |
+| `sagemaker-mlflow` | `0.5.0` | Plugin that accepts the MLflow App ARN as the tracking URI and signs requests with SigV4 |
+| `nvidia-ml-py` | `13.615.71` | Collects GPU utilization and memory for the system metrics |
+
+Images built before these packages were added do not contain MLflow. To record to MLflow, rebuild the image, push it to ECR, and import it again with `FORCE=true` (see [4.4](#44-importing-the-docker-image-with-enroot)).
 
 Build the image on the worker node with a Slurm job. This is faster than an emulated `linux/amd64` build on an arm64 local PC (Apple Silicon / Graviton), and the instance role of the cluster already has the permissions to create an ECR repository and push images.
 
@@ -189,7 +216,7 @@ tail -f ../logs/docker_build_<JOB_ID>.out
 
 1. Creates the ECR repository `lerobot-pi-train` with scan on push enabled (if it does not exist)
 2. Authenticates Docker to ECR
-3. Builds the image for `linux/amd64` with `training/` as the build context. At the end of the build, it imports `torch`, `transformers`, `peft`, and `lerobot` and runs `lerobot-train --help` to detect dependency resolution failures at build time
+3. Builds the image for `linux/amd64` with `training/` as the build context. At the end of the build, it imports `torch`, `transformers`, `peft`, `lerobot`, `mlflow`, `sagemaker_mlflow`, and `pynvml` and runs `lerobot-train --help` to detect dependency resolution failures at build time
 4. Pushes the image to ECR
 
 **Example output** (`../logs/docker_build_<JOB_ID>.out`)
@@ -359,6 +386,11 @@ STEPS=10000 BATCH_SIZE=2 sbatch ./slurm_train.sh my_pi05_short_run
 | `EXTRA_ARGS` | Empty | Additional arguments appended to `lerobot-train`, split on whitespace |
 | `IMAGE_TAG` | `latest` | Tag of the `.sqsh` image |
 | `CONTAINER_IMAGE` | `${ENROOT_DATA_PATH}/lerobot-pi-train+${IMAGE_TAG}.sqsh` | Full path to the `.sqsh` image |
+| `MLFLOW_TRACKING_URI` | Value in `~/.bashrc` | MLflow App ARN. Empty disables MLflow tracking |
+| `MLFLOW_EXPERIMENT_NAME` | `lerobot-pi` | MLflow experiment name for a new run |
+| `MLFLOW_DISABLE_ARTIFACT` | `false` | `true` skips uploading the LoRA adapter as an artifact |
+| `MLFLOW_ADAPTER_MAX_MB` | `200` | Maximum total size (MB) of the adapter files to upload as an artifact |
+| `MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL` | `10` | Interval (seconds) for collecting the system metrics |
 
 The learning rate is not passed, so the LeRobot policy preset is used. To change it or other `lerobot-train` options, use `EXTRA_ARGS`.
 
@@ -409,7 +441,62 @@ sbatch --cpus-per-task=16 --mem=60G ./slurm_train.sh my_job
 1. `[1/4]` Checks the `LEROBOT_PI_*` variables, `HF_TOKEN`, `ENROOT_DATA_PATH`, and the `.sqsh` image
 2. `[2/4]` Validates `FINETUNE_MODE`. Stops with an error if `OUTPUT_DIR` already exists and `RESUME` is not `true`
 3. `[3/4]` Builds the `lerobot-train` command and prints it
-4. `[4/4]` Starts the container with `srun --container-image=... --container-mounts=/fsx:/fsx`, sets `HOME`, `HF_HOME`, `HF_LEROBOT_HOME`, `TRITON_CACHE_DIR`, and `TORCHINDUCTOR_CACHE_DIR` to FSx, prints the GPU and driver information, and runs `lerobot-train`. `HF_TOKEN` is passed to the container as an environment variable, not as a command-line string
+4. `[4/4]` Starts the container with `srun --container-image=... --container-mounts=/fsx:/fsx`, sets `HOME`, `HF_HOME`, `HF_LEROBOT_HOME`, `TRITON_CACHE_DIR`, and `TORCHINDUCTOR_CACHE_DIR` to FSx, prints the GPU and driver information, and runs `lerobot-train` (or `training/mlflow_train.py` when `MLFLOW_TRACKING_URI` is set). `HF_TOKEN` is passed to the container as an environment variable, not as a command-line string
+
+#### MLflow Tracking
+
+When `MLFLOW_TRACKING_URI` is set, `slurm_train.sh` runs `python training/mlflow_train.py` instead of `lerobot-train`. `mlflow_train.py` replaces the logger that LeRobot uses for W&B with one that records to MLflow, and then runs the same code as `lerobot-train`. LeRobot itself is not modified. The log shows `MLflow: enabled (<ARN>)` when the job starts and `Logging to MLflow run <run ID>` when the training starts.
+
+Because the logger is replaced through the `--wandb.*` options of LeRobot, `slurm_train.sh` passes the following values. W&B is not contacted, so `WANDB_API_KEY` is not required.
+
+| Option | Value | Meaning in MLflow |
+|---|---|---|
+| `--wandb.enable` | `true` | Enables MLflow tracking |
+| `--wandb.project` | `${MLFLOW_EXPERIMENT_NAME}` | Experiment name |
+| `--wandb.disable_artifact` | `${MLFLOW_DISABLE_ARTIFACT}` | `true` skips uploading the adapter as an artifact |
+
+When `MLFLOW_TRACKING_URI` is not set, the job runs `lerobot-train` with `--wandb.enable=false` as before and records nothing.
+
+```bash
+# Record to a different experiment
+MLFLOW_EXPERIMENT_NAME=lerobot-pi-libero sbatch ./slurm_train.sh my_pi05_lora_run2
+
+# Do not record this job to MLflow
+MLFLOW_TRACKING_URI= sbatch ./slurm_train.sh my_pi05_lora_nolog
+```
+
+The run name is the job name. The experiment is tagged with `mlflow.experimentKind=custom_model_development` so that the MLflow UI shows the model training view. The run records the following.
+
+| Type | Name | Content |
+|---|---|---|
+| params | `dataset.repo_id`, `steps`, and so on | The training config flattened into dotted keys (each value up to 6000 characters). Recorded only when the run is created |
+| artifact | `train_config.json` | The whole training config. Recorded only when the run is created |
+| metrics | `train/*` | `train/loss`, `train/grad_norm`, `train/lr`, and so on, every `LOG_FREQ` steps |
+| metrics | `eval/*` | Evaluation results when LeRobot evaluation is enabled through `EXTRA_ARGS`. Evaluation videos are uploaded to `videos/eval/` |
+| metrics | `checkpoint_step` | The step at which a checkpoint was saved |
+| metrics | `system/*` | CPU, memory, and GPU usage, collected every `MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL` seconds |
+| artifact | `adapter/<step>/` | The LoRA adapter of the final step (`adapter_model.safetensors`, `adapter_config.json`, `config.json`) |
+
+The tags are as follows. Tags with an empty value are not set.
+
+| Tag | Value |
+|---|---|
+| `lerobot.version` | LeRobot version |
+| `lerobot.policy_type` | `pi05` or `pi0` |
+| `lerobot.finetune_mode` | `lora`, `expert_only`, or `full` |
+| `lerobot.dataset_repo_id` | Dataset repository ID |
+| `lerobot.pretrained_path` | Base weights (recorded only when the run is created) |
+| `pask.output_dir` | Output directory |
+| `pask.last_checkpoint_dir` | Directory of the last saved checkpoint |
+| `pask.image_tag` | Container image tag (`IMAGE_TAG`) |
+| `pask.cluster` | HyperPod cluster name (`PASK_CLUSTER_NAME`) |
+| `pask.run_type` | `train` |
+| `slurm.job_id` | ID of the last job that recorded to this run |
+| `slurm.job_ids` | IDs of all jobs that recorded to this run (comma-separated) |
+
+The LoRA adapter is uploaded once, when the checkpoint of the final step (`STEPS`) is saved. It is uploaded only when `adapter_model.safetensors` exists, the total size of the three files is at most `MLFLOW_ADAPTER_MAX_MB`, and `MLFLOW_DISABLE_ARTIFACT` is `false`. If the total exceeds the limit, the log shows `over MLFLOW_ADAPTER_MAX_MB` and the adapter is not uploaded. Checkpoints of `FINETUNE_MODE=expert_only` and `full` have no adapter, and uploading the whole weights to MLflow would take several GB, so they are never uploaded. For weights that are not uploaded, use the path in the `pask.last_checkpoint_dir` tag to find the checkpoint on FSx.
+
+The run status becomes `FINISHED` when the training ends, `FAILED` when the training stops with an error, and `KILLED` when the job is stopped by `scancel` or the time limit.
 
 ### 4.7. Monitoring
 
@@ -473,6 +560,38 @@ RESUME=true STEPS=30 sbatch ./slurm_train.sh my_pi05_lora_run
 
 If `STEPS` is not set, the number of steps in `train_config.json` is used. The learning rate schedule is recomputed for the new total number of steps.
 
+When you resume a run that was recorded to MLflow, the records continue in the same run. `mlflow_train.py` saves the MLflow run ID to `wandb.run_id` in `train_config.json`, and opens the run with that ID when resuming. The experiment and whether to upload the adapter also come from `train_config.json`, so `MLFLOW_EXPERIMENT_NAME` and `MLFLOW_DISABLE_ARTIFACT` are not used when resuming. The `slurm.job_id` tag is overwritten with the ID of the resumed job, and the ID is appended to `slurm.job_ids`. The params and the `train_config.json` artifact keep the values from when the run was created.
+
+If MLflow tracking differs between the first training and the resumed one, the result is as follows.
+
+| First training | `MLFLOW_TRACKING_URI` when resuming | Recording of the resumed training |
+|---|---|---|
+| Recorded to MLflow | Set | Continues in the same run |
+| Not recorded to MLflow | Set | Creates a new run in the `MLFLOW_EXPERIMENT_NAME` experiment |
+| Either | Not set | Runs `lerobot-train` with `--wandb.enable=false` and records nothing |
+
+### 4.10. Viewing Runs in the MLflow UI
+
+Open the MLflow UI by creating a presigned URL of the MLflow App on a local PC. The command requires AWS CLI v2.34.5 or later and credentials that can call `sagemaker:CreatePresignedMlflowAppUrl` in the account of the MLflow App. `<region>` is the region where the stack is deployed.
+
+```bash
+MLFLOW_APP_ARN=$(aws cloudformation describe-stacks \
+  --stack-name PASK \
+  --region <region> \
+  --query "Stacks[0].Outputs[?OutputKey=='MlflowAppArn'].OutputValue" \
+  --output text)
+
+aws sagemaker create-presigned-mlflow-app-url \
+  --arn "${MLFLOW_APP_ARN}" \
+  --expires-in-seconds 300 \
+  --session-expiration-duration-in-seconds 43200 \
+  --region <region>
+```
+
+Open `AuthorizedUrl` in the output with a browser. The URL can be used only once and expires after `--expires-in-seconds` (5 to 300 seconds). The browser session lasts for `--session-expiration-duration-in-seconds` (1800 to 43200 seconds).
+
+In the MLflow UI, open the experiment `lerobot-pi` (or the name set in `MLFLOW_EXPERIMENT_NAME`) and select the run with the job name. Selecting multiple runs in the same experiment lets you compare metrics such as `train/loss` on the same chart.
+
 ***
 
 ## 5. Comparison with the Existing OpenPI Sample
@@ -491,7 +610,7 @@ If `STEPS` is not set, the number of steps in `train_config.json` is used. The l
 | Checkpoint | orbax format, `<openpi>/checkpoints/<config>/<exp>/<step>/` | safetensors, `<output_dir>/checkpoints/<step>/pretrained_model/`, `checkpoints/last` |
 | Image build | Local PC | Worker node (`slurm_build_docker.sh`) or local PC |
 | GPU memory settings | `XLA_PYTHON_CLIENT_MEM_FRACTION` / `XLA_FLAGS` | Not required. Caches for Triton / TorchInductor are placed on FSx |
-| wandb | `--no-wandb-enabled` | `--wandb.enable=false` |
+| wandb | `--no-wandb-enabled` | `--wandb.enable=false`. With `MLFLOW_TRACKING_URI`, records to the MLflow App instead (see [MLflow Tracking](#mlflow-tracking)) |
 
 Use this sample to fine-tune with LeRobot-format datasets (for example, data recorded with SO-101) without modifying the openpi source, or when you want the checkpoints in the Hugging Face format used by LeRobot tools.
 
@@ -574,6 +693,21 @@ ERROR: Output directory already exists: <OUTPUT_DIR>
 ### Interference with the OpenPI Sample `setup.sh`
 
 `samples/openpi-sample/lora_training/setup.sh` removes every line containing `export HF_TOKEN=`, `ENROOT_CACHE_PATH`, or `ENROOT_DATA_PATH` from `~/.bashrc`, including the lines in the `# LeRobot OpenPI Configuration` block. If you run it after this sample's `setup.sh`, run this sample's `setup.sh` again and `source ~/.bashrc`.
+
+The `MLFLOW_TRACKING_URI`, `AWS_DEFAULT_REGION`, and `PASK_CLUSTER_NAME` lines in this sample's block are not removed, because the OpenPI sample `setup.sh` removes only the lines it wrote with the `# OpenPI MLflow` marker.
+
+### Training Job Stops with `No module named 'mlflow'`
+
+If you submit the training job with `MLFLOW_TRACKING_URI` set and an image built before the MLflow packages were added, the job stops with `ModuleNotFoundError: No module named 'mlflow'`. Rebuild the image, push it to ECR, import it again with `FORCE=true ./hyperpod_import_container.sh`, and submit the job again. To continue training without updating the image, submit it with `MLFLOW_TRACKING_URI=` so that it is not recorded to MLflow.
+
+### setup.sh Prints `Continuing without MLflow`
+
+`setup.sh` could not read `MlflowAppArn` from the stack outputs. Check the preceding `WARNING` for the cause.
+
+1. `Could not determine the region`: Specify the region of the stack with `--region`.
+2. `Could not read the MlflowAppArn output`: Check that the stack name (`--stack-name`) and the region are correct, and that the stack was deployed with a version of the CDK that includes the MLflow App.
+
+If you know the ARN, you can also pass it directly with `--mlflow-tracking-uri`.
 
 ### Insufficient Disk Space During Docker Build
 

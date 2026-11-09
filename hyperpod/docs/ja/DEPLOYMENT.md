@@ -119,7 +119,11 @@ PASK.HyperPodClusterSecurityGroup = クラスタで利用されるセキュリ�
 PASK.HyperPodClusterSubnet = クラスタがデプロイされたサブネットID
 PASK.HyperPodLifeCycleScriptBucketName = ライフサイクルスクリプトの保存先S3バケット
 PASK.HyperPodLoginGroupName = クラスタのログイングループ名
+PASK.MlflowAppArn = MLflow App の ARN（MLFLOW_TRACKING_URI に設定する値）
+PASK.MlflowArtifactBucketName = MLflow の artifact を保存するS3バケット名
 PASK.Region = リソースがデプロイされているリージョン
+PASK.S3LinkMountPath = S3 とリンクしている node 上の Lustre のパス
+PASK.S3LinkUri = Lustre のパスとリンクしている S3 の URI
 ```
 
 クラスタ上でこの情報を見たい場合は、以下のコマンドで取得することが可能です。(リージョンとStack名は実際に利用したたいを指定してください)
@@ -127,6 +131,41 @@ PASK.Region = リソースがデプロイされているリージョン
 ```bash
 export AWS_DEFAULT_REGION=us-east-1
 aws cloudformation describe-stacks --stack-name PASK --query "Stacks[0].Outputs"
+```
+
+上の `cdk deploy` の出力では Output の名前が `BucketDataBucketName` のように表示されますが、CloudFormation の `OutputKey` には CDK の論理 ID のサフィックスが付きます（例 `BucketDataBucketName8A747711`、`HyperPodClusterId538E5BBE`）。
+1 つの値だけを取り出す場合は、`OutputKey` の前方一致で指定します。
+
+```bash
+aws cloudformation describe-stacks --stack-name PASK \
+  --query "Stacks[0].Outputs[?starts_with(OutputKey, 'BucketDataBucketName')].OutputValue | [0]" --output text
+```
+
+`MlflowAppArn` と `MlflowArtifactBucketName` は、学習を記録する Amazon SageMaker AI の MLflow App（`pask-mlflow`）に関する出力です。
+サンプルの `setup.sh` はこれらの Outputs をスタックから読み、`MLFLOW_TRACKING_URI` などを設定します。
+クラスタの node は MLflow App に既存の NAT Gateway 経由で接続するため、VPC エンドポイントは作りません。
+閉域で使う場合は、MLflow App 用（`aws.sagemaker.<region>.mlflow`）と SageMaker API 用のインターフェイス VPC エンドポイントを追加してください。
+
+> [!NOTE]
+> `MlflowArtifactBucketName` のバケットは、記録した artifact を残すため、スタックを削除しても削除されません。
+> 不要になった場合は、バケットを空にしてから手動で削除してください。
+
+MLflow App が使える状態かは、次のコマンドで確認します。`Status` が `Created` であれば使えます。
+
+```bash
+MLFLOW_APP_ARN=$(aws cloudformation describe-stacks --stack-name PASK \
+  --query "Stacks[0].Outputs[?starts_with(OutputKey, 'MlflowAppArn')].OutputValue | [0]" --output text)
+aws sagemaker describe-mlflow-app --arn "$MLFLOW_APP_ARN" \
+  --query "{Name:Name,Status:Status,Version:MlflowVersion}"
+```
+
+MLflow の画面は、次のコマンドで取得した URL をブラウザで開いて表示します。
+URL はサインイン済みの状態で開くためのもので、既定では 300 秒で期限が切れます。期限が切れた場合は、もう一度取得します。
+URL を他の人と共有しないでください。
+
+```bash
+aws sagemaker create-presigned-mlflow-app-url --arn "$MLFLOW_APP_ARN" \
+  --query AuthorizedUrl --output text
 ```
 
 これで、一通りのリソースが準備できました。
@@ -270,6 +309,12 @@ cdk deploy
 ```
 
 デプロイが成功すると worker node が利用できるようになります。
+`cdk deploy` が完了した時点では、追加した node がまだ起動中（`Pending`）のことがあります。次のコマンドで `Running` になったことを確認してから使います。
+
+```bash
+aws sagemaker list-cluster-nodes --cluster-name pask-cluster \
+  --query "ClusterNodeSummaries[].[InstanceGroupName,InstanceType,InstanceStatus.Status]" --output text
+```
 
 デプロイが失敗し、以下の様なエラーが表示されあ場合は、インスタンスの確保ができなかったことを意味します。しばらくしてから再度デプロイするか、インスタンスを確保してから実行してください。
 

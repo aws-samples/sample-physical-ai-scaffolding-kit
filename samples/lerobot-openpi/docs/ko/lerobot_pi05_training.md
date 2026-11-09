@@ -19,18 +19,20 @@ AWS SageMaker HyperPod에서 Slurm + Enroot를 사용해 Docker container 안에
 | ECR repository | `lerobot-pi-train` |
 | Enroot image | `/fsx/enroot/data/lerobot-pi-train+latest.sqsh` |
 | 출력 위치 | `${LEROBOT_PI_OUTPUT_DIR}/<JOB_NAME>` |
+| Experiment tracking | `MLFLOW_TRACKING_URI`가 설정되어 있으면 Amazon SageMaker AI MLflow App에 기록 ([MLflow Tracking](#mlflow-tracking) 참고) |
 
 Scripts는 `samples/lerobot-openpi/training/`에 있습니다.
 
 | File | 역할 |
 |---|---|
 | `Dockerfile` | `nvidia/cuda:12.8.1-base-ubuntu24.04` + uv + Python 3.12에 `lerobot[pi,training,peft]`를 설치합니다. venv는 `/opt/lerobot/.venv`입니다. |
-| `setup.sh` | FSx 위의 directory를 만들고 `~/.bashrc`에 environment variables를 추가합니다. |
+| `setup.sh` | FSx 위의 directory를 만들고, stack outputs에서 MLflow App ARN을 읽어 `~/.bashrc`에 environment variables를 추가합니다. |
 | `slurm_build_docker.sh` | Worker node에서 `build_and_push_ecr.sh`를 실행하는 Slurm job입니다 (권장). |
 | `build_and_push_ecr.sh` | Docker image를 `linux/amd64`로 build해 ECR에 push합니다. Local PC에서도 실행할 수 있습니다. |
 | `hyperpod_import_container.sh` | Login node에서 ECR image를 pull해 Enroot의 `.sqsh`로 변환합니다. |
 | `slurm_prepare_dataset.sh` | CPU job입니다. Base weights, tokenizer, dataset을 download하고 π0.5용 quantile statistics를 확인합니다. |
 | `slurm_train.sh` | GPU job입니다. 1 GPU로 `lerobot-train`을 실행합니다. |
+| `mlflow_train.py` | W&B logger 대신 MLflow logger로 `lerobot-train`을 실행합니다. `MLFLOW_TRACKING_URI`가 설정되어 있을 때 사용됩니다. |
 
 ***
 
@@ -44,6 +46,7 @@ flowchart TB
     fsx[FSx for Lustre<br/>/fsx shared<br/>.sqsh, HF cache, outputs]
     build[Worker Node<br/>slurm_build_docker.sh<br/>Docker Build]
     compute[Worker Node GPU<br/>srun --container-image<br/>Pyxis + Enroot]
+    mlflow[Amazon SageMaker AI<br/>MLflow App]
 
     login -->|sbatch| build
     build -->|Docker Build & Push| ecr
@@ -52,6 +55,7 @@ flowchart TB
     hf -->|hf download| compute
     fsx -.->|shared storage| login
     fsx -.->|shared storage| compute
+    compute -->|params, metrics, adapter| mlflow
 
     style ecr fill:#fff4e1
     style login fill:#f0f0f0
@@ -82,6 +86,7 @@ Container image는 read-only squashfs로 mount되고, 제출한 user (ubuntu)로
    1. [Hugging Face](https://huggingface.co/settings/tokens)에 sign up하고 token을 미리 생성합니다.
    2. π0 / π0.5는 gated model인 [google/paligemma-3b-pt-224](https://huggingface.co/google/paligemma-3b-pt-224)의 tokenizer를 사용합니다. Token을 발급한 account로 이 page에 접속해 license에 동의해야 합니다. 동의하지 않으면 `slurm_prepare_dataset.sh`가 HTTP 401/403 error로 종료됩니다.
 5. **Local PC (선택)**: Local에서 build하는 경우에만 AWS credentials(ECR access)와 Docker가 필요합니다. Worker node에서 build하는 경우에는 필요하지 않습니다.
+6. **MLflow (선택)**: 학습을 MLflow에 기록하는 경우 stack outputs에 `MlflowAppArn`이 있어야 합니다. MLflow App과 HyperPod ExecutionRole이 App에 기록하기 위한 권한은 이 repository의 CDK가 생성합니다. Outputs는 [/hyperpod/docs/ko/DEPLOYMENT.md](/hyperpod/docs/ko/DEPLOYMENT.md)의 "2.6. Deploy the Stack"을 참고하세요. Local PC에서 MLflow UI를 열려면 AWS CLI v2.34.5 이상이 필요합니다.
 
 ***
 
@@ -113,6 +118,12 @@ source ~/.bashrc
 **Parameters**
 
 * `--hf-token` (optional): "hf\_"로 시작하는 Hugging Face token을 지정합니다. 지정하지 않으면 `HF_TOKEN`은 이 block에 쓰이지 않으며, data 준비와 training job 제출 전에 직접 `export HF_TOKEN=...`해야 합니다.
+* `--mlflow-tracking-uri <ARN>` (optional): MLflow App ARN을 직접 지정합니다. Stack outputs의 `MlflowAppArn`보다 우선합니다.
+* `--stack-name <name>` (optional, 기본값 `PASK`): Outputs를 읽을 CloudFormation stack 이름입니다.
+* `--region <region>` (optional, 기본값은 EC2 instance metadata (IMDSv2)의 region): Stack의 region입니다.
+* `--no-mlflow` (optional): MLflow 설정을 block에 쓰지 않습니다. 학습은 MLflow에 기록되지 않습니다.
+
+MLflow option을 지정하지 않으면 stack `PASK`의 outputs에서 MLflow App ARN을 읽어 학습을 MLflow에 기록하는 설정을 씁니다.
 
 **What the script does**
 
@@ -122,7 +133,10 @@ source ~/.bashrc
    - `<BASE>/.cache/huggingface/`, `<BASE>/.cache/huggingface/lerobot/`
    - `<BASE>/.cache/triton/`, `<BASE>/.cache/torchinductor/`, `<BASE>/.cache/home/`
    - `/fsx/enroot/data/`, `/fsx/enroot/tmp/`
-2. `~/.bashrc`에 `# LeRobot OpenPI Configuration`부터 `# End LeRobot OpenPI Configuration`까지의 block을 추가합니다.
+2. `aws cloudformation describe-stacks`로 stack outputs를 읽어 MLflow App ARN(`MlflowAppArn`)과 HyperPod cluster 이름(`HyperPodClusterId`로 시작하는 key)을 가져옵니다.
+   - `--no-mlflow`를 지정하면 읽지 않습니다.
+   - ARN을 가져오지 못하면 `WARNING: Continuing without MLflow`를 출력하고 MLflow 설정 없이 계속합니다.
+3. `~/.bashrc`에 `# LeRobot OpenPI Configuration`부터 `# End LeRobot OpenPI Configuration`까지의 block을 추가합니다.
    - 같은 block이 이미 있으면 `~/.bashrc.backup`에 backup한 뒤 block을 교체합니다.
    - 기존 openpi sample의 `# OpenPI Configuration` block은 변경하지 않습니다.
    - 추가되는 environment variables는 다음과 같습니다.
@@ -133,16 +147,31 @@ source ~/.bashrc
      * `export LEROBOT_PI_HF_HOME=${LEROBOT_PI_CACHE_DIR}/huggingface`
      * `export LEROBOT_PI_HF_LEROBOT_HOME=${LEROBOT_PI_HF_HOME}/lerobot`
      * `export HF_TOKEN=<argument value>` (`--hf-token`을 지정한 경우에만)
+     * `export MLFLOW_TRACKING_URI=<MLflow App ARN>` (ARN을 가져온 경우에만)
+     * `export AWS_DEFAULT_REGION=<ARN의 region>` (`MLFLOW_TRACKING_URI`와 함께. ARN의 4번째 field인 `arn:aws:sagemaker:<region>:...`의 `<region>`)
+     * `export PASK_CLUSTER_NAME=<HyperPod cluster 이름>` (`MLFLOW_TRACKING_URI`를 쓰고 cluster 이름도 가져온 경우에만)
      * `export ENROOT_CACHE_PATH=/fsx/enroot`, `export ENROOT_DATA_PATH=/fsx/enroot/data` (`~/.bashrc`에 `ENROOT_DATA_PATH`가 없을 때만)
      * `export ENROOT_TEMP_PATH=/fsx/enroot/tmp` (`~/.bashrc`에 `ENROOT_TEMP_PATH`가 없을 때만)
 
 `HF_HOME`과 `HF_LEROBOT_HOME`은 `~/.bashrc`에 export하지 않습니다. 다른 sample에 영향을 주지 않도록 job script가 container 안에서만 `HF_HOME=${LEROBOT_PI_HF_HOME}`, `HF_LEROBOT_HOME=${LEROBOT_PI_HF_LEROBOT_HOME}`으로 설정합니다.
 
-**About Weights & Biases (wandb)**: `slurm_train.sh`는 `--wandb.enable=false`로 wandb를 비활성화합니다.
+`AWS_DEFAULT_REGION`은 container 안의 MLflow client가 MLflow App API를 호출하는 region으로 사용합니다.
+
+**About Weights & Biases (W&B)**: `slurm_train.sh`는 W&B에 접속하지 않습니다. `MLFLOW_TRACKING_URI`가 설정되어 있으면 `--wandb.*` option을 MLflow용으로 사용하고([MLflow Tracking](#mlflow-tracking) 참고), 설정되어 있지 않으면 `--wandb.enable=false`를 전달합니다.
 
 ***
 
 ### 4.3 Docker Image Build 및 ECR Push
+
+Image에는 LeRobot 외에 MLflow 기록을 위한 다음 package를 version 고정으로 설치합니다.
+
+| Package | Version | 용도 |
+|---|---|---|
+| `mlflow-skinny` | `3.10.1` | MLflow client. MLflow App의 server (MLflow 3.10)에 맞춥니다. |
+| `sagemaker-mlflow` | `0.5.0` | MLflow App ARN을 tracking URI로 사용하기 위한 plugin. Request에 SigV4 서명을 붙입니다. |
+| `nvidia-ml-py` | `13.615.71` | System metrics로 GPU 사용률과 memory를 수집합니다. |
+
+이 package들을 추가하기 전에 build한 image에는 MLflow가 없습니다. MLflow에 기록하려면 image를 다시 build해 ECR에 push하고, [4.4](#44-enroot로-docker-image-import)의 import를 `FORCE=true`로 다시 실행합니다.
 
 #### 방법 A: Worker Node에서 Build (권장)
 
@@ -213,7 +242,7 @@ IMAGE_TAG=v1.0.0 ./build_and_push_ecr.sh
 **What the script does**:
 
 * ECR repository `lerobot-pi-train`을 생성합니다. 이미 있으면 건너뜁니다.
-* `linux/amd64`용 Docker image를 build합니다. Build 마지막에 `lerobot-train --help` 등을 실행해 dependency 문제를 build 단계에서 검출합니다.
+* `linux/amd64`용 Docker image를 build합니다. Build 마지막에 `mlflow`, `sagemaker_mlflow`, `pynvml` 등의 import와 `lerobot-train --help` 등을 실행해 dependency 문제를 build 단계에서 검출합니다.
 * ECR에 push합니다.
 
 ***
@@ -379,6 +408,11 @@ sbatch ./slurm_train.sh pi05_libero_lora
 | `EXTRA_ARGS` | (empty) | `lerobot-train`에 추가할 argument. 공백으로 분리되며 quote는 해석되지 않습니다. |
 | `IMAGE_TAG` | `latest` | Container image tag |
 | `CONTAINER_IMAGE` | `${ENROOT_DATA_PATH}/lerobot-pi-train+${IMAGE_TAG}.sqsh` | `.sqsh` file path |
+| `MLFLOW_TRACKING_URI` | `~/.bashrc`의 값 | MLflow App ARN. 비워 두면 MLflow에 기록하지 않습니다. |
+| `MLFLOW_EXPERIMENT_NAME` | `lerobot-pi` | 새 run을 만드는 MLflow experiment 이름 |
+| `MLFLOW_DISABLE_ARTIFACT` | `false` | `true`이면 LoRA adapter를 artifact로 upload하지 않습니다. |
+| `MLFLOW_ADAPTER_MAX_MB` | `200` | Artifact로 upload할 adapter file 합계 크기의 상한 (MB) |
+| `MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL` | `10` | System metrics 수집 간격 (초) |
 
 `#SBATCH` 기본값은 `ml.g6.2xlarge` 기준의 `--gres=gpu:1 --cpus-per-task=8 --mem=28G --time=48:00:00`입니다. Learning rate는 지정하지 않으며 LeRobot policy의 기본값을 사용합니다.
 
@@ -390,7 +424,62 @@ sbatch ./slurm_train.sh pi05_libero_lora
 | `expert_only` | `--policy.train_expert_only=true` |
 | `full` | (없음) |
 
-모든 mode에 `--policy.dtype=bfloat16 --policy.gradient_checkpointing=true --policy.push_to_hub=false --policy.device=cuda --wandb.enable=false`가 붙습니다. 실행되는 command 전체는 log의 `[3/4] Building the lerobot-train command...` 아래에 출력됩니다.
+모든 mode에 `--policy.dtype=bfloat16 --policy.gradient_checkpointing=true --policy.push_to_hub=false --policy.device=cuda`가 붙습니다. `MLFLOW_TRACKING_URI`가 없으면 `--wandb.enable=false`가 붙습니다. 실행되는 command 전체는 log의 `[3/4] Building the lerobot-train command...` 아래에 출력됩니다.
+
+#### MLflow Tracking
+
+`MLFLOW_TRACKING_URI`가 설정되어 있으면 `slurm_train.sh`는 `lerobot-train` 대신 `python training/mlflow_train.py`를 실행합니다. `mlflow_train.py`는 LeRobot이 W&B 기록에 사용하는 logger를 MLflow에 기록하는 logger로 교체한 뒤 `lerobot-train`과 같은 처리를 호출합니다. LeRobot 자체는 변경하지 않습니다. Job 시작 시 `MLflow: enabled (<ARN>)`, training 시작 시 `Logging to MLflow run <run ID>`가 log에 출력됩니다.
+
+Logger 교체에 LeRobot의 `--wandb.*` option을 그대로 사용하므로, `slurm_train.sh`는 다음 값을 전달합니다. W&B에는 접속하지 않으므로 `WANDB_API_KEY`는 필요하지 않습니다.
+
+| Option | 값 | MLflow에서의 의미 |
+|---|---|---|
+| `--wandb.enable` | `true` | MLflow 기록을 활성화합니다. |
+| `--wandb.project` | `${MLFLOW_EXPERIMENT_NAME}` | Experiment 이름 |
+| `--wandb.disable_artifact` | `${MLFLOW_DISABLE_ARTIFACT}` | `true`이면 adapter를 artifact로 upload하지 않습니다. |
+
+`MLFLOW_TRACKING_URI`가 설정되어 있지 않으면 지금까지처럼 `lerobot-train`을 `--wandb.enable=false`로 실행하고 아무것도 기록하지 않습니다.
+
+```bash
+# 다른 experiment에 기록
+MLFLOW_EXPERIMENT_NAME=lerobot-pi-libero sbatch ./slurm_train.sh my_pi05_lora2
+
+# 이 job만 MLflow에 기록하지 않음
+MLFLOW_TRACKING_URI= sbatch ./slurm_train.sh my_pi05_lora_nolog
+```
+
+Run 이름은 job 이름입니다. Experiment에는 MLflow UI에서 model training용 화면을 사용하기 위한 tag `mlflow.experimentKind=custom_model_development`를 붙입니다. Run에는 다음 내용을 기록합니다.
+
+| 종류 | 이름 | 내용 |
+|---|---|---|
+| params | `dataset.repo_id`, `steps` 등 | 학습 설정을 dot으로 구분한 key로 펼친 값 (값 하나는 6000자까지). Run을 만들 때만 기록합니다. |
+| artifact | `train_config.json` | 학습 설정 전체. Run을 만들 때만 기록합니다. |
+| metrics | `train/*` | `LOG_FREQ` step마다의 `train/loss`, `train/grad_norm`, `train/lr` 등 |
+| metrics | `eval/*` | `EXTRA_ARGS`로 LeRobot의 evaluation을 활성화한 경우의 결과. Evaluation video는 artifact의 `videos/eval/`에 upload합니다. |
+| metrics | `checkpoint_step` | Checkpoint를 저장한 step |
+| metrics | `system/*` | CPU, memory, GPU 사용 상황. `MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL`초마다 수집합니다. |
+| artifact | `adapter/<step>/` | 마지막 step의 LoRA adapter (`adapter_model.safetensors`, `adapter_config.json`, `config.json`) |
+
+Tag는 다음과 같습니다. 값이 빈 tag는 붙이지 않습니다.
+
+| Tag | 값 |
+|---|---|
+| `lerobot.version` | LeRobot version |
+| `lerobot.policy_type` | `pi05` 또는 `pi0` |
+| `lerobot.finetune_mode` | `lora` / `expert_only` / `full` |
+| `lerobot.dataset_repo_id` | Dataset repo id |
+| `lerobot.pretrained_path` | Base weights (run을 만들 때만 기록) |
+| `pask.output_dir` | 출력 directory |
+| `pask.last_checkpoint_dir` | 마지막으로 저장한 checkpoint directory |
+| `pask.image_tag` | Container image tag (`IMAGE_TAG`) |
+| `pask.cluster` | HyperPod cluster 이름 (`PASK_CLUSTER_NAME`) |
+| `pask.run_type` | `train` |
+| `slurm.job_id` | 이 run에 마지막으로 기록한 job ID |
+| `slurm.job_ids` | 이 run에 기록한 모든 job ID (comma 구분) |
+
+LoRA adapter는 마지막 step(`STEPS`)의 checkpoint를 저장할 때 한 번만 artifact로 upload합니다. `adapter_model.safetensors`가 있고, 3개 file의 합계가 `MLFLOW_ADAPTER_MAX_MB` 이하이며, `MLFLOW_DISABLE_ARTIFACT`가 `false`일 때만 upload합니다. 합계가 상한을 넘으면 log에 `over MLFLOW_ADAPTER_MAX_MB`를 출력하고 upload하지 않습니다. `FINETUNE_MODE=expert_only`와 `full`의 checkpoint에는 adapter가 없고, weights 전체를 MLflow에 올리면 수 GB가 되므로 어떤 경우에도 upload하지 않습니다. Upload하지 않은 weights는 tag `pask.last_checkpoint_dir`의 path로 FSx 위의 checkpoint를 참조합니다.
+
+Run 상태는 학습이 끝나면 `FINISHED`, error로 멈추면 `FAILED`, `scancel`이나 시간 제한으로 job이 중지되면 `KILLED`가 됩니다.
 
 ### 4.7 Monitoring
 
@@ -456,6 +545,38 @@ RESUME=true STEPS=30 sbatch ./slurm_train.sh my_pi05_lora
 
 `STEPS`를 지정하지 않으면 `train_config.json`의 step 수를 사용합니다. Learning rate schedule은 새로운 총 step 수에 맞춰 다시 계산됩니다.
 
+MLflow에 기록하던 학습을 재개하면 같은 run에 이어서 기록합니다. `mlflow_train.py`가 MLflow run ID를 `train_config.json`의 `wandb.run_id`에 저장하고, 재개 시 그 ID의 run을 열기 때문입니다. Experiment와 adapter upload 여부도 `train_config.json`의 값을 사용하므로, 재개 시의 `MLFLOW_EXPERIMENT_NAME`과 `MLFLOW_DISABLE_ARTIFACT`는 반영되지 않습니다. Tag `slurm.job_id`는 재개한 job ID로 덮어쓰고, `slurm.job_ids`에는 재개한 job ID를 추가합니다. Params와 `train_config.json` artifact는 run을 만들 때의 값 그대로입니다.
+
+처음 학습과 재개에서 MLflow 기록 여부가 다른 경우는 다음과 같습니다.
+
+| 처음 학습 | 재개 시 `MLFLOW_TRACKING_URI` | 재개한 학습의 기록 |
+|---|---|---|
+| MLflow에 기록함 | 설정됨 | 같은 run에 이어서 기록합니다. |
+| MLflow에 기록하지 않음 | 설정됨 | `MLFLOW_EXPERIMENT_NAME` experiment에 새 run을 만들어 기록합니다. |
+| 어느 쪽이든 | 설정되지 않음 | `lerobot-train`을 `--wandb.enable=false`로 실행하고 기록하지 않습니다. |
+
+### 4.10 MLflow UI에서 기록 확인
+
+MLflow UI는 local PC에서 MLflow App의 presigned URL을 발급해 엽니다. AWS CLI v2.34.5 이상과, MLflow App이 있는 account에서 `sagemaker:CreatePresignedMlflowAppUrl`을 실행할 수 있는 credentials가 필요합니다. `<region>`은 stack을 deploy한 region입니다.
+
+```bash
+MLFLOW_APP_ARN=$(aws cloudformation describe-stacks \
+  --stack-name PASK \
+  --region <region> \
+  --query "Stacks[0].Outputs[?OutputKey=='MlflowAppArn'].OutputValue" \
+  --output text)
+
+aws sagemaker create-presigned-mlflow-app-url \
+  --arn "${MLFLOW_APP_ARN}" \
+  --expires-in-seconds 300 \
+  --session-expiration-duration-in-seconds 43200 \
+  --region <region>
+```
+
+출력의 `AuthorizedUrl`을 browser로 엽니다. URL은 한 번만 사용할 수 있고, `--expires-in-seconds`(5~300초)가 지나면 사용할 수 없습니다. Browser session은 `--session-expiration-duration-in-seconds`(1800~43200초) 동안 유지됩니다.
+
+MLflow UI에서 experiment `lerobot-pi`(`MLFLOW_EXPERIMENT_NAME`을 바꾼 경우 그 이름)를 열고 job 이름의 run을 선택합니다. 같은 experiment의 run을 여러 개 선택해 비교하면 `train/loss` 등의 metrics를 겹쳐 표시할 수 있습니다.
+
 ***
 
 ## 5. 기존 openpi sample과의 비교
@@ -477,7 +598,7 @@ RESUME=true STEPS=30 sbatch ./slurm_train.sh my_pi05_lora
 | Container build | Local PC에서 build | Worker node의 Slurm job (`slurm_build_docker.sh`) 또는 local PC |
 | FSx 위의 path | `.../openpi-sample/{openpi,logs,.cache}`, `/fsx/enroot/data/openpi-lora-train+latest.sqsh` | `.../lerobot-openpi/{logs,outputs,.cache}`, `/fsx/enroot/data/lerobot-pi-train+latest.sqsh` |
 | `~/.bashrc` block | `OPENPI_*` | `LEROBOT_PI_*` (`# LeRobot OpenPI Configuration` block) |
-| wandb | `--no-wandb-enabled` | `--wandb.enable=false` |
+| wandb | `--no-wandb-enabled` | `--wandb.enable=false`. `MLFLOW_TRACKING_URI`가 있으면 MLflow App에 기록 ([MLflow Tracking](#mlflow-tracking) 참고) |
 
 다음 경우에는 이 sample을 사용합니다.
 
@@ -560,7 +681,20 @@ huggingface_hub.errors.HfHubHTTPError: 429 Client Error: Too Many Requests for u
 
 ### `ERROR: Required environment variables not set`
 
-`setup.sh`를 실행하지 않았거나 `source ~/.bashrc`를 하지 않았습니다. 기존 openpi sample의 `setup.sh`를 나중에 실행하면 `export HF_TOKEN=` 또는 `ENROOT_`를 포함한 행이 이 sample의 block에서도 삭제됩니다. 이 경우 이 sample의 `setup.sh`를 다시 실행합니다.
+`setup.sh`를 실행하지 않았거나 `source ~/.bashrc`를 하지 않았습니다. 기존 openpi sample의 `setup.sh`를 나중에 실행하면 `export HF_TOKEN=` 또는 `ENROOT_`를 포함한 행이 이 sample의 block에서도 삭제됩니다. 이 경우 이 sample의 `setup.sh`를 다시 실행합니다. 이 sample의 block에 있는 `MLFLOW_TRACKING_URI`, `AWS_DEFAULT_REGION`, `PASK_CLUSTER_NAME` 행은 삭제되지 않습니다. 기존 openpi sample의 `setup.sh`는 자신이 쓴 `# OpenPI MLflow` marker가 붙은 행만 삭제하기 때문입니다.
+
+### `No module named 'mlflow'`로 training job이 종료됨
+
+MLflow package를 추가하기 전에 build한 image로 `MLFLOW_TRACKING_URI`를 설정해 training job을 제출하면 `ModuleNotFoundError: No module named 'mlflow'`로 종료됩니다. Image를 다시 build해 ECR에 push하고, `FORCE=true ./hyperpod_import_container.sh`로 다시 import한 뒤 제출합니다. Image를 update하지 않고 학습만 진행하려면 `MLFLOW_TRACKING_URI=`를 붙여 제출하면 MLflow에 기록하지 않고 학습합니다.
+
+### setup.sh가 `Continuing without MLflow`를 출력함
+
+`setup.sh`가 stack outputs에서 `MlflowAppArn`을 읽지 못했다는 뜻입니다. 바로 앞의 `WARNING`으로 원인을 확인합니다.
+
+1. `Could not determine the region`: `--region`으로 stack의 region을 지정합니다.
+2. `Could not read the MlflowAppArn output`: `--stack-name`의 stack 이름과 region이 맞는지, stack이 MLflow App을 포함한 version의 CDK로 deploy되었는지 확인합니다.
+
+ARN을 알고 있다면 `--mlflow-tracking-uri`로 직접 지정할 수도 있습니다.
 
 ### `ERROR: Output directory already exists`
 

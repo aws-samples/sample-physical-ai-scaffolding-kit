@@ -3,6 +3,7 @@
 Amazon SageMaker HyperPod 上で Slurm と Enroot を使い、LeRobot の PyTorch 版 π0.5 を LoRA で finetuning するガイドです。
 LeRobot はコンテナイメージに PyPI の `lerobot==0.6.1` を固定してインストールします。
 データセットは Hugging Face Hub の [`lerobot/libero`](https://huggingface.co/datasets/lerobot/libero)（LeRobotDataset v3.0 形式）を使い、GPU 1 枚で学習します。
+学習の設定、metrics、LoRA のアダプタは Amazon SageMaker AI の MLflow App に記録できます。
 
 ## アーキテクチャ
 
@@ -14,6 +15,7 @@ flowchart TB
     login[Login Node<br/>Slurm Master]
     fsx[FSx for Lustre<br/>/fsx shared]
     compute[Compute Node<br/>srun --container-image<br/>Pyxis + Enroot]
+    mlflow[Amazon SageMaker AI<br/>MLflow App]
 
     build -->|Docker Build & Push| ecr
     ecr -->|Enroot Import| login
@@ -21,6 +23,7 @@ flowchart TB
     fsx -.->|shared storage| login
     fsx -.->|shared storage| compute
     login -->|sbatch| compute
+    compute -->|params, metrics, adapter| mlflow
 
     style build fill:#e1f5ff
     style ecr fill:#fff4e1
@@ -28,6 +31,7 @@ flowchart TB
     style login fill:#f0f0f0
     style fsx fill:#f0f0f0
     style compute fill:#d4f4dd
+    style mlflow fill:#fff4e1
 ```
 
 ---
@@ -44,6 +48,10 @@ flowchart TB
    π0.5 のトークナイザーは利用条件への同意が必要な gated repo の [`google/paligemma-3b-pt-224`](https://huggingface.co/google/paligemma-3b-pt-224) にあるため、同じアカウントでライセンスに同意しておきます。
 4. ローカル PC でイメージをビルドする場合は、Docker と、ECR に push できる AWS 認証情報があること。
    HyperPod の worker ノードでビルドする場合、ローカル PC には不要です。
+5. 学習を Amazon SageMaker AI の MLflow App に記録する場合は、スタックの Outputs に `MlflowAppArn` があること。
+   MLflow App と、HyperPod の ExecutionRole から App に記録するための権限は、本リポジトリの CDK が作成します。
+   Outputs は [DEPLOYMENT.md](../../../../hyperpod/docs/ja/DEPLOYMENT.md) の「スタックのデプロイ」を参照してください。
+   MLflow UI をローカル PC から開くには、AWS CLI v2.34.5 以上が必要です。
 
 ---
 
@@ -77,6 +85,16 @@ source ~/.bashrc
 `--hf-token` には Hugging Face のアクセストークンを指定します。
 省略すると `HF_TOKEN` は書き込まれず、データセット準備ジョブと学習ジョブが `HF_TOKEN is not set` のエラーで止まります。
 
+MLflow に関するオプションは次のとおりです。
+何も指定しなければ、スタック `PASK` の Outputs から MLflow App の ARN を読み取り、学習を MLflow に記録する設定を書き込みます。
+
+| オプション | 既定値 | 説明 |
+|---|---|---|
+| `--mlflow-tracking-uri <ARN>` | なし | MLflow App の ARN を直接指定します。スタックの `MlflowAppArn` より優先します |
+| `--stack-name <name>` | `PASK` | Outputs を読む CloudFormation スタックの名前 |
+| `--region <region>` | EC2 インスタンスメタデータ（IMDSv2）のリージョン | スタックのリージョン |
+| `--no-mlflow` | なし | MLflow の設定をブロックに書き込みません。学習は MLflow に記録されません |
+
 `setup.sh` は次の処理を行います。
 
 1. FSx 上に次のディレクトリを作成します。
@@ -90,7 +108,10 @@ source ~/.bashrc
     - `<サンプル>/.cache/home`
     - `/fsx/enroot/data`
     - `/fsx/enroot/tmp`
-2. `~/.bashrc` に `# LeRobot OpenPI Configuration` から `# End LeRobot OpenPI Configuration` までのブロックを追記します。
+2. `aws cloudformation describe-stacks` でスタックの Outputs を読み、MLflow App の ARN（`MlflowAppArn`）と HyperPod のクラスタ名（`HyperPodClusterId` で始まるキー）を取得します。
+   `--no-mlflow` を指定した場合は読みません。
+   ARN を取得できない場合は `WARNING: Continuing without MLflow` を表示し、MLflow の設定を書かずに続けます。
+3. `~/.bashrc` に `# LeRobot OpenPI Configuration` から `# End LeRobot OpenPI Configuration` までのブロックを追記します。
    ブロックがすでにある場合は `~/.bashrc.backup` にバックアップを取ってから置き換えます。
    ブロックには次の環境変数を書き込みます。
 
@@ -103,6 +124,9 @@ source ~/.bashrc
 | `LEROBOT_PI_HF_HOME` | `${LEROBOT_PI_CACHE_DIR}/huggingface` |
 | `LEROBOT_PI_HF_LEROBOT_HOME` | `${LEROBOT_PI_HF_HOME}/lerobot` |
 | `HF_TOKEN` | `--hf-token` で指定した値（指定したときだけ書き込みます） |
+| `MLFLOW_TRACKING_URI` | MLflow App の ARN（取得できたときだけ書き込みます） |
+| `AWS_DEFAULT_REGION` | ARN の 4 番目のフィールド（`arn:aws:sagemaker:<region>:...` の `<region>`）。`MLFLOW_TRACKING_URI` と同時に書き込みます |
+| `PASK_CLUSTER_NAME` | HyperPod のクラスタ名（`MLFLOW_TRACKING_URI` を書き込み、クラスタ名も取得できたときだけ書き込みます） |
 | `ENROOT_CACHE_PATH` | `/fsx/enroot`（`~/.bashrc` に `export ENROOT_DATA_PATH=` が無いときだけ書き込みます） |
 | `ENROOT_DATA_PATH` | `/fsx/enroot/data`（同上） |
 | `ENROOT_TEMP_PATH` | `/fsx/enroot/tmp`（`~/.bashrc` に `export ENROOT_TEMP_PATH=` が無いときだけ書き込みます） |
@@ -111,11 +135,25 @@ source ~/.bashrc
 `~/.bashrc` で設定すると、同じユーザーで動かす他のサンプルの Hugging Face キャッシュの場所まで変わるためです。
 ジョブスクリプトがコンテナの中でだけ `HF_HOME=${LEROBOT_PI_HF_HOME}`、`HF_LEROBOT_HOME=${LEROBOT_PI_HF_LEROBOT_HOME}`、`HOME=${LEROBOT_PI_CACHE_DIR}/home` などを設定します。
 
+`AWS_DEFAULT_REGION` は、コンテナ内の MLflow クライアントが MLflow App の API を呼ぶリージョンとして使います。
+ARN からリージョンを取り出して書くため、`--region` で指定したスタックのリージョンとは独立に決まります。
+
 ### Docker イメージのビルドと ECR への Push
 
 イメージは `Dockerfile` から `linux/amd64` 向けにビルドし、ECR リポジトリ `lerobot-pi-train` に push します。
 ビルド方法は次の 2 つから選びます。
 作業 PC が arm64（Apple Silicon など）の場合、ローカルビルドは amd64 のエミュレーションになり時間がかかるため、worker ノードでのビルドを推奨します。
+
+イメージには LeRobot に加えて、MLflow に記録するための次のパッケージをバージョンを固定してインストールします。
+
+| パッケージ | バージョン | 用途 |
+|---|---|---|
+| `mlflow-skinny` | `3.10.1` | MLflow のクライアント。MLflow App のサーバー（MLflow 3.10）に合わせています |
+| `sagemaker-mlflow` | `0.5.0` | MLflow App の ARN を tracking URI として使うためのプラグイン。リクエストに SigV4 の署名を付けます |
+| `nvidia-ml-py` | `13.615.71` | system metrics で GPU の使用率とメモリを取得します |
+
+これらのパッケージを追加する前にビルドしたイメージには MLflow が入っていません。
+MLflow に記録する場合は、イメージをビルドし直して ECR に push し、[Enroot へのイメージのインポート](#enroot-へのイメージのインポート) を `FORCE=true` 付きでやり直します。
 
 worker ノードでビルドする場合は、`training/` ディレクトリから Slurm ジョブを投入します。
 
@@ -286,7 +324,8 @@ sbatch ./slurm_train.sh pi05_lora_run1
 - PEFT の LoRA（`--peft.method_type=LORA --peft.r=16 --peft.lora_alpha=16`）を使います。
 - `--policy.gradient_checkpointing=true` と `--policy.dtype=bfloat16` を常に付けます。
 - 学習率は指定せず、LeRobot の policy の既定値を使います。
-- wandb は無効（`--wandb.enable=false`）です。
+- `MLFLOW_TRACKING_URI` が設定されていれば MLflow App に記録し、設定されていなければ記録しません（[MLflow への記録](#mlflow-への記録)）。
+  Weights & Biases（W&B）にはどちらの場合も接続しません。
 
 次の環境変数で設定を変えられます。
 
@@ -311,6 +350,11 @@ sbatch ./slurm_train.sh pi05_lora_run1
 | `EXTRA_ARGS` | 空 | `lerobot-train` の末尾に追加する引数（空白で区切ります） |
 | `IMAGE_TAG` | `latest` | コンテナイメージのタグ |
 | `CONTAINER_IMAGE` | `${ENROOT_DATA_PATH}/lerobot-pi-train+${IMAGE_TAG}.sqsh` | 使用する `.sqsh` ファイル |
+| `MLFLOW_TRACKING_URI` | `~/.bashrc` の値 | MLflow App の ARN。空にすると MLflow に記録しません |
+| `MLFLOW_EXPERIMENT_NAME` | `lerobot-pi` | 新しい run を作る MLflow の experiment 名 |
+| `MLFLOW_DISABLE_ARTIFACT` | `false` | `true` で LoRA のアダプタを artifact として上げません |
+| `MLFLOW_ADAPTER_MAX_MB` | `200` | artifact として上げるアダプタのファイルの合計サイズの上限（MB） |
+| `MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL` | `10` | system metrics を取得する間隔（秒） |
 
 `FINETUNE_MODE` は次の 3 つから選びます。
 
@@ -359,6 +403,73 @@ sbatch --cpus-per-task=16 --mem=60G ./slurm_train.sh pi05_lora_large
 
 ジョブは開始時に、コンテナ内の PyTorch から GPU が見えるかと、NVIDIA ドライバのバージョンを表示します。
 ドライバが 570.86 より古い場合は `WARNING: NVIDIA driver ... is older than 570.86` を出力しますが、学習はそのまま開始します。
+
+### MLflow への記録
+
+`MLFLOW_TRACKING_URI` が設定されていると、`slurm_train.sh` は `lerobot-train` の代わりに `python training/mlflow_train.py` を起動します。
+`mlflow_train.py` は、LeRobot が W&B に記録するためのロガーを MLflow に記録するロガーに差し替えてから、`lerobot-train` と同じ処理を呼び出します。
+LeRobot 本体は変更しません。
+ジョブの開始時に `MLflow: enabled (<ARN>)` が、学習の開始時に `Logging to MLflow run <run ID>` がログに出力されます。
+
+ロガーの差し替えに LeRobot の `--wandb.*` の引数をそのまま使うため、`slurm_train.sh` は次の値を渡します。
+W&B には接続しないため、`WANDB_API_KEY` は不要です。
+
+| 引数 | 値 | MLflow での意味 |
+|---|---|---|
+| `--wandb.enable` | `true` | MLflow への記録を有効にします |
+| `--wandb.project` | `${MLFLOW_EXPERIMENT_NAME}` | experiment 名 |
+| `--wandb.disable_artifact` | `${MLFLOW_DISABLE_ARTIFACT}` | `true` でアダプタを artifact として上げません |
+
+`MLFLOW_TRACKING_URI` が設定されていなければ、これまでどおり `lerobot-train` を `--wandb.enable=false` で起動し、何も記録しません。
+
+```bash
+# experiment を変えて記録する
+MLFLOW_EXPERIMENT_NAME=lerobot-pi-libero sbatch ./slurm_train.sh pi05_lora_run2
+
+# このジョブだけ MLflow に記録しない
+MLFLOW_TRACKING_URI= sbatch ./slurm_train.sh pi05_lora_nolog
+```
+
+run 名はジョブ名です。
+experiment には、MLflow UI でモデル学習向けの表示を使うためのタグ `mlflow.experimentKind=custom_model_development` を付けます。
+run には次の内容を記録します。
+
+| 種類 | 名前 | 内容 |
+|---|---|---|
+| params | `dataset.repo_id`、`steps` など | 学習の設定をドット区切りのキーに展開した値（1 つの値は 6000 文字まで）。run を作ったときだけ記録します |
+| artifact | `train_config.json` | 学習の設定全体。run を作ったときだけ記録します |
+| metrics | `train/*` | `LOG_FREQ` ステップごとの `train/loss`、`train/grad_norm`、`train/lr` など |
+| metrics | `eval/*` | LeRobot の評価を `EXTRA_ARGS` で有効にした場合の評価結果。評価の動画は artifact の `videos/eval/` に上げます |
+| metrics | `checkpoint_step` | チェックポイントを保存したステップ |
+| metrics | `system/*` | CPU、メモリ、GPU の使用状況。`MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL` 秒ごとに取得します |
+| artifact | `adapter/<step>/` | 最終ステップの LoRA のアダプタ（`adapter_model.safetensors`、`adapter_config.json`、`config.json`） |
+
+タグは次のとおりです。
+値が空のタグは付けません。
+
+| タグ | 値 |
+|---|---|
+| `lerobot.version` | LeRobot のバージョン |
+| `lerobot.policy_type` | `pi05` または `pi0` |
+| `lerobot.finetune_mode` | `lora`、`expert_only`、`full` のいずれか |
+| `lerobot.dataset_repo_id` | データセットのリポジトリ ID |
+| `lerobot.pretrained_path` | ベース重み（run を作ったときだけ記録します） |
+| `pask.output_dir` | 出力ディレクトリ |
+| `pask.last_checkpoint_dir` | 最後に保存したチェックポイントのディレクトリ |
+| `pask.image_tag` | コンテナイメージのタグ（`IMAGE_TAG`） |
+| `pask.cluster` | HyperPod のクラスタ名（`PASK_CLUSTER_NAME`） |
+| `pask.run_type` | `train` |
+| `slurm.job_id` | 最後にこの run に記録したジョブの ID |
+| `slurm.job_ids` | この run に記録したすべてのジョブの ID（カンマ区切り） |
+
+LoRA のアダプタは、最終ステップ（`STEPS`）のチェックポイントを保存したときに 1 回だけ artifact に上げます。
+上げるのは、`adapter_model.safetensors` があり、3 つのファイルの合計が `MLFLOW_ADAPTER_MAX_MB` 以下で、`MLFLOW_DISABLE_ARTIFACT` が `false` のときです。
+合計が上限を超えた場合は、ログに `over MLFLOW_ADAPTER_MAX_MB` を出力して上げません。
+`FINETUNE_MODE=expert_only` と `full` のチェックポイントにはアダプタが無く、重み全体を MLflow に上げると数 GB になるため、どの場合も上げません。
+上げなかった重みは、タグ `pask.last_checkpoint_dir` のパスから FSx 上のチェックポイントを参照します。
+
+run の状態は、学習が終わると `FINISHED` になります。
+学習がエラーで止まった場合は `FAILED`、`scancel` や制限時間でジョブが止められた場合は `KILLED` になります。
 
 ### 進捗の確認
 
@@ -428,6 +539,47 @@ RESUME=true STEPS=30 sbatch ./slurm_train.sh pi05_lora_run1
 `STEPS` を指定しない場合は `train_config.json` のステップ数を使います。
 学習率のスケジュールは、新しい総ステップ数に合わせて計算し直されます。
 `OUTPUT_DIR` を変えて学習した場合は、再開時も同じ `OUTPUT_DIR` を指定します。
+
+MLflow に記録していた学習を再開すると、記録は同じ run に続きます。
+`mlflow_train.py` が MLflow の run ID を `train_config.json` の `wandb.run_id` に保存し、再開時にその run ID の run を開くためです。
+experiment とアダプタを上げるかどうかも `train_config.json` の値を使うため、再開時の `MLFLOW_EXPERIMENT_NAME` と `MLFLOW_DISABLE_ARTIFACT` は反映されません。
+タグ `slurm.job_id` は再開したジョブの ID で上書きし、`slurm.job_ids` には再開したジョブの ID を追記します。
+params と `train_config.json` の artifact は、run を作ったときの値のままです。
+
+MLflow の記録の有無を、最初の学習と再開とで変えた場合は次のようになります。
+
+| 最初の学習 | 再開時の `MLFLOW_TRACKING_URI` | 再開した学習の記録 |
+|---|---|---|
+| MLflow に記録していた | 設定あり | 同じ run に続けて記録します |
+| MLflow に記録していなかった | 設定あり | `MLFLOW_EXPERIMENT_NAME` の experiment に新しい run を作って記録します |
+| どちらでも | 設定なし | `--wandb.enable=false` で `lerobot-train` を起動し、記録しません |
+
+### MLflow UI での記録の確認
+
+MLflow UI は、MLflow App の presigned URL をローカル PC で発行して開きます。
+コマンドには AWS CLI v2.34.5 以上と、MLflow App のあるアカウントで `sagemaker:CreatePresignedMlflowAppUrl` を実行できる認証情報が必要です。
+`<region>` はスタックをデプロイしたリージョンです。
+
+```bash
+MLFLOW_APP_ARN=$(aws cloudformation describe-stacks \
+  --stack-name PASK \
+  --region <region> \
+  --query "Stacks[0].Outputs[?OutputKey=='MlflowAppArn'].OutputValue" \
+  --output text)
+
+aws sagemaker create-presigned-mlflow-app-url \
+  --arn "${MLFLOW_APP_ARN}" \
+  --expires-in-seconds 300 \
+  --session-expiration-duration-in-seconds 43200 \
+  --region <region>
+```
+
+出力の `AuthorizedUrl` をブラウザで開きます。
+URL は 1 回だけ使え、`--expires-in-seconds` の秒数（5〜300 秒）を過ぎると使えなくなります。
+ブラウザのセッションは `--session-expiration-duration-in-seconds` の秒数（1800〜43200 秒）だけ続きます。
+
+MLflow UI では、experiment `lerobot-pi`（`MLFLOW_EXPERIMENT_NAME` を変えた場合はその名前）を開き、ジョブ名の run を選びます。
+同じ experiment の run を複数選んで比較すると、`train/loss` などの metrics を重ねて表示できます。
 
 ---
 
@@ -527,6 +679,8 @@ squeue -u ubuntu -o "%.10i %.25j %.8T %R"
 
 `samples/openpi-sample/lora_training/setup.sh` は、`~/.bashrc` に `export HF_TOKEN=` を追記し、2 回目以降の実行では `export HF_TOKEN=`、`ENROOT_CACHE_PATH`、`ENROOT_DATA_PATH` を含む行を `~/.bashrc` からすべて削除します。
 そのため、本サンプルのブロックにある `HF_TOKEN` が空の値で上書きされたり、`HF_TOKEN` と Enroot の行が消えたりします。
+本サンプルのブロックにある `MLFLOW_TRACKING_URI`、`AWS_DEFAULT_REGION`、`PASK_CLUSTER_NAME` の行は消えません。
+openpi sample の `setup.sh` が削除するのは、自分が書いた `# OpenPI MLflow` の付いた行だけだからです。
 openpi sample の `setup.sh` を実行したあとは、本サンプルの `setup.sh` を `--hf-token` 付きで再実行し、`source ~/.bashrc` を実行します。
 
 ```bash
@@ -534,6 +688,22 @@ cd ~/sample-physical-ai-scaffolding-kit/samples/lerobot-openpi/training
 bash setup.sh --hf-token "hf_xxxxx"
 source ~/.bashrc
 ```
+
+### 学習ジョブが `No module named 'mlflow'` で止まる
+
+MLflow のパッケージを追加する前にビルドしたイメージで、`MLFLOW_TRACKING_URI` を設定して学習ジョブを投入すると、`ModuleNotFoundError: No module named 'mlflow'` で止まります。
+イメージをビルドし直して ECR に push し、`FORCE=true ./hyperpod_import_container.sh` でインポートし直してから再投入します。
+イメージを更新せずに学習だけ進める場合は、`MLFLOW_TRACKING_URI=` を付けて投入すると、MLflow に記録せずに学習します。
+
+### setup.sh が `Continuing without MLflow` を表示する
+
+`setup.sh` がスタックの Outputs から `MlflowAppArn` を読めなかったことを示します。
+直前の `WARNING` で原因を確認します。
+
+- `Could not determine the region`：`--region` でスタックのリージョンを指定します。
+- `Could not read the MlflowAppArn output`：`--stack-name` のスタック名とリージョンが正しいか、スタックが MLflow App を含む版の CDK でデプロイされているかを確認します。
+
+ARN が分かっている場合は、`--mlflow-tracking-uri` で直接指定することもできます。
 
 ### worker ノードでの docker build のディスク不足
 
