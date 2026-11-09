@@ -130,7 +130,7 @@ srun --container-image="${CONTAINER_IMAGE}" \
          export HF_TOKEN=${HF_TOKEN}
          export XLA_PYTHON_CLIENT_MEM_FRACTION=${XLA_PYTHON_CLIENT_MEM_FRACTION}
          export XLA_FLAGS='${XLA_FLAGS}'
-         export PYTHONPATH=${OPENPI_PROJECT_ROOT}:${OPENPI_PROJECT_ROOT}/src
+         export PYTHONPATH=${OPENPI_PROJECT_ROOT}:${OPENPI_PROJECT_ROOT}/src:${OPENPI_PROJECT_ROOT}/packages/openpi-client/src
 
          echo 'Container environment setup complete'
          echo 'Python version:' \$(python --version)
@@ -141,7 +141,9 @@ srun --container-image="${CONTAINER_IMAGE}" \
          # Run training
          # Note: Config name is passed as first positional argument (tyro convention)
          # Note: For boolean flags, use --no-FLAG to set False (tyro convention)
-         uv run scripts/train.py \\
+         # Note: the container venv is on a read-only squashfs mount, so uv run
+         # cannot re-sync the project. The interpreter on PATH is that venv.
+         python scripts/train.py \\
              ${CONFIG_NAME} \\
              --exp-name ${EXP_NAME} \\
              --overwrite \\

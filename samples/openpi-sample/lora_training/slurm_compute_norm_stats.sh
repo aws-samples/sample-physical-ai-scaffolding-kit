@@ -56,6 +56,10 @@ fi
 # Environment setup
 export HF_TOKEN="${HF_TOKEN:-}"  # Inherit from login node
 
+# The CUDA base image bakes in NVIDIA_VISIBLE_DEVICES=all, which makes the
+# enroot NVIDIA hook fail on CPU-only nodes. This job needs no GPU, so disable it.
+export NVIDIA_VISIBLE_DEVICES=void
+
 # Setup log redirection
 mkdir -p "${OPENPI_LOG_DIR}"
 LOG_FILE="${OPENPI_LOG_DIR}/norm_stats_${SLURM_JOB_ID}.log"
@@ -123,7 +127,7 @@ srun --container-image="${CONTAINER_IMAGE}" \
          set -e
          export OPENPI_DATA_HOME=${OPENPI_DATA_HOME}
          export HF_TOKEN=${HF_TOKEN}
-         export PYTHONPATH=${OPENPI_PROJECT_ROOT}:${OPENPI_PROJECT_ROOT}/src
+         export PYTHONPATH=${OPENPI_PROJECT_ROOT}:${OPENPI_PROJECT_ROOT}/src:${OPENPI_PROJECT_ROOT}/packages/openpi-client/src
 
          # Clear problematic XLA flags
          unset XLA_FLAGS
@@ -139,7 +143,9 @@ srun --container-image="${CONTAINER_IMAGE}" \
 
          # Run norm stats computation
          # Note: Config name is passed as --config-name argument (tyro convention)
-         uv run scripts/compute_norm_stats.py --config-name ${CONFIG_NAME}
+         # Note: the container venv is on a read-only squashfs mount, so uv run
+         # cannot re-sync the project. The interpreter on PATH is that venv.
+         python scripts/compute_norm_stats.py --config-name ${CONFIG_NAME}
      "
 
 EXIT_CODE=$?
