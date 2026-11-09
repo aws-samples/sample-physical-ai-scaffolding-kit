@@ -39,6 +39,7 @@ Install in the following order.
 8. Prepare a database and the input and output assets in VAMS (see the "Preparing the Database and Assets" section).
 9. Register the pipeline and workflow in VAMS (see the "Registering the Pipeline" section).
 10. Run training from VAMS (see the "Running Training" section).
+11. If needed, create a proposal for the next training parameters from the training results (see the "Diagnosing Training Results and Proposing the Next Parameters" section).
 
 If VAMS is already deployed, skip step 2.
 
@@ -563,6 +564,33 @@ If you abort an execution in VAMS, the poller stops the training job with `scanc
 
 For the training output (the files placed in the output asset, `pask_training.json` in results, and the MLflow records) and for deletion after the execution, see the "What Users Specify and Receive" and "Overall Flow" sections of [How the VAMS Integration Works](/hyperpod/docs/en/VAMS_INTEGRATION/ARCHITECTURE.md).
 The write-back rules are in the "Completion Notification and Write-Back" section of [VAMS Integration Specification](/hyperpod/docs/en/VAMS_INTEGRATION/SPEC.md), and the list of MLflow tags is in the "What Is Recorded to MLflow" section of the same document.
+
+## Diagnosing Training Results and Proposing the Next Parameters
+
+After training, you can create a report that diagnoses the learning curves from the results recorded in MLflow and proposes the next training parameters.
+This uses the Claude Code project skill `pask-training-advisor` (`.claude/skills/pask-training-advisor/`).
+The target run is specified by its MLflow run ID or by the VAMS `pipelineExecutionId` (the run tag `vams.pipeline_execution_id`).
+
+The proposal stays within the 12 parameters that can be changed in VAMS (the `templateTags` in the "Running Training" section).
+A proposal that passes validation is written as `vams_parameters.json`, which can be passed to VamsCLI's `--pipeline-parameters` as is.
+The `templateTags` in `vams_parameters.json` contain all 12 parameters, including the ones that are not changed.
+The skill does not run training.
+After the user reviews and approves the report and the proposal, the user runs training with the steps in the "Running Training" section.
+
+When VamsCLI can connect to VAMS, the report also includes information about the datasets used for training.
+The targets are the input asset of the run and, when the input is a curation view, the source dataset of the view.
+The size such as the number of episodes, the number of quality flags from the LeRobot Episode Quality pipeline, and the review decisions made in the UI are read from the asset metadata.
+Based on these, the skill proposes datasets to leave out of the next training (too few episodes, no statistics, used only by failed training, and so on) and episodes to leave out (those judged as excluded or failed in the review).
+The proposal is not a deletion; it is for the user to recreate the view with LeRobot Dataset Curation and leave the data out of the input of the next training.
+The skill does not delete VAMS assets and does not create views.
+
+The report requires the MLflow training results.
+The skill first checks whether it can connect to MLflow and VAMS, and stops without creating a report if it cannot connect to MLflow.
+This is because the datasets used for training are traced from the MLflow run tags (`vams.input.asset_id`, `vams.source.asset_id`).
+If it cannot connect to VAMS, it creates the report without the dataset information.
+
+The mechanism, the diagnosis criteria, and the usage are described in [Proposing the Next Training Parameters from MLflow Training Results](/samples/lerobot-openpi/docs/en/training_advisor.md).
+Output examples are in [Sample Output](/hyperpod/docs/ja/VAMS_INTEGRATION/sample-report/README.md) (a manually run training) and [Sample Output for a Run Started from VAMS](/hyperpod/docs/ja/VAMS_INTEGRATION/sample-report-vams/README.md) (including dataset information and exclusion candidates). The samples are in Japanese.
 
 ## Operational Settings Expected on the VAMS Side
 

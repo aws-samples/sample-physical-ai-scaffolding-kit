@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "baseRunId": "00000000000000000000000000000001",
+  "parameters": {
+    "POLICY_TYPE": "pi05",
+    "PRETRAINED_PATH": "lerobot/pi05_base",
+    "FINETUNE_MODE": "lora",
+    "LORA_R": 32,
+    "LORA_ALPHA": 32,
+    "STEPS": 30000,
+    "BATCH_SIZE": 4,
+    "SAVE_FREQ": 5000,
+    "LOG_FREQ": 100,
+    "NUM_WORKERS": 4,
+    "COMPILE_MODEL": false,
+    "IMAGE_TAG": "latest"
+  },
+  "changes": [
+    {
+      "key": "LORA_R",
+      "from": 16,
+      "to": 32,
+      "reason": "末尾の窓で損失がほぼ下がっておらず、学習率は減衰しきっている。STEPS を 30000 より増やしても学習率は 2.5e-06 のまま一定なので効果は小さい。代わりに LoRA の表現力を上げる",
+      "evidence": ["plateau", "tail_improvement=0.004035925119422745", "tail_slope_per_1k=-0.001155525141911819", "lr_progress=0.10028108681633426"]
+    },
+    {
+      "key": "LORA_ALPHA",
+      "from": 16,
+      "to": 32,
+      "reason": "LORA_R に合わせて上げ、LORA_ALPHA / LORA_R の比（1）を保つ",
+      "evidence": ["plateau"]
+    }
+  ],
+  "expectedEffect": "LoRA のランクを上げて学習できるパラメータを増やし、30000 ステップで到達する損失を前の run より下げる",
+  "risks": [
+    "LoRA のランクを上げると GPU メモリの使用量が増える。前の run の最大使用率は 47.6% で余地はある（gpu_memory_headroom）",
+    "評価の損失が記録されていないため、損失の低下が汎化の改善につながるかは確かめられない",
+    "前の run と STEPS が同じなので学習率のスケジュールは同じになり、同じステップで損失を比べられる"
+  ],
+  "alternatives": [
+    {
+      "parameters": {
+        "POLICY_TYPE": "pi05",
+        "PRETRAINED_PATH": "lerobot/pi05_base",
+        "FINETUNE_MODE": "expert_only",
+        "LORA_R": 16,
+        "LORA_ALPHA": 16,
+        "STEPS": 30000,
+        "BATCH_SIZE": 4,
+        "SAVE_FREQ": 5000,
+        "LOG_FREQ": 100,
+        "NUM_WORKERS": 4,
+        "COMPILE_MODEL": false,
+        "IMAGE_TAG": "latest"
+      },
+      "reason": "action expert 全体を学習してさらに表現力を上げる案。24 GB の GPU に収まらない可能性が高いため代わりの案に置く"
+    }
+  ]
+}

@@ -41,6 +41,7 @@ VAMS에는 PASK에 포함된 파이프라인과 워크플로 정의(`hyperpod/va
 8. VAMS에 데이터베이스와 학습의 입력 및 출력 아셋을 준비합니다("데이터베이스와 아셋 준비" 섹션).
 9. VAMS에 파이프라인과 워크플로를 등록합니다("파이프라인 등록" 섹션).
 10. VAMS에서 학습을 실행합니다("학습 실행" 섹션).
+11. 필요에 따라 학습 결과로부터 다음 학습 파라미터의 제안을 만듭니다("학습 결과 진단과 다음 파라미터 제안" 섹션).
 
 이미 VAMS를 deploy해 두었다면 2번 단계는 건너뜁니다.
 
@@ -565,6 +566,33 @@ VAMS에서 실행을 중단하면, poller는 유예 시간(`AbortGraceSeconds`)�
 
 학습 출력(출력 아셋에 들어가는 file, results의 `pask_training.json`, MLflow 기록)과 실행 후 삭제는 [VAMS 연동 구조](/hyperpod/docs/ko/VAMS_INTEGRATION/ARCHITECTURE.md)의 "사용자가 지정하는 것과 받는 것"과 "전체 흐름" 섹션에 있습니다.
 Write-back 규칙은 [VAMS 연동 사양](/hyperpod/docs/ko/VAMS_INTEGRATION/SPEC.md)의 "완료 통지와 write-back" 섹션에, MLflow 태그 목록은 같은 문서의 "MLflow에 기록하는 것" 섹션에 있습니다.
+
+## 학습 결과 진단과 다음 파라미터 제안
+
+학습 후에 MLflow에 기록된 결과로부터 학습 곡선을 진단하고 다음 학습 파라미터를 제안하는 report를 만들 수 있습니다.
+Claude Code의 project skill `pask-training-advisor`(`.claude/skills/pask-training-advisor/`)를 사용합니다.
+대상 run은 MLflow의 run ID 또는 VAMS의 `pipelineExecutionId`(run의 tag `vams.pipeline_execution_id`)로 지정합니다.
+
+제안은 VAMS에서 바꿀 수 있는 12개 항목("학습 실행" 섹션의 `templateTags`)의 범위에서 만듭니다.
+검증을 통과한 제안은 `vams_parameters.json`으로 출력되며, VamsCLI의 `--pipeline-parameters`에 그대로 전달할 수 있습니다.
+`vams_parameters.json`의 `templateTags`는 바꾸지 않는 항목도 포함하여 12개 항목을 모두 가집니다.
+skill은 학습을 실행하지 않습니다.
+사용자가 report와 제안을 확인하고 승인한 후 "학습 실행" 섹션의 절차로 실행합니다.
+
+VamsCLI로 VAMS에 연결할 수 있는 경우에는 학습에 사용한 dataset의 정보도 report에 넣습니다.
+대상은 run의 입력 asset과, 입력이 curation view인 경우 view의 원본 dataset입니다.
+episode 수 등의 규모, LeRobot Episode Quality pipeline의 품질 flag 건수, 화면에서의 review 판정을 asset의 metadata에서 읽습니다.
+그 위에서 다음 학습에서 제외할 dataset(episode가 적음, 통계가 없음, 실패한 학습에만 사용됨 등)과 제외할 episode(review에서 제외 또는 실패로 판정한 것)를 제안합니다.
+제안은 삭제가 아니라, 사용자가 LeRobot Dataset Curation으로 view를 다시 만들어 다음 학습의 입력에서 빼기 위한 것입니다.
+skill은 VAMS의 asset을 삭제하지 않으며 view도 만들지 않습니다.
+
+report에는 MLflow의 학습 결과가 필수입니다.
+skill은 먼저 MLflow와 VAMS에 연결할 수 있는지 확인하고, MLflow에 연결할 수 없으면 report를 만들지 않고 멈춥니다.
+학습에 사용한 dataset은 MLflow run의 tag(`vams.input.asset_id`, `vams.source.asset_id`)로 찾아가기 때문입니다.
+VAMS에 연결할 수 없는 경우에는 dataset 정보를 제외한 report를 만듭니다.
+
+구조, 진단 기준, 사용 방법은 [MLflow 학습 결과로부터 다음 학습 파라미터 제안](/samples/lerobot-openpi/docs/ko/training_advisor.md)에 있습니다.
+출력 예는 [출력 sample](/hyperpod/docs/ja/VAMS_INTEGRATION/sample-report/README.md)(수동으로 실행한 run)과 [VAMS에서 실행한 run의 출력 sample](/hyperpod/docs/ja/VAMS_INTEGRATION/sample-report-vams/README.md)(dataset 정보와 제외 후보 포함)에 있습니다. sample은 일본어입니다.
 
 ## VAMS 측에서 기대하는 운영 설정
 

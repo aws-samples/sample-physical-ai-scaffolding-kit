@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "fewEpisodesMax": 1,
+  "_comments": {
+    "fewEpisodesMax": "A training input with this many episodes or fewer is a dataset exclusion candidate (few_episodes). One episode cannot cover the variation of a task."
+  }
+}

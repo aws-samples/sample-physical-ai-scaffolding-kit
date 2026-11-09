@@ -39,6 +39,7 @@ VAMS には、PASK に同梱するパイプラインとワークフローの定�
 8. VAMS にデータベースと、学習の入力と出力のアセットを用意します（「データベースとアセットの用意」の章）。
 9. VAMS にパイプラインとワークフローを登録します（「パイプラインの登録」の章）。
 10. VAMS から学習を実行します（「学習の実行」の章）。
+11. 必要に応じて、学習の結果から次の学習パラメータの提案を作ります（「学習結果の診断と次のパラメータの提案」の章）。
 
 すでに VAMS をデプロイしてある場合は、手順 2 を飛ばします。
 
@@ -563,6 +564,33 @@ VAMS で実行を中断すると、ポーラーは猶予（`AbortGraceSeconds`�
 
 学習の出力（出力のアセットに入るファイル、results の `pask_training.json`、MLflow の記録）と、実行の後の削除は、[VAMS 連携の仕組み](/hyperpod/docs/ja/VAMS_INTEGRATION/ARCHITECTURE.md) の「利用者が指定するものと受け取るもの」と「全体の流れ」にあります。
 書き戻しの規則は [VAMS 連携の仕様](/hyperpod/docs/ja/VAMS_INTEGRATION/SPEC.md) の「完了通知と書き戻し」、MLflow のタグの一覧は同じ文書の「MLflow に記録するもの」にあります。
+
+## 学習結果の診断と次のパラメータの提案
+
+学習の後に、MLflow に記録された結果から学習曲線を診断し、次の学習パラメータを提案するレポートを作れます。
+Claude Code の project skill `pask-training-advisor`（`.claude/skills/pask-training-advisor/`）を使います。
+対象の run は、MLflow の run ID か、VAMS の `pipelineExecutionId`（run のタグ `vams.pipeline_execution_id`）で指定します。
+
+提案は、VAMS で変えられる 12 項目（「学習の実行」の章の `templateTags`）の範囲で作ります。
+検証を通った提案は `vams_parameters.json` として出力され、VamsCLI の `--pipeline-parameters` にそのまま渡せます。
+`vams_parameters.json` の `templateTags` は、変えない項目も含めて 12 項目すべてを持ちます。
+skill は学習を実行しません。
+利用者がレポートと提案を確認し、承認したあとに、「学習の実行」の章の手順で実行します。
+
+VamsCLI で VAMS に接続できる場合は、学習に使ったデータセットの情報もレポートに入れます。
+対象は、run の入力のアセットと、入力が curation の view の場合は view の元のデータセットです。
+エピソード数などの規模、LeRobot Episode Quality パイプラインの品質のフラグの件数、画面でのレビューの判定を、アセットのメタデータから読みます。
+そのうえで、次の学習から外すデータセット（エピソードが少ない、統計が無い、失敗した学習にしか使われていない、など）と、外すエピソード（レビューで除外や失敗と判定したもの）を提案します。
+提案は削除ではなく、利用者が LeRobot Dataset Curation で view を作り直し、次の学習の入力から外すためのものです。
+skill は VAMS のアセットを削除せず、view も作りません。
+
+レポートには MLflow の学習結果が必須です。
+skill は最初に MLflow と VAMS に接続できるかを確かめ、MLflow に接続できない場合はレポートを作らずに止まります。
+学習に使ったデータセットは MLflow の run のタグ（`vams.input.asset_id`、`vams.source.asset_id`）から辿るためです。
+VAMS に接続できない場合は、データセットの情報を除いたレポートを作ります。
+
+仕組み、診断の基準、使い方は [MLflow の学習結果からの次の学習パラメータの提案](/samples/lerobot-openpi/docs/ja/training_advisor.md) にあります。
+出力の例は [出力サンプル](/hyperpod/docs/ja/VAMS_INTEGRATION/sample-report/README.md)（手動で実行した run）と [VAMS から実行した run の出力サンプル](/hyperpod/docs/ja/VAMS_INTEGRATION/sample-report-vams/README.md)（データセットの情報と除外の候補を含む）にあります。
 
 ## VAMS 側に期待する運用設定
 
