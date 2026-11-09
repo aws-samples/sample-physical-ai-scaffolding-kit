@@ -6,6 +6,8 @@ list/status/logs plumbing. The CLI talks to the cluster through the
 regression's ``--ssh-config`` tempfile — ``~/.ssh/config`` is not used.
 """
 
+import shlex
+
 import pytest
 
 
@@ -47,10 +49,16 @@ sleep 1
 def test_list_status_logs(physai_session, physai_cli) -> None:
     """Submit a trivial ``physai/run/...`` job, then exercise list/status/logs."""
     physai_session.run("mkdir -p /fsx/physai/logs")
-    physai_session.write_file("/tmp/regression-trivial.sbatch", _TRIVIAL_SBATCH)
-    job_id = physai_session.run(
-        "sbatch --parsable /tmp/regression-trivial.sbatch"
-    ).strip()
+    # mktemp creates a fresh file only the current user can write, so another
+    # user of the shared login node cannot swap the job script before sbatch.
+    sbatch_path = physai_session.run("mktemp --suffix=.sbatch").strip()
+    try:
+        physai_session.write_file(sbatch_path, _TRIVIAL_SBATCH)
+        job_id = physai_session.run(
+            f"sbatch --parsable {shlex.quote(sbatch_path)}"
+        ).strip()
+    finally:
+        physai_session.run(f"rm -f {shlex.quote(sbatch_path)}")
     assert job_id.isdigit(), f"sbatch did not return a job id: {job_id!r}"
 
     try:

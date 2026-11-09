@@ -2,7 +2,16 @@
 
 from unittest.mock import MagicMock
 
-from physai.jobs import _fmt_time, _parse_job_name, cancel_job, list_jobs
+import pytest
+
+from physai.jobs import (
+    _fmt_time,
+    _parse_job_name,
+    cancel_job,
+    list_jobs,
+    logs_job,
+    status_job,
+)
 
 
 def test_fmt_time():
@@ -62,3 +71,34 @@ def test_cancel_job(capsys):
     cancel_job(session, "123")
     session.run.assert_called_once_with("scancel 123")
     assert "Cancelled job 123" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "job_id", ["123; rm -rf ~", "$(id)", "12 34", "", "abc", "1_2_3"]
+)
+def test_cancel_job_rejects_invalid_job_id(job_id):
+    session = MagicMock()
+    with pytest.raises(SystemExit, match="Invalid job ID"):
+        cancel_job(session, job_id)
+    session.run.assert_not_called()
+
+
+def test_status_job_rejects_invalid_job_id():
+    session = MagicMock()
+    with pytest.raises(SystemExit, match="Invalid job ID"):
+        status_job(session, "1|whoami")
+    session.run.assert_not_called()
+
+
+def test_logs_job_rejects_invalid_job_id():
+    session = MagicMock()
+    with pytest.raises(SystemExit, match="Invalid job ID"):
+        logs_job(session, "1`id`")
+    session.stream_log.assert_not_called()
+
+
+def test_cancel_job_accepts_array_job_id():
+    session = MagicMock()
+    session.run.return_value = ""
+    cancel_job(session, "123_4")
+    session.run.assert_called_once_with("scancel 123_4")

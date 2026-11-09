@@ -84,11 +84,22 @@ export class ClusterStack extends cdk.Stack {
 
     // ── Lifecycle Scripts Bucket ──
 
+    const lifecycleAccessLogsBucket = new s3.Bucket(this, 'LifecycleAccessLogsBucket', {
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
+    });
+
     const lifecycleBucket = new s3.Bucket(this, 'LifecycleBucket', {
       bucketName: `${clusterName}-lifecycle-${account}-${this.region}`,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+      serverAccessLogsBucket: lifecycleAccessLogsBucket,
     });
 
     // Deploy lifecycle scripts from infra/lifecycle/ under a content-hashed

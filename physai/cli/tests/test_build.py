@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from physai.build import (
+    _container_sqsh_exists,
     _discover_hooks,
     _find_active_build_job,
     _find_project_yaml,
@@ -266,3 +267,13 @@ def test_find_active_build_job_queries_by_name():
     _find_active_build_job(session, "leisaac-runtime")
     cmd = session.run.call_args[0][0]
     assert '-n "physai/build/leisaac-runtime"' in cmd
+
+
+@pytest.mark.parametrize("name", ["a;id", "$(id)", "a b", "..", "x/y", ""])
+def test_container_helpers_reject_unsafe_names(name):
+    session = MagicMock()
+    with pytest.raises(SystemExit, match="Invalid container name"):
+        _find_active_build_job(session, name)
+    with pytest.raises(SystemExit, match="Invalid container name"):
+        _container_sqsh_exists(session, name)
+    session.run.assert_not_called()

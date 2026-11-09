@@ -2,6 +2,7 @@ import boto3
 import json
 import logging
 import traceback
+import urllib.parse
 import urllib.request
 
 logger = logging.getLogger()
@@ -9,6 +10,17 @@ logger.setLevel(logging.INFO)
 
 SUCCESS = "SUCCESS"
 FAILED = "FAILED"
+
+
+def require_https_url(url):
+    """Raise ValueError unless the URL uses the https scheme.
+
+    urllib.request.urlopen also opens file:// and other schemes, so every URL is
+    checked before it is opened.
+    """
+    scheme = urllib.parse.urlparse(url).scheme
+    if scheme != "https":
+        raise ValueError(f"Refusing to open URL with scheme '{scheme}': only https is allowed")
 
 
 def send_cfn_response(
@@ -21,6 +33,7 @@ def send_cfn_response(
     reason=None,
 ):
     response_url = event["ResponseURL"]
+    require_https_url(response_url)
     logger.info(f"CFN response URL: {response_url}")
 
     response_body = {
@@ -64,9 +77,11 @@ def handler(event, context):
             return
 
         ami_name = event["ResourceProperties"]["AmiName"]
+        ami_owners = event["ResourceProperties"]["AmiOwners"]
         ec2_client = boto3.client("ec2")
 
         response = ec2_client.describe_images(
+            Owners=ami_owners,
             Filters=[{"Name": "name", "Values": [ami_name]}],
         )
 
@@ -77,7 +92,7 @@ def handler(event, context):
                 context,
                 FAILED,
                 {},
-                reason=f"No AMI found with name: {ami_name}",
+                reason=f"No AMI found with name: {ami_name} (owners: {ami_owners})",
             )
             return
 

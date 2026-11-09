@@ -164,6 +164,7 @@ If you close the DCV client, the server-side session is preserved (open windows 
 | `ImageNames` | `["isaacsim6.0", "isaacsim5.1"]` | Array of image names to build |
 | `VpcId` | `""` (create new) | Specify to use an existing VPC |
 | `DefaultInstanceType` | `g6e.4xlarge` | Default instance type for Launch Lambda |
+| `AllowedIpv4Cidrs` | `["0.0.0.0/0"]` | IPv4 CIDR ranges allowed to connect to Amazon DCV (TCP/UDP 8443). Restrict this to the address range of your PC. With `-c AllowedIpv4Cidrs=...`, separate multiple ranges with commas |
 
 ## Adding a Custom Image
 

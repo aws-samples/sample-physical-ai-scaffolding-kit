@@ -608,13 +608,14 @@ def test_hf_stage_no_revision_emits_three_commands():
     cmds = [c.args[0] for c in session.run.call_args_list]
     assert len(cmds) == 3
     # 1: ephemeral install via --target.
-    assert "rm -rf /tmp/regression-hf-pkgs" in cmds[0]
-    assert "pip install --target /tmp/regression-hf-pkgs huggingface_hub" in cmds[0]
+    pkg_dir = '"$HOME"/.cache/physai-regression-hf-pkgs'
+    assert f"rm -rf {pkg_dir}" in cmds[0]
+    assert f"pip install --target {pkg_dir} huggingface_hub" in cmds[0]
     # 2: reset dest.
     assert "rm -rf /fsx/raw/name/" in cmds[1]
     # 3: download via the `hf` console script with PYTHONPATH prepended.
-    assert "PYTHONPATH=/tmp/regression-hf-pkgs" in cmds[2]
-    assert "/tmp/regression-hf-pkgs/bin/hf download owner/repo" in cmds[2]
+    assert f"PYTHONPATH={pkg_dir}" in cmds[2]
+    assert f"{pkg_dir}/bin/hf download owner/repo" in cmds[2]
     assert "--repo-type dataset" in cmds[2]
     assert "--local-dir /fsx/raw/name/" in cmds[2]
     assert "--revision" not in cmds[2]

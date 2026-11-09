@@ -107,6 +107,9 @@
       "ImageNames": [
         "isaacsim6.0",
         "isaacsim5.1"
+      ],
+      "AllowedIpv4Cidrs": [
+        "0.0.0.0/0"
       ]
     }
   }
