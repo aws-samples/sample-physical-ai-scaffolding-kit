@@ -117,7 +117,7 @@
       },
       "ClusterVPC": {
         "SubnetAZ": "",
-        "UseFlowLog": false
+        "UseFlowLog": true
       },
       "Lustre": {
         "S3Prefix": "",

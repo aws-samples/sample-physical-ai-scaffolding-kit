@@ -18,7 +18,16 @@ export interface HyperPodProps {
   privateSubnet: aws_ec2.PrivateSubnet;
   lfsSecurityGroup: aws_ec2.SecurityGroup;
   lfs: aws_fsx.LustreFileSystem;
+  /** Destination of the S3 server access logs of the lifecycle script bucket. */
+  accessLogsBucket: aws_s3.IBucket;
 }
+
+/**
+ * Commit of awslabs/awsome-distributed-ai that the lifecycle scripts are fetched from.
+ * The scripts run as root on every cluster node, so a reviewed commit is pinned instead
+ * of a branch. Update this value to take in upstream changes.
+ */
+const LIFECYCLE_SCRIPTS_GITHUB_REF = '240279b4a8f9c12297c72ef1bee37ad3a2558884';
 
 export class HyperPod extends Construct {
   constructor(scope: Construct, id: string, props: HyperPodProps) {
@@ -31,6 +40,8 @@ export class HyperPod extends Construct {
       autoDeleteObjects: true,
       encryption: aws_s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
+      serverAccessLogsBucket: props.accessLogsBucket,
+      serverAccessLogsPrefix: 'lifecycle-script/',
     });
 
     new cdk.CfnOutput(this, 'LifeCycleScriptBucketName', {
@@ -39,7 +50,7 @@ export class HyperPod extends Construct {
     });
 
     // Custom resource to download lifecycle scripts from github
-    // https://github.com/aws-samples/awsome-distributed-training/tree/main/1.architectures/5.sagemaker-hyperpod/LifecycleScripts/base-config
+    // https://github.com/awslabs/awsome-distributed-ai/tree/main/1.architectures/5.sagemaker-hyperpod/LifecycleScripts/base-config
     const loadLifeCycleScriptLogGroup = new aws_logs.LogGroup(this, 'LoadLifeCycleScriptLogGroup', {
       retention: aws_logs.RetentionDays.ONE_MONTH,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -55,6 +66,11 @@ export class HyperPod extends Construct {
     loadLifeCycleScriptLogGroup.grantWrite(loadLifeCycleScriptFunctionRole);
     lifeCycleScriptBucket.grantReadWrite(loadLifeCycleScriptFunctionRole);
 
+    const lifeCycleLoaderPath = path.join(
+      __dirname,
+      '../lambda/custom-resources/lifecycle-loader',
+    );
+
     const loadLifeCycleScriptFunction = new aws_lambda.Function(
       this,
       'LoadLifeCycleScriptFunction',
@@ -63,17 +79,17 @@ export class HyperPod extends Construct {
         memorySize: 1024,
         handler: 'index.handler',
         role: loadLifeCycleScriptFunctionRole,
-        code: aws_lambda.Code.fromAsset(
-          path.join(__dirname, '../lambda/custom-resources/lifecycle-loader'),
-        ),
+        code: aws_lambda.Code.fromAsset(lifeCycleLoaderPath),
         timeout: cdk.Duration.minutes(15),
         logGroup: loadLifeCycleScriptLogGroup,
         environment: {
           BUCKET_NAME: lifeCycleScriptBucket.bucketName,
           BUCKET_PATH: '',
-          GITHUB_BRANCH: 'main',
+          GITHUB_BRANCH: LIFECYCLE_SCRIPTS_GITHUB_REF,
           GITHUB_PATH: '1.architectures/5.sagemaker-hyperpod/LifecycleScripts/base-config',
-          GITHUB_REPO_URL: 'https://github.com/aws-samples/awsome-distributed-training',
+          GITHUB_REPO_URL: 'https://github.com/awslabs/awsome-distributed-ai',
+          // Injected into the overrides/*.sh placeholders at upload time.
+          LUSTRE_FILESYSTEM_PATH: props.config.Lustre.FileSystemPath,
         },
       },
     );
@@ -83,63 +99,17 @@ export class HyperPod extends Construct {
       {
         serviceToken: loadLifeCycleScriptFunction.functionArn,
         resourceType: 'Custom::LoadLifeCycleScript',
-      },
-    );
-    loadLifeCycleScriptResource.node.addDependency(lifeCycleScriptBucket);
-
-    // Custom resource to create provisioning_parameters.json
-    const updateProvisioningParameterLogGroup = new aws_logs.LogGroup(
-      this,
-      'UpdateProvisioningParameterLogGroup',
-      {
-        retention: aws_logs.RetentionDays.ONE_MONTH,
-        removalPolicy: cdk.RemovalPolicy.DESTROY,
-      },
-    );
-
-    const updateProvisioningParameterFunctionRole = new aws_iam.Role(
-      this,
-      'UpdateProvisioningParameterFunctionRole',
-      {
-        assumedBy: new aws_iam.ServicePrincipal('lambda.amazonaws.com'),
-      },
-    );
-    updateProvisioningParameterLogGroup.grantWrite(updateProvisioningParameterFunctionRole);
-    lifeCycleScriptBucket.grantWrite(updateProvisioningParameterFunctionRole);
-
-    const updateProvisioningParamsFunction = new aws_lambda.Function(
-      this,
-      'UpdateProvisioningParamsFunction',
-      {
-        runtime: aws_lambda.Runtime.PYTHON_3_14,
-        handler: 'index.handler',
-        role: updateProvisioningParameterFunctionRole,
-        code: aws_lambda.Code.fromAsset(
-          path.join(__dirname, '../lambda/custom-resources/slurm-parameter'),
-        ),
-        timeout: cdk.Duration.minutes(5),
-        logGroup: updateProvisioningParameterLogGroup,
-      },
-    );
-
-    const updateProvisioningParamsResource = new cdk.CustomResource(
-      this,
-      'UpdateProvisioningParamsResource',
-      {
-        serviceToken: updateProvisioningParamsFunction.functionArn,
-        resourceType: 'Custom::CreateProvisioningParameter',
+        // CloudFormation only invokes the resource when its properties change, so
+        // the loader inputs are passed here to re-upload the scripts whenever the
+        // loader code, the overrides, or the substituted Lustre path change.
         properties: {
-          BucketName: lifeCycleScriptBucket.bucketName,
-          ControllerGroupName: props.config.Cluster.ControllerGroup.Name,
-          WorkerGroup: props.config.Cluster.WorkerGroup,
-          LoginGroupName: props.config.Cluster.LoginGroup.Name,
-          FsxDnsName: props.lfs.dnsName,
-          FsxMountName: props.lfs.mountName,
+          LoaderFingerprint: cdk.FileSystem.fingerprint(lifeCycleLoaderPath),
+          GitHubRef: LIFECYCLE_SCRIPTS_GITHUB_REF,
+          LustreFileSystemPath: props.config.Lustre.FileSystemPath,
         },
       },
     );
-    // Ensure provisioning_parameters.json is created after bucket deployment
-    updateProvisioningParamsResource.node.addDependency(loadLifeCycleScriptResource);
+    loadLifeCycleScriptResource.node.addDependency(lifeCycleScriptBucket);
 
     // Cluster
     const clusterLogsGroup = new aws_logs.LogGroup(this, 'LogGroup', {
@@ -238,7 +208,7 @@ export class HyperPod extends Construct {
       instanceGroupName: props.config.Cluster.LoginGroup.Name,
       instanceType: props.config.Cluster.LoginGroup.InstanceType,
       lifeCycleConfig: {
-        onCreate: 'on_create.sh',
+        onInitComplete: 'on_init_complete.sh',
         sourceS3Uri: `s3://${lifeCycleScriptBucket.bucketName}`,
       },
       instanceStorageConfigs: [
@@ -248,10 +218,20 @@ export class HyperPod extends Construct {
             volumeSizeInGb: 500,
           },
         },
+        {
+          fsxLustreConfig: {
+            dnsName: props.lfs.dnsName,
+            mountName: props.lfs.mountName,
+            mountPath: '/fsx',
+          },
+        },
       ],
       overrideVpcConfig: {
         securityGroupIds: [props.lfsSecurityGroup.securityGroupId],
         subnets: [props.privateSubnet.subnetId],
+      },
+      slurmConfig: {
+        nodeType: 'Login',
       },
       threadsPerCore: 2,
     };
@@ -261,7 +241,7 @@ export class HyperPod extends Construct {
       instanceGroupName: props.config.Cluster.ControllerGroup.Name,
       instanceType: props.config.Cluster.ControllerGroup.InstanceType,
       lifeCycleConfig: {
-        onCreate: 'on_create.sh',
+        onInitComplete: 'on_init_complete.sh',
         sourceS3Uri: `s3://${lifeCycleScriptBucket.bucketName}`,
       },
       instanceStorageConfigs: [
@@ -271,10 +251,20 @@ export class HyperPod extends Construct {
             volumeSizeInGb: 500,
           },
         },
+        {
+          fsxLustreConfig: {
+            dnsName: props.lfs.dnsName,
+            mountName: props.lfs.mountName,
+            mountPath: '/fsx',
+          },
+        },
       ],
       overrideVpcConfig: {
         securityGroupIds: [props.lfsSecurityGroup.securityGroupId],
         subnets: [props.privateSubnet.subnetId],
+      },
+      slurmConfig: {
+        nodeType: 'Controller',
       },
       threadsPerCore: 2,
     };
@@ -285,7 +275,7 @@ export class HyperPod extends Construct {
       instanceGroupName: value.Name,
       instanceType: value.InstanceType,
       lifeCycleConfig: {
-        onCreate: 'on_create.sh',
+        onInitComplete: 'on_init_complete.sh',
         sourceS3Uri: `s3://${lifeCycleScriptBucket.bucketName}`,
       },
       instanceStorageConfigs: [
@@ -295,10 +285,21 @@ export class HyperPod extends Construct {
             volumeSizeInGb: 500,
           },
         },
+        {
+          fsxLustreConfig: {
+            dnsName: props.lfs.dnsName,
+            mountName: props.lfs.mountName,
+            mountPath: '/fsx',
+          },
+        },
       ],
       overrideVpcConfig: {
         securityGroupIds: [props.lfsSecurityGroup.securityGroupId],
         subnets: [props.privateSubnet.subnetId],
+      },
+      slurmConfig: {
+        nodeType: 'Compute',
+        partitionNames: [value.Name],
       },
       threadsPerCore: 2,
     }));
@@ -313,8 +314,8 @@ export class HyperPod extends Construct {
       },
     });
 
-    // Ensure cluster is created after provisioning_parameters.json is uploaded
-    cfnCluster.node.addDependency(updateProvisioningParamsResource);
+    // Ensure cluster is created after lifecycle scripts are uploaded
+    cfnCluster.node.addDependency(loadLifeCycleScriptResource);
 
     new cdk.CfnOutput(this, 'ClusterId', {
       value: props.config.Cluster.Name,
