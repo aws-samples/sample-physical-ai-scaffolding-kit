@@ -20,4 +20,9 @@ samples/openpi-sample/openpi
 *.cache
 samples/openpi-sample.zip
 
+# lerobot-openpi
+samples/lerobot-openpi/logs
+samples/lerobot-openpi/outputs
+samples/lerobot-openpi/tmp
+
 CLAUDE.md

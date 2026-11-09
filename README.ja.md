@@ -24,3 +24,4 @@ Amazon SageMaker HyperPod は、生成 AI モデルの構築に伴う、差別�
 1. [π0 サンプル](samples/openpi-sample/README.ja.md)
 2. [NVIDIA Isaac GR00T サンプル](/samples/gr00t/README.ja.md)
 3. [NVIDIA Isaac Lab Newton RL サンプル](/samples/newton-rl/README.ja.md)
+4. [LeRobot π0.5 サンプル](/samples/lerobot-openpi/README.ja.md)

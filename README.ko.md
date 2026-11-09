@@ -24,3 +24,4 @@ Amazon SageMaker HyperPod는 generative AI model 구축에 필요한 undifferent
 1. [π0 Sample](samples/openpi-sample/README.ko.md)
 2. [NVIDIA Isaac GR00T Sample](/samples/gr00t/README.ko.md)
 3. [NVIDIA Isaac Lab Newton RL Sample](/samples/newton-rl/README.ko.md)
+4. [LeRobot π0.5 Sample](/samples/lerobot-openpi/README.ko.md)
