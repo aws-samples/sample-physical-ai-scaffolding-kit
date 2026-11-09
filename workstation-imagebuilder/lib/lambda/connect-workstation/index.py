@@ -26,6 +26,10 @@ import boto3
 ec2 = boto3.client("ec2")
 ssm = boto3.client("ssm")
 
+# Tag that the Launch Lambda puts on the workstation instances it starts.
+MANAGED_BY_TAG_KEY = "ManagedBy"
+MANAGED_BY_TAG_VALUE = "workstation-imagebuilder"
+
 
 def handler(event, context):
     instance_id = event.get("instanceId")
@@ -38,6 +42,13 @@ def handler(event, context):
         raise ValueError(f"Instance {instance_id} not found")
 
     instance = reservations[0]["Instances"][0]
+    tags = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
+    if tags.get(MANAGED_BY_TAG_KEY) != MANAGED_BY_TAG_VALUE:
+        raise ValueError(
+            f"Instance {instance_id} is not a workstation launched by this stack "
+            f"(tag {MANAGED_BY_TAG_KEY}={MANAGED_BY_TAG_VALUE} is missing)"
+        )
+
     state = instance["State"]["Name"]
     if state != "running":
         raise ValueError(

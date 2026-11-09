@@ -8,6 +8,7 @@ node_modules
 cdk.out
 *.cdk-outputs.json
 hyperpod/cdk.context.json
+isaacsim-workstation/cdk.context.json
 easy-ssh.sh
 provisioning_parameters.json
 

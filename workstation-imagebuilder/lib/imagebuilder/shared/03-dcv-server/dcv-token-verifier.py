@@ -3,12 +3,20 @@ import http.server
 import json
 import os
 import re
+import sys
 import time
 
 _SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 TOKEN_DIR = "/var/run/dcv-tokens"
 PORT = 8445
+
+
+def _describe_error(error):
+    """Describe an exception without the token, which OSError carries in its filename."""
+    if isinstance(error, OSError):
+        return f"{type(error).__name__}: {error.strerror}"
+    return f"{type(error).__name__}: {error}"
 
 
 class TokenHandler(http.server.BaseHTTPRequestHandler):
@@ -28,6 +36,8 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
             try:
                 with open(token_file) as f:
                     data = json.load(f)
+                if not isinstance(data, dict):
+                    raise ValueError("token file is not a JSON object")
                 if data.get("expires", 0) > time.time():
                     user = data["user"]
                     response = f'<auth result="yes"><username>{user}</username></auth>'
@@ -35,7 +45,9 @@ class TokenHandler(http.server.BaseHTTPRequestHandler):
                 else:
                     os.remove(token_file)
                     response = '<auth result="no"/>'
-            except Exception:
+            except (OSError, ValueError, KeyError, TypeError) as e:
+                sys.stderr.write(f"Token verification failed: {_describe_error(e)}\n")
+                sys.stderr.flush()
                 response = '<auth result="no"/>'
         else:
             response = '<auth result="no"/>'

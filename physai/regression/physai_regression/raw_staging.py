@@ -56,7 +56,10 @@ _S3_PERMISSION_HINTS = (
     "(404)",
 )
 
-_HF_PKG_DIR = "/tmp/regression-hf-pkgs"
+# Per-user install directory on the cluster. "$HOME" is left for the remote
+# shell to expand so other users of the shared login node cannot pre-create
+# or replace the packages that this run executes.
+_HF_PKG_DIR = '"$HOME"/.cache/physai-regression-hf-pkgs'
 
 
 class RawSourceError(ValueError):

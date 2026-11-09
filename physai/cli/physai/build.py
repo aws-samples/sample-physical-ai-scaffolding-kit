@@ -1,6 +1,7 @@
 """Container build: read project/container yaml, generate sbatch, submit."""
 
 import re
+import shlex
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -11,11 +12,27 @@ from .ssh import Session
 
 BUILD_SCRIPTS_DIR = Path(__file__).parent / "build-scripts"
 
+# Container names become the squashfs filename and part of the Slurm job name,
+# so they are limited to characters that are safe in paths and shell words.
+CONTAINER_NAME_PATTERN = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def _validate_container_name(container_name: str) -> None:
+    """Exit with an error unless `container_name` is safe to use in cluster paths and commands."""
+    if container_name in (".", "..") or not CONTAINER_NAME_PATTERN.fullmatch(
+        container_name
+    ):
+        raise SystemExit(
+            f"Invalid container name {container_name!r}: "
+            "use letters, digits, '.', '_' and '-' only"
+        )
+
 
 def _container_sqsh_exists(session: Session, container_name: str) -> bool:
     """Whether /fsx/enroot/<name>.sqsh exists on the cluster."""
+    _validate_container_name(container_name)
     try:
-        session.run(f"test -f /fsx/enroot/{container_name}.sqsh")
+        session.run(f"test -f {shlex.quote(f'/fsx/enroot/{container_name}.sqsh')}")
     except RuntimeError:
         return False
     return True
@@ -27,6 +44,7 @@ def _find_active_build_job(session: Session, container_name: str) -> str | None:
     ``squeue`` only lists non-terminal jobs, so no state filter is needed.
     Picks the highest job ID if multiple exist.
     """
+    _validate_container_name(container_name)
     out = session.run(f'squeue -h -o "%i" -n "physai/build/{container_name}"')
     ids = [line.strip() for line in out.splitlines() if line.strip()]
     return max(ids, key=int) if ids else None
@@ -233,6 +251,9 @@ def run_build(
     cfg = _merge_configs(project_cfg, container_cfg)
     _validate_config(cfg)
     name = cfg["name"]
+    _validate_container_name(name)
+    if cfg.get("base_container"):
+        _validate_container_name(cfg["base_container"])
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     build_name = f"{name}-{ts}"
     build_dir = f"/fsx/physai/builds/{build_name}"
@@ -277,7 +298,7 @@ def run_build(
 
     # Sync files
     print(f"Syncing {container_path.name} to {session.host}:{build_dir}/")
-    session.run(f"mkdir -p {build_dir}/build-scripts")
+    session.run(f"mkdir -p {shlex.quote(f'{build_dir}/build-scripts')}")
     session.rsync(f"{hooks_dir}/", f"{build_dir}/setup-hooks/")
     session.rsync(f"{app_dir}/", f"{build_dir}/app/")
     session.rsync(f"{BUILD_SCRIPTS_DIR}/", f"{build_dir}/build-scripts/")
@@ -292,7 +313,7 @@ def run_build(
         if dep_job_id
         else ""
     )
-    job_id = session.run(f"sbatch --parsable{dep} {build_dir}/build.sbatch")
+    job_id = session.run(f"sbatch --parsable{dep} {shlex.quote(f'{build_dir}/build.sbatch')}")
     print(f"Submitted build job {job_id} for {name}")
     if not stream:
         return

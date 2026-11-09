@@ -1,6 +1,7 @@
 """SSH session — multiplexed connection with cached metadata."""
 
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -8,6 +9,18 @@ import tempfile
 from pathlib import Path
 
 LOG_STREAMER = Path(__file__).parent / "log_streamer.py"
+
+# Slurm job IDs: a numeric ID, optionally followed by `_<task>` for array jobs.
+JOB_ID_PATTERN = re.compile(r"[0-9]+(_[0-9]+)?")
+
+
+def validate_job_id(job_id: str) -> str:
+    """Return `job_id` unchanged if it is a valid Slurm job ID, else exit with an error."""
+    if not JOB_ID_PATTERN.fullmatch(job_id):
+        raise SystemExit(
+            f"Invalid job ID {job_id!r}: expected digits, optionally followed by _<task>"
+        )
+    return job_id
 
 
 def _rsync_supports_progress2() -> bool:
@@ -142,7 +155,7 @@ class Session:
     def write_file(self, path: str, content: str) -> None:
         """Write content to a file on the remote host."""
         r = subprocess.run(
-            self._ssh_args() + [f"cat > {path}"],
+            self._ssh_args() + [f"cat > {shlex.quote(path)}"],
             input=content,
             capture_output=True,
             text=True,
@@ -155,7 +168,7 @@ class Session:
         """Stream a job's log via the remote helper script. Ctrl-C detaches cleanly."""
         with open(LOG_STREAMER) as f:
             proc = subprocess.Popen(
-                self._ssh_args() + [f"python3 - {job_id}"],
+                self._ssh_args() + [f"python3 - {shlex.quote(job_id)}"],
                 stdin=f,
             )
             try:

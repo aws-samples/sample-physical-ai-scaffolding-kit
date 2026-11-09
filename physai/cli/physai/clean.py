@@ -1,5 +1,7 @@
 """Clean old build dirs, log files, and stale enroot containers."""
 
+import shlex
+
 from .ssh import Session
 
 CLEAN_DIRS = ["/fsx/physai/builds", "/fsx/physai/logs", "/fsx/physai/sync"]
@@ -13,7 +15,7 @@ def _clean_files(session: Session, older_than: int, dry_run: bool, force: bool) 
     candidates = []
     for d in CLEAN_DIRS:
         out = session.run(
-            f"find {d} -mindepth 1 -maxdepth 1 {find_args} 2>/dev/null || true"
+            f"find {shlex.quote(d)} -mindepth 1 -maxdepth 1 {find_args} 2>/dev/null || true"
         )
         for path in out.splitlines():
             if not path.strip():
@@ -42,7 +44,7 @@ def _clean_files(session: Session, older_than: int, dry_run: bool, force: bool) 
             return
 
     for c in candidates:
-        session.run(f"rm -rf {c}")
+        session.run(f"rm -rf -- {shlex.quote(c)}")
     print(f"Removed {len(candidates)} items.")
 
 
@@ -87,10 +89,10 @@ def _clean_enroot(session: Session, dry_run: bool, force: bool) -> None:
         by_node.setdefault(node, []).append(name)
 
     for node, names in by_node.items():
-        rm_cmds = " && ".join(f"enroot remove -f {n}" for n in names)
+        rm_cmds = " && ".join(f"enroot remove -f {shlex.quote(n)}" for n in names)
         session.run(
-            f"srun --nodelist={node} --ntasks=1 --overlap"
-            f" bash -c '{rm_cmds}' 2>/dev/null || true"
+            f"srun --nodelist={shlex.quote(node)} --ntasks=1 --overlap"
+            f" bash -c {shlex.quote(rm_cmds)} 2>/dev/null || true"
         )
     print(f"Removed {len(entries)} enroot containers.")
 

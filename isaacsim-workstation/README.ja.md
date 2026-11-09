@@ -56,11 +56,13 @@ cdk deploy
 | `VpcId` | `""` (新規作成) | 既存 VPC を使う場合に指定 |
 | `SubnetAZ` | `""` (自動選択) | AZ を明示的に指定する場合 |
 | `InstanceType` | `g6e.8xlarge` | GPU インスタンスタイプ |
+| `AllowedIpv4Cidrs` | `["0.0.0.0/0"]` | Amazon DCV（TCP 8443）への接続を許可する IPv4 の CIDR。接続元の PC のアドレス範囲に絞ることを推奨します。コマンドラインで複数指定する場合はカンマで区切ります |
 
 コマンドラインで指定する場合:
 
 ```bash
 cdk deploy -c VpcId=vpc-xxxxxxxx -c SubnetAZ=subnet-xxxxxxxx
+cdk deploy -c AllowedIpv4Cidrs=203.0.113.0/24,198.51.100.0/24
 ```
 
 ### スタック出力一覧
@@ -131,7 +133,7 @@ cdk deployを実行したPCから、DCV ログイン用のパスワードを設�
 export UBUNTU_PW="your-password-here"
 
 # スタック出力の SetPasswordCommand をそのまま実行
-aws ssm send-command --instance-ids i-0986d7fe5a672b6f5 --document-name "AWS-RunShellScript" --parameters "commands=[\"HASHED=\$(openssl passwd -6 '${UBUNTU_PW}') && sudo usermod --password \\\"\$HASHED\\\" ubuntu\"]" --region us-east-1 --output text --query "Command.CommandId"
+aws ssm send-command --instance-ids i-0123456789abcdef0 --document-name "AWS-RunShellScript" --parameters "commands=[\"HASHED=\$(openssl passwd -6 '${UBUNTU_PW}') && sudo usermod --password \\\"\$HASHED\\\" ubuntu\"]" --region us-east-1 --output text --query "Command.CommandId"
 ```
 
 ### Amazon DCV で接続

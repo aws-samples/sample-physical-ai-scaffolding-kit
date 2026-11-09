@@ -5,6 +5,7 @@ Shared logic for loading run configs, resolving model configs, and generating sb
 
 from __future__ import annotations
 
+import shlex
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -198,7 +199,7 @@ def _artifact_exists(session: Session, artifact: Artifact) -> bool:
     """Check that the artifact exists AND matches its kind (file vs directory)."""
     flag = "-d" if isinstance(artifact, Dir) else "-f"
     try:
-        session.run(f"test {flag} {artifact}")
+        session.run(f"test {flag} {shlex.quote(str(artifact))}")
         return True
     except RuntimeError:
         return False
@@ -610,7 +611,7 @@ def run_pipeline(
                 if deps
                 else ""
             )
-            job_id = session.run(f"sbatch --parsable{dep} {sbatch_path}")
+            job_id = session.run(f"sbatch --parsable{dep} {shlex.quote(sbatch_path)}")
             print(f"  {stage.name}: job {job_id}")
             prev_job_id = job_id
             job_ids.append(job_id)
@@ -620,7 +621,7 @@ def run_pipeline(
                 f"\nSubmission failed. Cancelling {len(job_ids)} already-submitted job(s): {' '.join(job_ids)}"
             )
             try:
-                session.run(f"scancel {' '.join(job_ids)}")
+                session.run(f"scancel {' '.join(shlex.quote(j) for j in job_ids)}")
             except RuntimeError as e:
                 print(f"  scancel failed: {e}")
         raise

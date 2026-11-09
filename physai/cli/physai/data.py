@@ -1,5 +1,6 @@
 """Data commands: ls, upload, rm."""
 
+import shlex
 from pathlib import Path, PurePosixPath
 
 from .pipeline import Dir, File, _find_active_job_producing, _validate_artifact_name
@@ -23,11 +24,14 @@ def ls(session: Session, category: str, path: str | None = None) -> None:
     _check_category(category)
     target = f"/fsx/{category}"
     if path:
-        target = f"{target}/{path.lstrip('/')}"
+        relative = path.lstrip("/")
+        if ".." in PurePosixPath(relative).parts:
+            raise SystemExit(f"Invalid path {path!r}: '..' segments are not allowed")
+        target = f"{target}/{relative}"
     # `du -sh` on each top-level entry gives correct sizes for both files and
     # directories. `ls -l` reports directory inode size (~32K) instead of content.
     out = session.run(
-        f"cd {target} 2>/dev/null && "
+        f"cd {shlex.quote(target)} 2>/dev/null && "
         "find . -mindepth 1 -maxdepth 1 -exec du -sh {} + 2>/dev/null | "
         "sed 's|\\t\\./|\\t|' | sort -k2"
         " || true"
@@ -98,12 +102,13 @@ def rm(session: Session, category: str, name: str, force: bool = False) -> None:
     _validate_artifact_name(name, category)
 
     path = PurePosixPath(f"/fsx/{category}/{name}")
+    quoted_path = shlex.quote(str(path))
 
     # Probe what's actually at that path.
     try:
         kind = session.run(
-            f"if [ -d {path} ]; then echo dir; "
-            f"elif [ -f {path} ]; then echo file; "
+            f"if [ -d {quoted_path} ]; then echo dir; "
+            f"elif [ -f {quoted_path} ]; then echo file; "
             f"else echo none; fi"
         )
     except RuntimeError as e:
@@ -121,7 +126,7 @@ def rm(session: Session, category: str, name: str, force: bool = False) -> None:
         )
 
     # Get a human-readable size for the prompt.
-    size = session.run(f"du -sh {path} 2>/dev/null | cut -f1").strip() or "?"
+    size = session.run(f"du -sh {quoted_path} 2>/dev/null | cut -f1").strip() or "?"
 
     if not force:
         kind_label = "directory" if kind == "dir" else "file"
@@ -138,18 +143,18 @@ def rm(session: Session, category: str, name: str, force: bool = False) -> None:
             return
 
     try:
-        session.run(f"rm -rf {path}")
+        session.run(f"rm -rf {quoted_path}")
     except RuntimeError as e:
         msg = str(e)
         if "Permission denied" in msg:
             raise SystemExit(
-                f"`rm -rf {path}` failed: {msg}\n"
+                f"`rm -rf {quoted_path}` failed: {msg}\n"
                 "\n"
                 "Hint: files under /fsx/ may be owned by root if they were imported\n"
                 "from S3 via the FSx DRA without POSIX metadata. The unprivileged\n"
                 "ssh user can't unlink them.\n"
                 "\n"
-                f"To remove anyway, ssh to the login node and run:  sudo rm -rf {path}"
+                f"To remove anyway, ssh to the login node and run:  sudo rm -rf {quoted_path}"
             )
         raise
     print(f"Removed {path}")
