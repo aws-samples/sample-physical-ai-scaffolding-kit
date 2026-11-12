@@ -499,7 +499,7 @@ aws --version
 
 # MLflow App의 ARN 가져오기
 aws cloudformation describe-stacks --stack-name PASK \
-  --query "Stacks[0].Outputs[?OutputKey=='MlflowAppArn'].OutputValue" --output text
+  --query "Stacks[0].Outputs[?starts_with(OutputKey, 'MlflowAppArn')].OutputValue | [0]" --output text
 
 # presigned URL 발행
 aws sagemaker create-presigned-mlflow-app-url \

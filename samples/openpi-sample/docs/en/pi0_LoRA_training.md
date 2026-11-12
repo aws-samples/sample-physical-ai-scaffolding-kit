@@ -499,7 +499,7 @@ aws --version
 
 # Get the ARN of the MLflow App
 aws cloudformation describe-stacks --stack-name PASK \
-  --query "Stacks[0].Outputs[?OutputKey=='MlflowAppArn'].OutputValue" --output text
+  --query "Stacks[0].Outputs[?starts_with(OutputKey, 'MlflowAppArn')].OutputValue | [0]" --output text
 
 # Issue a presigned URL
 aws sagemaker create-presigned-mlflow-app-url \

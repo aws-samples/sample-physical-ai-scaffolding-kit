@@ -45,17 +45,15 @@ export class PASKStack extends cdk.Stack {
     );
     mlflow.artifactBucket.grantReadWrite(hyperpodCluster.clusterExecutionRole);
 
-    const s3LinkUriOutput = new cdk.CfnOutput(this, 'S3LinkUri', {
+    new cdk.CfnOutput(this, 'S3LinkUri', {
       value: `s3://${bucket.dataBucket.bucketName}/${props.config.Lustre.S3Prefix}`,
       description: 'S3 URI linked to the Lustre S3 link path',
     });
-    s3LinkUriOutput.overrideLogicalId('S3LinkUri');
 
-    const s3LinkMountPathOutput = new cdk.CfnOutput(this, 'S3LinkMountPath', {
+    new cdk.CfnOutput(this, 'S3LinkMountPath', {
       value: `/fsx${props.config.Lustre.FileSystemPath}`,
       description: 'Lustre path on cluster nodes that is linked to S3',
     });
-    s3LinkMountPathOutput.overrideLogicalId('S3LinkMountPath');
 
     new cdk.CfnOutput(this, 'Region', {
       value: process.env.CDK_DEFAULT_REGION!,

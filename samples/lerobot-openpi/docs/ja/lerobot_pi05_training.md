@@ -564,7 +564,7 @@ MLflow UI は、MLflow App の presigned URL をローカル PC で発行して�
 MLFLOW_APP_ARN=$(aws cloudformation describe-stacks \
   --stack-name PASK \
   --region <region> \
-  --query "Stacks[0].Outputs[?OutputKey=='MlflowAppArn'].OutputValue" \
+  --query "Stacks[0].Outputs[?starts_with(OutputKey, 'MlflowAppArn')].OutputValue | [0]" \
   --output text)
 
 aws sagemaker create-presigned-mlflow-app-url \
