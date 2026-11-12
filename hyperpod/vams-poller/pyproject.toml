@@ -2,7 +2,7 @@
 name = "pask-vams-poller"
 version = "0.1.0"
 description = "Poller that runs VAMS workflow training requests as Slurm jobs on the PASK HyperPod cluster"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "boto3>=1.35.0",
 ]
@@ -26,7 +26,7 @@ packages = ["src/pask_vams_poller"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 preview = true

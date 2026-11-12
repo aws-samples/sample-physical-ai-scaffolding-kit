@@ -8,6 +8,7 @@
 
 MLflow App は、Amazon SageMaker AI がサーバーを管理する MLflow の tracking server です。
 本リポジトリの CDK（`hyperpod/lib/constructs/mlflow.ts`）が、MLflow App と関連するリソースを HyperPod のスタックと一緒に作成します。
+既定では作成しないので、`hyperpod/cdk.json` の `Mlflow.Enabled` を `true` にしてデプロイします。
 
 | リソース | 内容 |
 |---|---|

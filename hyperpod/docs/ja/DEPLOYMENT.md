@@ -82,6 +82,9 @@ CDK でデプロイされるアーキテクチャについて幾つかの設定�
   "Lustre": {
     "S3Prefix": "",  // Lustreのリンク先S3バケットのpathを指定する場合に指定
     "FileSystemPath": "/s3link"  // node上のパスは `/fsx/ここで指定した値` になります
+  },
+  "Mlflow": {
+    "Enabled": false  // 学習を記録する MLflow App を作る場合は true に設定
   }
 }
 ```
@@ -125,8 +128,8 @@ PASK.HyperPodClusterSecurityGroup = クラスタで利用されるセキュリ�
 PASK.HyperPodClusterSubnet = クラスタがデプロイされたサブネットID
 PASK.HyperPodLifeCycleScriptBucketName = ライフサイクルスクリプトの保存先S3バケット
 PASK.HyperPodLoginGroupName = クラスタのログイングループ名
-PASK.MlflowAppArn = MLflow App の ARN（MLFLOW_TRACKING_URI に設定する値）
-PASK.MlflowArtifactBucketName = MLflow の artifact を保存するS3バケット名
+PASK.MlflowAppArn = MLflow App の ARN（MLFLOW_TRACKING_URI に設定する値。Mlflow.Enabled が true のときだけ出力）
+PASK.MlflowArtifactBucketName = MLflow の artifact を保存するS3バケット名（Mlflow.Enabled が true のときだけ出力）
 PASK.Region = リソースがデプロイされているリージョン
 PASK.S3LinkMountPath = S3 とリンクしている node 上の Lustre のパス
 PASK.S3LinkUri = Lustre のパスとリンクしている S3 の URI
@@ -159,6 +162,7 @@ aws cloudformation describe-stacks --stack-name PASK \
 ```
 
 `MlflowAppArn` と `MlflowArtifactBucketName` は、学習を記録する Amazon SageMaker AI の MLflow App（`pask-mlflow`）に関する出力です。
+`cdk.json` の `Mlflow.Enabled` を `true` にしてデプロイしたときだけ、MLflow App とこれらの出力を作ります。
 サンプルの `setup.sh` はこれらの Outputs をスタックから読み、`MLFLOW_TRACKING_URI` などを設定します。
 クラスタの node は MLflow App に既存の NAT Gateway 経由で接続するため、VPC エンドポイントは作りません。
 閉域で使う場合は、MLflow App 用（`aws.sagemaker.<region>.mlflow`）と SageMaker API 用のインターフェイス VPC エンドポイントを追加してください。

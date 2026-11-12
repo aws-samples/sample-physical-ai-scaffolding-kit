@@ -27,6 +27,9 @@ export type Lustre = {
   S3Prefix: string;
   FileSystemPath: string;
 };
+export type Mlflow = {
+  Enabled: boolean;
+};
 export type Vams = {
   Enabled: boolean;
   ConfigName: string;
@@ -51,5 +54,6 @@ export type Configuration = {
   ClusterVPC: ClusterVPC;
   Cluster: ClusterInfo;
   Lustre: Lustre;
+  Mlflow?: Mlflow;
   Vams?: Vams;
 };

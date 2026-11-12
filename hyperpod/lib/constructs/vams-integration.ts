@@ -72,6 +72,9 @@ export class VamsIntegration extends Construct {
     super(scope, id);
 
     const vams = props.vamsConfig;
+    if (props.config.Mlflow?.Enabled !== true) {
+      throw new Error('config.Mlflow.Enabled must be true when config.Vams.Enabled is true');
+    }
     const configName = requireNonEmpty(vams.ConfigName, 'ConfigName');
     const workflowBucketName = requireNonEmpty(vams.WorkflowBucketName, 'WorkflowBucketName');
     if (vams.AssetBucketNames.length === 0) {

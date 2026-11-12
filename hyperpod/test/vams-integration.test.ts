@@ -48,6 +48,7 @@ function configWith(modify: (config: Configuration) => void): Configuration {
 function vamsEnabledConfig(lustreS3Prefix: string): Configuration {
   return configWith((config) => {
     config.Lustre.S3Prefix = lustreS3Prefix;
+    config.Mlflow = { Enabled: true };
     const vams = config.Vams!;
     vams.Enabled = true;
     vams.ConfigName = CONFIG_NAME;
@@ -675,5 +676,11 @@ describe('VAMS integration enabled with missing settings', () => {
     const config = vamsEnabledConfig('');
     delete config.Vams!.MlflowExperimentName;
     expect(() => synth(config)).toThrow(/MlflowExperimentName/);
+  });
+
+  test('fails when the MLflow App is disabled', () => {
+    const config = vamsEnabledConfig('');
+    config.Mlflow = { Enabled: false };
+    expect(() => synth(config)).toThrow(/config\.Mlflow\.Enabled/);
   });
 });

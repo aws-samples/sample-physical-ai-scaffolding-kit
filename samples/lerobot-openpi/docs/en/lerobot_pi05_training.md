@@ -100,7 +100,7 @@ Enroot mounts the image read-only and runs it as the submitting user (`ubuntu`).
 4. **Only when building the image on a local PC** (not required when building on a worker node):
 	1. Docker (with `linux/amd64` build support)
 	2. AWS credentials that can create an ECR repository and push images
-5. **Only when tracking training with MLflow**: The stack outputs contain `MlflowAppArn`. The CDK of this repository creates the MLflow App and grants the HyperPod ExecutionRole the permissions to record to it. See [Deploy the Stack in DEPLOYMENT.md](/hyperpod/docs/en/DEPLOYMENT.md) for the outputs. Opening the MLflow UI from a local PC requires AWS CLI v2.34.5 or later.
+5. **Only when tracking training with MLflow**: The stack outputs contain `MlflowAppArn`. It is output when you deploy with `Mlflow.Enabled` set to `true` in `hyperpod/cdk.json`. The CDK of this repository creates the MLflow App and grants the HyperPod ExecutionRole the permissions to record to it. See [Deploy the Stack in DEPLOYMENT.md](/hyperpod/docs/en/DEPLOYMENT.md) for the outputs. Opening the MLflow UI from a local PC requires AWS CLI v2.34.5 or later.
 
 ***
 
@@ -578,7 +578,7 @@ Open the MLflow UI by creating a presigned URL of the MLflow App on a local PC. 
 MLFLOW_APP_ARN=$(aws cloudformation describe-stacks \
   --stack-name PASK \
   --region <region> \
-  --query "Stacks[0].Outputs[?OutputKey=='MlflowAppArn'].OutputValue" \
+  --query "Stacks[0].Outputs[?starts_with(OutputKey, 'MlflowAppArn')].OutputValue | [0]" \
   --output text)
 
 aws sagemaker create-presigned-mlflow-app-url \

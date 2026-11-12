@@ -82,6 +82,9 @@ CDK가 deploy하는 architecture의 여러 설정을 구성할 수 있습니다.
   "Lustre": {
     "S3Prefix": "",  // Specify the S3 bucket path for the Lustre link target if needed
     "FileSystemPath": "/s3link"  // The path on the node will be `/fsx/<value specified here>`
+  },
+  "Mlflow": {
+    "Enabled": false  // training을 기록하는 MLflow App을 만드는 경우 true로 설정
   }
 }
 ```
@@ -125,8 +128,8 @@ PASK.HyperPodClusterSecurityGroup = Security group used by the cluster
 PASK.HyperPodClusterSubnet = Subnet ID where the cluster is deployed
 PASK.HyperPodLifeCycleScriptBucketName = S3 bucket for lifecycle scripts
 PASK.HyperPodLoginGroupName = Login group name of the cluster
-PASK.MlflowAppArn = MLflow App ARN (the value for MLFLOW_TRACKING_URI)
-PASK.MlflowArtifactBucketName = S3 bucket name for MLflow artifacts
+PASK.MlflowAppArn = MLflow App ARN (the value for MLFLOW_TRACKING_URI. Mlflow.Enabled가 true일 때만 출력)
+PASK.MlflowArtifactBucketName = S3 bucket name for MLflow artifacts (Mlflow.Enabled가 true일 때만 출력)
 PASK.Region = Region where resources are deployed
 PASK.S3LinkMountPath = Lustre path on the nodes that is linked to S3
 PASK.S3LinkUri = S3 URI linked to the Lustre path
@@ -159,6 +162,7 @@ aws cloudformation describe-stacks --stack-name PASK \
 ```
 
 `MlflowAppArn`과 `MlflowArtifactBucketName`은 training을 기록하는 Amazon SageMaker AI MLflow App(`pask-mlflow`)에 관한 output입니다.
+`cdk.json`의 `Mlflow.Enabled`를 `true`로 하여 배포한 경우에만 MLflow App과 이 output을 생성합니다.
 Sample의 `setup.sh`는 stack에서 이 Outputs를 읽어 `MLFLOW_TRACKING_URI` 등을 설정합니다.
 Cluster node는 기존 NAT Gateway를 통해 MLflow App에 연결하므로 VPC endpoint는 생성하지 않습니다.
 Internet 연결 없이 사용하려면 MLflow App용(`aws.sagemaker.<region>.mlflow`)과 SageMaker API용 interface VPC endpoint를 추가하세요.

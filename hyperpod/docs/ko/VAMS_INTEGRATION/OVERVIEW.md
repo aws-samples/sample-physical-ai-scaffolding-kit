@@ -51,7 +51,7 @@ PASK의 HyperPod cluster에서 [LeRobot을 사용한 pi0.5 학습](/samples/lero
 VAMS에서의 학습도 같은 `slurm_train.sh`와 같은 container image(`lerobot-pi-train+<IMAGE_TAG>.sqsh`)를 사용하기 때문입니다.
 Container image가 없으면 training job이 시작하는 시점에 실패합니다.
 
-학습은 MLflow에 기록하므로, PASKStack의 MLflow App도 사용할 수 있는 상태로 준비합니다.
+학습은 MLflow에 기록하므로, `cdk.json`의 `Mlflow.Enabled`를 `true`로 설정하여 PASKStack의 MLflow App도 사용할 수 있는 상태로 준비합니다.
 
 VAMS는 PASK와 같은 AWS account의 같은 region에 deploy합니다.
 연동은 VAMS 워크플로의 role이 PASK의 queue에 직접 메시지를 보내는 전제로 만들어져 있으며, account나 region을 넘나드는 설정을 갖지 않기 때문입니다.
@@ -178,6 +178,7 @@ VAMS 연동의 설정은 [hyperpod/cdk.json](/hyperpod/cdk.json)의 `config.Vams
 `Enabled`가 `false`이거나 `Vams`가 없으면 연동 리소스를 아무것도 만들지 않으며, stack template은 연동이 없을 때와 같아집니다.
 
 `Enabled`를 `true`로 설정하면 `ConfigName`, `AssetBucketNames`, `WorkflowBucketName`, `MlflowExperimentName`과 숫자 항목은 생략할 수 없습니다.
+`Mlflow.Enabled`도 `true`여야 하며, `false`이면 `cdk synth`가 실패합니다.
 빈 값이거나 항목을 생략하면 `cdk synth`와 `cdk deploy`가 실패합니다.
 `KmsKeyArns`와 `SlurmPartition`은 생략할 수 있습니다.
 
@@ -233,7 +234,7 @@ VAMS 연동의 설정은 [hyperpod/cdk.json](/hyperpod/cdk.json)의 `config.Vams
 
 ## 배포
 
-Deploy는 [배포 안내](/hyperpod/docs/ko/DEPLOYMENT.md)의 절차를 따르되, `cdk deploy` 전에 `cdk.json`의 `Vams.Enabled`를 `true`로 설정하고 나머지 항목을 입력합니다.
+Deploy는 [배포 안내](/hyperpod/docs/ko/DEPLOYMENT.md)의 절차를 따르되, `cdk deploy` 전에 `cdk.json`의 `Vams.Enabled`와 `Mlflow.Enabled`를 `true`로 설정하고 나머지 항목을 입력합니다.
 `Vams.Enabled`를 `true`로 설정하고 `Vams.SeparateLoginRole`도 `true`로 설정하면, login 그룹의 role이 controller와 worker 그룹의 role에서 분리됩니다.
 VAMS bucket과 Step Functions에 대한 권한을 login 노드의 poller에만 부여하기 위해서입니다.
 
@@ -324,6 +325,7 @@ Lifecycle script는 노드를 만들 때에만 실행되므로, 이미 만들어
     Script는 다음 처리를 수행합니다.
 
     1. Poller 소스를 `/opt/pask/vams-poller/`에 복사하고, venv를 만들어 설치합니다.
+       HyperPod image의 `python3`는 poller가 지원하는 버전보다 오래되었으므로, 버전을 고정한 uv로 CPython 3.14를 `/opt/pask/python/`에 설치하고 그 Python으로 venv를 만듭니다. uv와 CPython은 GitHub에서 가져옵니다.
     2. 설정 file `/etc/pask/vams-poller.env`를 작성합니다.
     3. `pask-vams-poller.service`를 작성하고, 활성화한 뒤 재시작합니다.
 

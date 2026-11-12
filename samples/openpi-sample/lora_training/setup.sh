@@ -182,9 +182,9 @@ if [ "${ENABLE_MLFLOW}" = true ]; then
     if [ -z "${REGION}" ]; then
         echo "  ⚠️  WARNING: Could not determine the AWS region. Pass --region to read the stack outputs"
     elif aws cloudformation describe-stacks --stack-name "${STACK_NAME}" --region "${REGION}" > /dev/null; then
-        MLFLOW_TRACKING_URI_VALUE=$(stack_output "OutputKey=='MlflowAppArn'")
-        PASK_S3LINK_URI_VALUE=$(stack_output "OutputKey=='S3LinkUri'")
-        PASK_S3LINK_DIR_VALUE=$(stack_output "OutputKey=='S3LinkMountPath'")
+        MLFLOW_TRACKING_URI_VALUE=$(stack_output "starts_with(OutputKey, 'MlflowAppArn')")
+        PASK_S3LINK_URI_VALUE=$(stack_output "starts_with(OutputKey, 'S3LinkUri')")
+        PASK_S3LINK_DIR_VALUE=$(stack_output "starts_with(OutputKey, 'S3LinkMountPath')")
         PASK_CLUSTER_NAME_VALUE=$(stack_output "starts_with(OutputKey, 'HyperPodClusterId')")
     else
         echo "  ⚠️  WARNING: Could not read stack ${STACK_NAME} in ${REGION}"

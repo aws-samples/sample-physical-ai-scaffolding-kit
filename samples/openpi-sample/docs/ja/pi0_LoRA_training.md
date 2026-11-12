@@ -33,7 +33,7 @@ flowchart TB
 
 1. **Hyperpod クラスタ**: 本プロジェクト内の CDK を使って Hyperpod クラスタを AWS 上に構築している
 	以下の手順では、CDK で構築されている Hyperpod を前提に記述しますが、コンソールなどから手動で作成した Hyperpod でも同様に学習実行は可能です。
-	CDK のスタックには、学習の記録先になる Amazon SageMaker AI の MLflow App も含まれます。記録の内容は「[MLflow による学習の記録](#mlflow-による学習の記録)」を参照してください。
+	`hyperpod/cdk.json` の `Mlflow.Enabled` を `true` にしてデプロイすると、CDK のスタックに学習の記録先になる Amazon SageMaker AI の MLflow App も含まれます。記録の内容は「[MLflow による学習の記録](#mlflow-による学習の記録)」を参照してください。
 2. **開発環境**: 以下の設定が必要になります。
 	1. AWS 認証情報設定: ECR アクセス用
 	2. Docker: pi0 学習用イメージのBuild用
@@ -513,7 +513,7 @@ aws --version
 
 # MLflow App の ARN を取得
 aws cloudformation describe-stacks --stack-name PASK \
-  --query "Stacks[0].Outputs[?OutputKey=='MlflowAppArn'].OutputValue" --output text
+  --query "Stacks[0].Outputs[?starts_with(OutputKey, 'MlflowAppArn')].OutputValue | [0]" --output text
 
 # presigned URL を発行
 aws sagemaker create-presigned-mlflow-app-url \

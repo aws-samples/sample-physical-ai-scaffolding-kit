@@ -8,7 +8,9 @@
 # to the login group. It then:
 #   1. copies the poller sources from vams_poller/ next to this script to
 #      /opt/pask/vams-poller/ (the lifecycle directory is removed on reboot),
-#   2. creates a venv there and installs requirements.txt and the poller package,
+#   2. installs a pinned uv and, with it, the pinned CPython to /opt/pask/ (the system
+#      python3 of the HyperPod image is older than the poller supports), then creates a
+#      venv with that CPython and installs requirements.txt and the poller package,
 #   3. writes the poller settings to /etc/pask/vams-poller.env,
 #   4. writes, enables and restarts pask-vams-poller.service.
 #
@@ -48,7 +50,13 @@ CONFIG_FILE="${CONFIG_DIR}/vams-poller.env"
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}"
 BASE_SERVICE_PATH="/opt/slurm/bin:/usr/local/bin:/usr/bin:/bin"
 RESOURCE_CONFIG="${SAGEMAKER_RESOURCE_CONFIG_PATH:-/opt/ml/config/resource_config.json}"
-APT_LOCK_TIMEOUT_SECONDS=600
+# uv and the CPython it installs. uv verifies the checksum of the CPython download.
+UV_VERSION="0.13.8"
+UV_SHA256_X86_64="5acfd9177cfecf0bf87578f059728215ccc884388988f55f7a65041b57387d91"
+UV_SHA256_AARCH64="74f2f5c6024d397481db228db8fc25eed420db192243f88438c118e7e013e585"
+PYTHON_VERSION="3.14.10"
+UV_DIR="/opt/pask/uv-${UV_VERSION}"
+PYTHON_INSTALL_DIR="/opt/pask/python"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DIR="${SCRIPT_DIR}/vams_poller"
 # The home directory of the service user is not always /home/<user>: the HyperPod
@@ -87,21 +95,47 @@ require_setting() {
   [[ -n "${value}" ]] || fail "${name} is empty; redeploy the stack with config.Vams set"
 }
 
-# Install python3-venv when the system python cannot create a venv with pip.
-# Ubuntu ships ensurepip only with the python3-venv package.
-ensure_python_venv() {
-  command -v python3 >/dev/null 2>&1 || fail "python3 is not installed"
-  if python3 -c 'import ensurepip' >/dev/null 2>&1; then
+# Install the pinned uv to UV_DIR unless it is already there, checking the archive
+# against the pinned checksum.
+ensure_uv() {
+  if [[ -x "${UV_DIR}/uv" ]]; then
     return 0
   fi
-  log "Installing python3-venv"
-  apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT_SECONDS}" update
-  DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT_SECONDS}" \
-    install -y python3-venv
+  local arch expected_sha256
+  arch="$(uname -m)"
+  case "${arch}" in
+    x86_64) expected_sha256="${UV_SHA256_X86_64}" ;;
+    aarch64) expected_sha256="${UV_SHA256_AARCH64}" ;;
+    *) fail "unsupported architecture ${arch}" ;;
+  esac
+  local archive="uv-${arch}-unknown-linux-gnu.tar.gz"
+  local work_dir
+  work_dir="$(mktemp -d)"
+  log "Installing uv ${UV_VERSION} to ${UV_DIR}"
+  curl -fsSL --retry 3 -o "${work_dir}/${archive}" \
+    "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${archive}"
+  echo "${expected_sha256}  ${work_dir}/${archive}" | sha256sum -c --quiet - \
+    || fail "checksum mismatch for ${archive}"
+  tar -xzf "${work_dir}/${archive}" -C "${work_dir}"
+  mkdir -p "${UV_DIR}"
+  install -m 0755 "${work_dir}/uv-${arch}-unknown-linux-gnu/uv" "${UV_DIR}/uv"
+  rm -rf "${work_dir}"
+}
+
+# Install the pinned CPython with the uv of ensure_uv and print the path of its
+# interpreter. Everything else goes to stderr, because the caller captures stdout.
+ensure_python() {
+  log "Installing CPython ${PYTHON_VERSION} to ${PYTHON_INSTALL_DIR}" >&2
+  UV_PYTHON_INSTALL_DIR="${PYTHON_INSTALL_DIR}" "${UV_DIR}/uv" python install --no-bin "${PYTHON_VERSION}" >&2
+  chmod -R go=rX "${PYTHON_INSTALL_DIR}"
+  UV_PYTHON_INSTALL_DIR="${PYTHON_INSTALL_DIR}" "${UV_DIR}/uv" python find --managed-python "${PYTHON_VERSION}"
 }
 
 # Replace the installed sources and the venv with fresh ones.
+#
+# @param $1 Path of the python interpreter to create the venv with.
 install_poller_package() {
+  local python_path="$1"
   [[ -f "${SOURCE_DIR}/pyproject.toml" ]] || fail "poller sources not found in ${SOURCE_DIR}"
   [[ -f "${SOURCE_DIR}/requirements.txt" ]] || fail "requirements.txt not found in ${SOURCE_DIR}"
 
@@ -118,7 +152,7 @@ install_poller_package() {
   chmod -R u=rwX,go=rX "${INSTALL_DIR}"
 
   log "Creating the venv in ${VENV_DIR}"
-  python3 -m venv "${VENV_DIR}"
+  "${python_path}" -m venv "${VENV_DIR}"
   "${VENV_DIR}/bin/pip" install --no-cache-dir -r "${INSTALL_DIR}/requirements.txt"
   "${VENV_DIR}/bin/pip" install --no-cache-dir --no-deps "${INSTALL_DIR}"
 }
@@ -228,8 +262,10 @@ main() {
   id "${SERVICE_USER}" >/dev/null 2>&1 || fail "user ${SERVICE_USER} does not exist"
   [[ -n "${SERVICE_HOME}" ]] || fail "cannot resolve the home directory of ${SERVICE_USER}"
 
-  ensure_python_venv
-  install_poller_package
+  ensure_uv
+  local python_path
+  python_path="$(ensure_python)"
+  install_poller_package "${python_path}"
   write_config_file
   write_unit_file
 

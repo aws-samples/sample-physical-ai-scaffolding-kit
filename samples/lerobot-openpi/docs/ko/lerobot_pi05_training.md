@@ -86,7 +86,7 @@ Container image는 read-only squashfs로 mount되고, 제출한 user (ubuntu)로
    1. [Hugging Face](https://huggingface.co/settings/tokens)에 sign up하고 token을 미리 생성합니다.
    2. π0 / π0.5는 gated model인 [google/paligemma-3b-pt-224](https://huggingface.co/google/paligemma-3b-pt-224)의 tokenizer를 사용합니다. Token을 발급한 account로 이 page에 접속해 license에 동의해야 합니다. 동의하지 않으면 `slurm_prepare_dataset.sh`가 HTTP 401/403 error로 종료됩니다.
 5. **Local PC (선택)**: Local에서 build하는 경우에만 AWS credentials(ECR access)와 Docker가 필요합니다. Worker node에서 build하는 경우에는 필요하지 않습니다.
-6. **MLflow (선택)**: 학습을 MLflow에 기록하는 경우 stack outputs에 `MlflowAppArn`이 있어야 합니다. MLflow App과 HyperPod ExecutionRole이 App에 기록하기 위한 권한은 이 repository의 CDK가 생성합니다. Outputs는 [/hyperpod/docs/ko/DEPLOYMENT.md](/hyperpod/docs/ko/DEPLOYMENT.md)의 "2.6. Deploy the Stack"을 참고하세요. Local PC에서 MLflow UI를 열려면 AWS CLI v2.34.5 이상이 필요합니다.
+6. **MLflow (선택)**: 학습을 MLflow에 기록하는 경우 stack outputs에 `MlflowAppArn`이 있어야 합니다. `hyperpod/cdk.json`의 `Mlflow.Enabled`를 `true`로 하여 배포하면 출력됩니다. MLflow App과 HyperPod ExecutionRole이 App에 기록하기 위한 권한은 이 repository의 CDK가 생성합니다. Outputs는 [/hyperpod/docs/ko/DEPLOYMENT.md](/hyperpod/docs/ko/DEPLOYMENT.md)의 "2.6. Deploy the Stack"을 참고하세요. Local PC에서 MLflow UI를 열려면 AWS CLI v2.34.5 이상이 필요합니다.
 
 ***
 
@@ -563,7 +563,7 @@ MLflow UI는 local PC에서 MLflow App의 presigned URL을 발급해 엽니다. 
 MLFLOW_APP_ARN=$(aws cloudformation describe-stacks \
   --stack-name PASK \
   --region <region> \
-  --query "Stacks[0].Outputs[?OutputKey=='MlflowAppArn'].OutputValue" \
+  --query "Stacks[0].Outputs[?starts_with(OutputKey, 'MlflowAppArn')].OutputValue | [0]" \
   --output text)
 
 aws sagemaker create-presigned-mlflow-app-url \

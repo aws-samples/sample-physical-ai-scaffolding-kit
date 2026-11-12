@@ -129,7 +129,7 @@ The current implementation has the poller perform server-side S3 copies per obje
 We have only verified the operation with a dataset of about 100 MB and 11 files.
 If the data of a single training run becomes large, the execution may be delayed or fail for the following reasons.
 
-- The copy time grows in proportion to the number of objects and their total size. This time is included, together with the Slurm wait and the training time, in the `taskTimeout` of the VAMS pipeline (24 hours by default, 7 days at most).
+- The copy time grows in proportion to the number of objects and their total size. This time is included, together with the Slurm wait and the training time, in the `taskTimeout` of the VAMS pipeline (432000 seconds, or 5 days, in the bundled `hyperpod/vams/pipeline.json`; 7 days at most in VAMS).
 - If the poller stops during a copy, the restarted poller copies all the objects again. If it stops near the end of a long copy, all the time up to that point is wasted.
 - The poller processes one execution at a time, so while a copy is in progress, the post-acceptance processing of other executions waits.
 - The FSx automatic import imports only the file metadata, and the contents are read from S3 when the training job first reads them. With large data, the first epoch is slow.
