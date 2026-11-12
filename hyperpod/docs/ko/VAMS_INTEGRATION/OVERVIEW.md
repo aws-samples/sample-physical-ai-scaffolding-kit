@@ -324,6 +324,7 @@ Lifecycle script는 노드를 만들 때에만 실행되므로, 이미 만들어
     Script는 다음 처리를 수행합니다.
 
     1. Poller 소스를 `/opt/pask/vams-poller/`에 복사하고, venv를 만들어 설치합니다.
+       HyperPod image의 `python3`는 poller가 지원하는 버전보다 오래되었으므로, 버전을 고정한 uv로 CPython 3.14를 `/opt/pask/python/`에 설치하고 그 Python으로 venv를 만듭니다. uv와 CPython은 GitHub에서 가져옵니다.
     2. 설정 file `/etc/pask/vams-poller.env`를 작성합니다.
     3. `pask-vams-poller.service`를 작성하고, 활성화한 뒤 재시작합니다.
 

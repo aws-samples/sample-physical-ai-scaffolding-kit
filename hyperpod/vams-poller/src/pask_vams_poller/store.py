@@ -8,7 +8,7 @@ raises ``StaleItemError`` so that the caller reads the item again and decides wh
 import dataclasses
 import time
 from collections.abc import Callable, Iterable, Mapping
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -206,7 +206,7 @@ def format_iso8601_utc(epoch_seconds: float) -> str:
     Returns:
         ``YYYY-MM-DDTHH:MM:SSZ``.
     """
-    return datetime.fromtimestamp(epoch_seconds, tz=timezone.utc).strftime(ISO8601_UTC_FORMAT)
+    return datetime.fromtimestamp(epoch_seconds, tz=UTC).strftime(ISO8601_UTC_FORMAT)
 
 
 def truncate_cause(cause: str) -> str:

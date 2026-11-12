@@ -322,6 +322,7 @@ Run the following steps by connecting to the login node via SSH as the ubuntu us
     The script performs the following processing.
 
     1. Copy the poller source to `/opt/pask/vams-poller/`, create a venv, and install it.
+       The `python3` of the HyperPod image is older than the poller supports, so a pinned uv installs CPython 3.14 to `/opt/pask/python/` and the venv is created with that Python. uv and CPython are downloaded from GitHub.
     2. Write the configuration file `/etc/pask/vams-poller.env`.
     3. Write `pask-vams-poller.service`, enable it, and restart it.
 

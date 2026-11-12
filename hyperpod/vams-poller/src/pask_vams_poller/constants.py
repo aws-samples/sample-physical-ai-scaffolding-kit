@@ -1,10 +1,10 @@
 """Constants shared by the VAMS poller modules."""
 
 import re
-from enum import Enum
+from enum import StrEnum
 
 
-class State(str, Enum):
+class State(StrEnum):
     """Execution states stored in the DynamoDB item attribute ``state``."""
 
     RECEIVED = "RECEIVED"
@@ -23,7 +23,7 @@ TERMINAL_STATES: frozenset[State] = frozenset({State.SUCCEEDED, State.FAILED, St
 NON_TERMINAL_STATES: frozenset[State] = frozenset(set(State) - TERMINAL_STATES)
 
 
-class ErrorName(str, Enum):
+class ErrorName(StrEnum):
     """Error names sent to Step Functions with ``SendTaskFailure``."""
 
     INVALID_REQUEST = "PASK.InvalidRequest"

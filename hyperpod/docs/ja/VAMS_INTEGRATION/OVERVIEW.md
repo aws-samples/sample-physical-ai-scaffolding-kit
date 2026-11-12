@@ -322,6 +322,7 @@ DynamoDB のテーブルは、スタックを削除しても削除されませ�
     スクリプトは次の処理を行います。
 
     1. ポーラーのソースを `/opt/pask/vams-poller/` にコピーし、venv を作ってインストールします。
+       HyperPod のイメージの `python3` はポーラーが対応する版より古いので、バージョンを固定した uv で CPython 3.14 を `/opt/pask/python/` に入れ、その Python で venv を作ります。uv と CPython は GitHub から取得します。
     2. 設定ファイル `/etc/pask/vams-poller.env` を書きます。
     3. `pask-vams-poller.service` を書き、有効にして再起動します。
 
