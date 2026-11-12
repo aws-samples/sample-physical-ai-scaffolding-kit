@@ -48,7 +48,7 @@ On the PASK HyperPod cluster, make sure that you can run [Training pi0.5 with Le
 Training from VAMS uses the same `slurm_train.sh` and the same container image (`lerobot-pi-train+<IMAGE_TAG>.sqsh`).
 If the container image is missing, the training job fails at the moment it starts.
 
-Training is recorded in MLflow, so make sure that the MLflow App of PASKStack is also available.
+Training is recorded in MLflow, so set `Mlflow.Enabled` in `cdk.json` to `true` and make sure that the MLflow App of PASKStack is also available.
 
 Deploy VAMS to the same AWS account and the same region as PASK.
 The integration is designed so that the VAMS workflow role sends messages directly to the PASK queue, and it has no settings that cross accounts or regions.
@@ -175,6 +175,7 @@ Write the VAMS integration settings in `config.Vams` of [hyperpod/cdk.json](/hyp
 If `Enabled` is `false` or if `Vams` is missing, no integration resources are created, and the stack template is the same as when there is no integration.
 
 When `Enabled` is `true`, `ConfigName`, `AssetBucketNames`, `WorkflowBucketName`, `MlflowExperimentName`, and the numeric items cannot be omitted.
+`Mlflow.Enabled` must also be `true`; otherwise `cdk synth` fails.
 If a value is empty or an item is omitted, `cdk synth` and `cdk deploy` fail.
 `KmsKeyArns` and `SlurmPartition` can be omitted.
 
@@ -230,7 +231,7 @@ Replace `<...>` with actual values.
 
 ## Deployment
 
-Follow the steps in [About Deployment](/hyperpod/docs/en/DEPLOYMENT.md) to deploy. Before `cdk deploy`, set `Vams.Enabled` in `cdk.json` to `true` and write the other items.
+Follow the steps in [About Deployment](/hyperpod/docs/en/DEPLOYMENT.md) to deploy. Before `cdk deploy`, set `Vams.Enabled` and `Mlflow.Enabled` in `cdk.json` to `true` and write the other items.
 When `Vams.Enabled` is `true` and `Vams.SeparateLoginRole` is `true`, the role of the login group is separated from the roles of the controller and worker groups.
 This is so that only the poller on the login node has permissions for the VAMS buckets and Step Functions.
 

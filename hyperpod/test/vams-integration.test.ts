@@ -677,4 +677,10 @@ describe('VAMS integration enabled with missing settings', () => {
     delete config.Vams!.MlflowExperimentName;
     expect(() => synth(config)).toThrow(/MlflowExperimentName/);
   });
+
+  test('fails when the MLflow App is disabled', () => {
+    const config = vamsEnabledConfig('');
+    config.Mlflow = { Enabled: false };
+    expect(() => synth(config)).toThrow(/config\.Mlflow\.Enabled/);
+  });
 });

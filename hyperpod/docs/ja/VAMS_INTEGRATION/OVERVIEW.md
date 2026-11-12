@@ -48,7 +48,7 @@ PASK の HyperPod クラスタで、[LeRobot での pi0.5 の学習](/samples/le
 VAMS からの学習も同じ `slurm_train.sh` と同じコンテナイメージ（`lerobot-pi-train+<IMAGE_TAG>.sqsh`）を使うためです。
 コンテナイメージが無いと、学習ジョブが起動の時点で失敗します。
 
-学習を MLflow に記録するので、PASKStack の MLflow App も使える状態にしておきます。
+学習を MLflow に記録するので、`cdk.json` の `Mlflow.Enabled` を `true` にして、PASKStack の MLflow App も使える状態にしておきます。
 
 VAMS は、PASK と同じ AWS アカウントの同じリージョンにデプロイします。
 連携は、VAMS のワークフローのロールが PASK のキューに直接メッセージを送る前提で作られていて、アカウントやリージョンをまたぐ設定を持たないためです。
@@ -175,6 +175,7 @@ VAMS 連携の設定は、[hyperpod/cdk.json](/hyperpod/cdk.json) の `config.Va
 `Enabled` が `false` の場合や `Vams` が無い場合は、連携のリソースを何も作らず、スタックのテンプレートは連携が無い場合と同じになります。
 
 `Enabled` を `true` にした場合、`ConfigName`、`AssetBucketNames`、`WorkflowBucketName`、`MlflowExperimentName` と数値の項目は省略できません。
+`Mlflow.Enabled` も `true` にする必要があり、`false` のままでは `cdk synth` が失敗します。
 空の値や省略した項目があると、`cdk synth` と `cdk deploy` が失敗します。
 `KmsKeyArns` と `SlurmPartition` は省略できます。
 
@@ -230,7 +231,7 @@ VAMS 連携の設定は、[hyperpod/cdk.json](/hyperpod/cdk.json) の `config.Va
 
 ## デプロイ
 
-デプロイは [デプロイについて](/hyperpod/docs/ja/DEPLOYMENT.md) の手順に従い、`cdk deploy` の前に `cdk.json` の `Vams.Enabled` を `true` にして、ほかの項目を書きます。
+デプロイは [デプロイについて](/hyperpod/docs/ja/DEPLOYMENT.md) の手順に従い、`cdk deploy` の前に `cdk.json` の `Vams.Enabled` と `Mlflow.Enabled` を `true` にして、ほかの項目を書きます。
 `Vams.Enabled` を `true` にして `Vams.SeparateLoginRole` を `true` にすると、login グループのロールが、controller と worker のグループのロールから分かれます。
 VAMS のバケットと Step Functions への権限を、login ノードのポーラーにだけ持たせるためです。
 
