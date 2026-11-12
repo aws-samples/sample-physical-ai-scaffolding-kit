@@ -7,7 +7,7 @@ dataclasses use snake_case attributes and convert with ``from_dict`` / ``to_dict
 import json
 import math
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -91,10 +91,10 @@ def utc_timestamp(now: datetime | None = None) -> str:
         ValueError: If ``now`` is a naive datetime.
     """
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
     if now.tzinfo is None:
         raise ValueError("now must be a timezone aware datetime")
-    return now.astimezone(timezone.utc).strftime(TIMESTAMP_FORMAT)
+    return now.astimezone(UTC).strftime(TIMESTAMP_FORMAT)
 
 
 def default_output_dir(now: datetime | None = None) -> Path:

@@ -7,7 +7,7 @@ and the sagemaker-mlflow plugin signs the requests with SigV4 using the current 
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from mlflow import MlflowClient
 from mlflow.entities import Run
@@ -466,7 +466,7 @@ def fetch_snapshot(
     )
     return Snapshot(
         schema_version=SCHEMA_VERSION,
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(UTC).isoformat(),
         tracking_uri=client.tracking_uri,
         target=target,
         comparisons=comparisons,

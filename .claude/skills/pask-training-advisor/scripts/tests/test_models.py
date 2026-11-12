@@ -3,7 +3,7 @@
 import json
 import math
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -318,7 +318,7 @@ def test_utc_timestamp_rejects_naive_datetime() -> None:
 
 
 def test_default_output_dir_format() -> None:
-    moment = datetime(2026, 10, 18, 23, 50, 46, tzinfo=timezone.utc)
+    moment = datetime(2026, 10, 18, 23, 50, 46, tzinfo=UTC)
 
     output_dir = default_output_dir(moment)
 

@@ -6,7 +6,7 @@ that ``diagnosis.json`` stays strict JSON.
 """
 
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -797,7 +797,7 @@ def diagnose_snapshot(snapshot: Snapshot, thresholds: dict) -> Diagnosis:
     """
     return Diagnosis(
         schema_version=SCHEMA_VERSION,
-        created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        created_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         thresholds=dict(thresholds),
         target=diagnose_run(snapshot.target, thresholds),
         comparisons=[

@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -399,7 +399,7 @@ def fetch_vams_datasets(
     experiments = snapshot.criteria.experiments
     return {
         "schemaVersion": SCHEMA_VERSION,
-        "createdAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "createdAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "vamsProfile": profile,
         "experiments": list(experiments),
         "targetRunId": snapshot.target.run_id,
