@@ -33,7 +33,7 @@ flowchart TB
 
 1. **HyperPod Cluster**: A HyperPod cluster built on AWS using the CDK included in this project.
 	The steps below assume a HyperPod cluster deployed via CDK, but clusters created manually through the console can also be used for training.
-	The CDK stack also includes an Amazon SageMaker AI MLflow App that stores training records. See [Tracking Training with MLflow](#tracking-training-with-mlflow) for what is recorded.
+	When deployed with `Mlflow.Enabled` set to `true` in `hyperpod/cdk.json`, the CDK stack also includes an Amazon SageMaker AI MLflow App that stores training records. See [Tracking Training with MLflow](#tracking-training-with-mlflow) for what is recorded.
 2. **Development Environment**: The following setup is required:
 	1. AWS credentials configuration: For ECR access
 	2. Docker: For building the pi0 training image
@@ -499,7 +499,7 @@ aws --version
 
 # Get the ARN of the MLflow App
 aws cloudformation describe-stacks --stack-name PASK \
-  --query "Stacks[0].Outputs[?OutputKey=='MlflowAppArn'].OutputValue" --output text
+  --query "Stacks[0].Outputs[?starts_with(OutputKey, 'MlflowAppArn')].OutputValue | [0]" --output text
 
 # Issue a presigned URL
 aws sagemaker create-presigned-mlflow-app-url \

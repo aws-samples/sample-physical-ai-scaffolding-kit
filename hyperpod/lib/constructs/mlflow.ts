@@ -49,20 +49,14 @@ export class Mlflow extends Construct {
     this.app.node.addDependency(appRole);
     this.appArn = this.app.attrArn;
 
-    const appArnOutput = new cdk.CfnOutput(this, 'MlflowAppArn', {
+    new cdk.CfnOutput(this, 'AppArn', {
       value: this.app.attrArn,
       description: 'SageMaker MLflow App ARN (MLFLOW_TRACKING_URI)',
     });
-    appArnOutput.overrideLogicalId('MlflowAppArn');
 
-    const artifactBucketOutput = new cdk.CfnOutput(
-      this,
-      'MlflowArtifactBucketName',
-      {
-        value: this.artifactBucket.bucketName,
-        description: 'MLflow artifact store bucket',
-      },
-    );
-    artifactBucketOutput.overrideLogicalId('MlflowArtifactBucketName');
+    new cdk.CfnOutput(this, 'ArtifactBucketName', {
+      value: this.artifactBucket.bucketName,
+      description: 'MLflow artifact store bucket',
+    });
   }
 }

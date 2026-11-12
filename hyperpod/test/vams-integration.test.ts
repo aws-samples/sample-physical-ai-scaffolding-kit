@@ -48,6 +48,7 @@ function configWith(modify: (config: Configuration) => void): Configuration {
 function vamsEnabledConfig(lustreS3Prefix: string): Configuration {
   return configWith((config) => {
     config.Lustre.S3Prefix = lustreS3Prefix;
+    config.Mlflow = { Enabled: true };
     const vams = config.Vams!;
     vams.Enabled = true;
     vams.ConfigName = CONFIG_NAME;
