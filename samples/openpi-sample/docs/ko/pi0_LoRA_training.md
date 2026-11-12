@@ -33,7 +33,7 @@ flowchart TB
 
 1. **HyperPod Cluster**: 이 project에 포함된 CDK로 AWS에 구축한 HyperPod cluster가 필요합니다.
    아래 단계는 CDK로 deploy한 HyperPod cluster를 가정하지만, console에서 수동으로 생성한 cluster도 training에 사용할 수 있습니다.
-   CDK stack에는 training 기록을 저장하는 Amazon SageMaker AI MLflow App도 포함됩니다. 기록되는 내용은 [MLflow로 Training Tracking](#mlflow로-training-tracking)을 참고하세요.
+   `hyperpod/cdk.json`의 `Mlflow.Enabled`를 `true`로 하여 배포하면 CDK stack에 training 기록을 저장하는 Amazon SageMaker AI MLflow App도 포함됩니다. 기록되는 내용은 [MLflow로 Training Tracking](#mlflow로-training-tracking)을 참고하세요.
 2. **Development Environment**: 다음 setup이 필요합니다.
    1. AWS credentials configuration: ECR access에 필요합니다.
    2. Docker: pi0 training image build에 필요합니다.

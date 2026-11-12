@@ -36,14 +36,16 @@ export class PASKStack extends cdk.Stack {
       accessLogsBucket: bucket.accessLogsBucket,
     });
 
-    const mlflow = new Mlflow(this, 'Mlflow', { accessLogsBucket: bucket.accessLogsBucket });
-    hyperpodCluster.clusterExecutionRole.addToPolicy(
-      new aws_iam.PolicyStatement({
-        actions: ['sagemaker:CallMlflowAppApi', 'sagemaker:DescribeMlflowApp'],
-        resources: [mlflow.appArn],
-      }),
-    );
-    mlflow.artifactBucket.grantReadWrite(hyperpodCluster.clusterExecutionRole);
+    if (props.config.Mlflow?.Enabled === true) {
+      const mlflow = new Mlflow(this, 'Mlflow', { accessLogsBucket: bucket.accessLogsBucket });
+      hyperpodCluster.clusterExecutionRole.addToPolicy(
+        new aws_iam.PolicyStatement({
+          actions: ['sagemaker:CallMlflowAppApi', 'sagemaker:DescribeMlflowApp'],
+          resources: [mlflow.appArn],
+        }),
+      );
+      mlflow.artifactBucket.grantReadWrite(hyperpodCluster.clusterExecutionRole);
+    }
 
     new cdk.CfnOutput(this, 'S3LinkUri', {
       value: `s3://${bucket.dataBucket.bucketName}/${props.config.Lustre.S3Prefix}`,

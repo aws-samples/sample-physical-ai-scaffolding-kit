@@ -48,7 +48,7 @@ flowchart TB
    π0.5 のトークナイザーは利用条件への同意が必要な gated repo の [`google/paligemma-3b-pt-224`](https://huggingface.co/google/paligemma-3b-pt-224) にあるため、同じアカウントでライセンスに同意しておきます。
 4. ローカル PC でイメージをビルドする場合は、Docker と、ECR に push できる AWS 認証情報があること。
    HyperPod の worker ノードでビルドする場合、ローカル PC には不要です。
-5. 学習を Amazon SageMaker AI の MLflow App に記録する場合は、スタックの Outputs に `MlflowAppArn` があること。
+5. 学習を Amazon SageMaker AI の MLflow App に記録する場合は、スタックの Outputs に `MlflowAppArn` があること。`hyperpod/cdk.json` の `Mlflow.Enabled` を `true` にしてデプロイすると出力されます。
    MLflow App と、HyperPod の ExecutionRole から App に記録するための権限は、本リポジトリの CDK が作成します。
    Outputs は [DEPLOYMENT.md](../../../../hyperpod/docs/ja/DEPLOYMENT.md) の「スタックのデプロイ」を参照してください。
    MLflow UI をローカル PC から開くには、AWS CLI v2.34.5 以上が必要です。

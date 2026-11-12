@@ -82,6 +82,9 @@ To make changes, run `vim cdk.json` and edit using the command-line editor.
   "Lustre": {
     "S3Prefix": "",  // Specify the S3 bucket path for the Lustre link target if needed
     "FileSystemPath": "/s3link"  // The path on the node will be `/fsx/<value specified here>`
+  },
+  "Mlflow": {
+    "Enabled": false  // Set to true to create the MLflow App that tracks training runs
   }
 }
 ```
@@ -119,8 +122,8 @@ PASK.HyperPodClusterSecurityGroup = Security group used by the cluster
 PASK.HyperPodClusterSubnet = Subnet ID where the cluster is deployed
 PASK.HyperPodLifeCycleScriptBucketName = S3 bucket for lifecycle scripts
 PASK.HyperPodLoginGroupName = Login group name of the cluster
-PASK.MlflowAppArn = MLflow App ARN (the value for MLFLOW_TRACKING_URI)
-PASK.MlflowArtifactBucketName = S3 bucket name for MLflow artifacts
+PASK.MlflowAppArn = MLflow App ARN (the value for MLFLOW_TRACKING_URI; output only when Mlflow.Enabled is true)
+PASK.MlflowArtifactBucketName = S3 bucket name for MLflow artifacts (output only when Mlflow.Enabled is true)
 PASK.Region = Region where resources are deployed
 PASK.S3LinkMountPath = Lustre path on the nodes that is linked to S3
 PASK.S3LinkUri = S3 URI linked to the Lustre path
@@ -142,6 +145,7 @@ aws cloudformation describe-stacks --stack-name PASK \
 ```
 
 `MlflowAppArn` and `MlflowArtifactBucketName` are outputs for the Amazon SageMaker AI MLflow App (`pask-mlflow`) that tracks training runs.
+The MLflow App and these outputs are created only when you deploy with `Mlflow.Enabled` set to `true` in `cdk.json`.
 The `setup.sh` scripts in the samples read these Outputs from the stack and set `MLFLOW_TRACKING_URI` and related variables.
 The cluster nodes connect to the MLflow App through the existing NAT Gateway, so the stack does not create VPC endpoints.
 To use it without internet access, add interface VPC endpoints for the MLflow App (`aws.sagemaker.<region>.mlflow`) and the SageMaker API.
