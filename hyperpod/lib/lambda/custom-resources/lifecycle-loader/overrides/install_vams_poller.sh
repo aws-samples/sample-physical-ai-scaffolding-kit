@@ -9,8 +9,8 @@
 #   1. copies the poller sources from vams_poller/ next to this script to
 #      /opt/pask/vams-poller/ (the lifecycle directory is removed on reboot),
 #   2. installs a pinned uv and, with it, the pinned CPython to /opt/pask/ (the system
-#      python3 of the HyperPod image is older than the poller supports), then creates a
-#      venv with that CPython and installs requirements.txt and the poller package,
+#      python3 of the HyperPod image is older than the poller supports), then installs
+#      the poller and the dependencies locked in uv.lock into a venv of that CPython,
 #   3. writes the poller settings to /etc/pask/vams-poller.env,
 #   4. writes, enables and restarts pask-vams-poller.service.
 #
@@ -122,22 +122,17 @@ ensure_uv() {
   rm -rf "${work_dir}"
 }
 
-# Install the pinned CPython with the uv of ensure_uv and print the path of its
-# interpreter. Everything else goes to stderr, because the caller captures stdout.
+# Install the pinned CPython with the uv of ensure_uv.
 ensure_python() {
-  log "Installing CPython ${PYTHON_VERSION} to ${PYTHON_INSTALL_DIR}" >&2
-  UV_PYTHON_INSTALL_DIR="${PYTHON_INSTALL_DIR}" "${UV_DIR}/uv" python install --no-bin "${PYTHON_VERSION}" >&2
+  log "Installing CPython ${PYTHON_VERSION} to ${PYTHON_INSTALL_DIR}"
+  UV_PYTHON_INSTALL_DIR="${PYTHON_INSTALL_DIR}" "${UV_DIR}/uv" python install --no-bin "${PYTHON_VERSION}"
   chmod -R go=rX "${PYTHON_INSTALL_DIR}"
-  UV_PYTHON_INSTALL_DIR="${PYTHON_INSTALL_DIR}" "${UV_DIR}/uv" python find --managed-python "${PYTHON_VERSION}"
 }
 
 # Replace the installed sources and the venv with fresh ones.
-#
-# @param $1 Path of the python interpreter to create the venv with.
 install_poller_package() {
-  local python_path="$1"
   [[ -f "${SOURCE_DIR}/pyproject.toml" ]] || fail "poller sources not found in ${SOURCE_DIR}"
-  [[ -f "${SOURCE_DIR}/requirements.txt" ]] || fail "requirements.txt not found in ${SOURCE_DIR}"
+  [[ -f "${SOURCE_DIR}/uv.lock" ]] || fail "uv.lock not found in ${SOURCE_DIR}"
 
   if [[ -f "${UNIT_FILE}" ]]; then
     log "Stopping ${SERVICE_NAME} before replacing ${INSTALL_DIR}"
@@ -151,10 +146,12 @@ install_poller_package() {
   chown -R root:root "${INSTALL_DIR}"
   chmod -R u=rwX,go=rX "${INSTALL_DIR}"
 
-  log "Creating the venv in ${VENV_DIR}"
-  "${python_path}" -m venv "${VENV_DIR}"
-  "${VENV_DIR}/bin/pip" install --no-cache-dir -r "${INSTALL_DIR}/requirements.txt"
-  "${VENV_DIR}/bin/pip" install --no-cache-dir --no-deps "${INSTALL_DIR}"
+  # --locked fails when uv.lock does not match pyproject.toml, and the locked hashes
+  # are checked on download. --no-editable installs the poller itself into the venv.
+  log "Installing the poller and its locked dependencies to ${VENV_DIR}"
+  UV_PYTHON_INSTALL_DIR="${PYTHON_INSTALL_DIR}" UV_PROJECT_ENVIRONMENT="${VENV_DIR}" \
+    "${UV_DIR}/uv" sync --project "${INSTALL_DIR}" --locked --no-dev --no-editable --no-cache \
+    --managed-python --no-python-downloads --python "${PYTHON_VERSION}"
 }
 
 # Write the PASK_VAMS_* settings read by pask_vams_poller.config.PollerConfig.
@@ -263,9 +260,8 @@ main() {
   [[ -n "${SERVICE_HOME}" ]] || fail "cannot resolve the home directory of ${SERVICE_USER}"
 
   ensure_uv
-  local python_path
-  python_path="$(ensure_python)"
-  install_poller_package "${python_path}"
+  ensure_python
+  install_poller_package
   write_config_file
   write_unit_file
 
