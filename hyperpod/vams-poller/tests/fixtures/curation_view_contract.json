@@ -1,0 +1,544 @@
+{
+  "curationManifestVersion": 2,
+  "examples": {
+    "view": {
+      "manifest": {
+        "curation_manifest_version": 2,
+        "mode": "view",
+        "created_at": "2026-10-23T01:02:03Z",
+        "source": {
+          "database_id": "robot-data",
+          "asset_id": "x0a1b2c3d-source",
+          "asset_version": "1",
+          "codebase_version": "v3.0",
+          "total_episodes": 5,
+          "review_updated_at": "2026-10-21T08:59:42Z",
+          "storage": {
+            "bucket": "vams-asset-bucket-example",
+            "asset_root_key": "x0a1b2c3d-source/"
+          },
+          "files": [
+            {
+              "path": "data/chunk-000/file-000.parquet",
+              "version_id": "3HL4kqtJlcpXroDTDmJ.rmSpXd3dIbrHY",
+              "size": 91011
+            },
+            {
+              "path": "meta/episodes/chunk-000/file-000.parquet",
+              "version_id": "Qw8vN2pLx5RtYb7KcZ.aMfGh3JdSe9UoT",
+              "size": 24576
+            },
+            {
+              "path": "meta/info.json",
+              "version_id": "Zr6TgP1mWq4XsLc9Vb.nHkJ2yFd7AeRuI",
+              "size": 3482
+            },
+            {
+              "path": "meta/tasks.parquet",
+              "version_id": "Lm3KdF8sBn1QwEr5Ty.uIoP7aGh2JkZxC",
+              "size": 2048
+            },
+            {
+              "path": "meta/vams_episode_quality.parquet",
+              "version_id": "Ve9HbN4cXm2ZaSd6Fg.hJkL1qWe8RtYuO",
+              "size": 8192
+            },
+            {
+              "path": "videos/observation.images.front/chunk-000/file-000.mp4",
+              "version_id": "Ps5JqR7tUv3WxYz1Ab.cDeF9gHi4KlMnB",
+              "size": 1048576
+            }
+          ]
+        },
+        "episodes": [
+          0,
+          2,
+          4
+        ],
+        "excluded_episodes": [
+          {
+            "episode_index": 1,
+            "reasons": [
+              "review"
+            ]
+          },
+          {
+            "episode_index": 3,
+            "reasons": [
+              "review",
+              "flag:idle_lead_long"
+            ]
+          }
+        ],
+        "total_episodes": 3,
+        "total_frames": 21,
+        "total_duration_sec": 0.7,
+        "stats": {
+          "path": "meta/stats.json",
+          "computed_from": "episodes"
+        },
+        "tool": {
+          "lerobot_version": "0.6.1"
+        }
+      }
+    },
+    "materialize": {
+      "manifest": {
+        "curation_manifest_version": 2,
+        "mode": "materialize",
+        "created_at": "2026-10-23T01:02:03Z",
+        "source": {
+          "database_id": "robot-data",
+          "asset_id": "x0a1b2c3d-source",
+          "asset_version": null,
+          "codebase_version": "v3.0",
+          "total_episodes": 5,
+          "review_updated_at": "2026-10-21T08:59:42Z"
+        },
+        "excluded_episodes": [
+          {
+            "episode_index": 1,
+            "reasons": [
+              "review"
+            ]
+          },
+          {
+            "episode_index": 3,
+            "reasons": [
+              "review",
+              "flag:idle_lead_long"
+            ]
+          }
+        ],
+        "episode_mapping": [
+          {
+            "source_episode_index": 0,
+            "episode_index": 0
+          },
+          {
+            "source_episode_index": 2,
+            "episode_index": 1
+          },
+          {
+            "source_episode_index": 4,
+            "episode_index": 2
+          }
+        ],
+        "total_episodes": 3,
+        "total_frames": 21,
+        "total_duration_sec": 0.7,
+        "tool": {
+          "lerobot_version": "0.6.1"
+        }
+      }
+    }
+  },
+  "invalidManifests": [
+    {
+      "case": "Unknown curation_manifest_version",
+      "manifest": {
+        "curation_manifest_version": 3,
+        "mode": "view",
+        "created_at": "2026-10-23T01:02:03Z",
+        "source": {
+          "database_id": "robot-data",
+          "asset_id": "x0a1b2c3d-source",
+          "asset_version": "1",
+          "codebase_version": "v3.0",
+          "total_episodes": 5,
+          "review_updated_at": "2026-10-21T08:59:42Z",
+          "storage": {
+            "bucket": "vams-asset-bucket-example",
+            "asset_root_key": "x0a1b2c3d-source/"
+          },
+          "files": [
+            {
+              "path": "meta/info.json",
+              "version_id": "Zr6TgP1mWq4XsLc9Vb.nHkJ2yFd7AeRuI",
+              "size": 3482
+            }
+          ]
+        },
+        "episodes": [
+          0,
+          2,
+          4
+        ],
+        "excluded_episodes": [],
+        "total_episodes": 3,
+        "total_frames": 21,
+        "total_duration_sec": 0.7,
+        "stats": {
+          "path": "meta/stats.json",
+          "computed_from": "episodes"
+        },
+        "tool": {
+          "lerobot_version": "0.6.1"
+        }
+      }
+    },
+    {
+      "case": "Unknown mode",
+      "manifest": {
+        "curation_manifest_version": 2,
+        "mode": "symlink",
+        "created_at": "2026-10-23T01:02:03Z",
+        "source": {
+          "database_id": "robot-data",
+          "asset_id": "x0a1b2c3d-source",
+          "asset_version": "1",
+          "codebase_version": "v3.0",
+          "total_episodes": 5,
+          "review_updated_at": "2026-10-21T08:59:42Z"
+        },
+        "excluded_episodes": [],
+        "total_episodes": 3,
+        "total_frames": 21,
+        "total_duration_sec": 0.7,
+        "tool": {
+          "lerobot_version": "0.6.1"
+        }
+      }
+    },
+    {
+      "case": "View without source.storage",
+      "manifest": {
+        "curation_manifest_version": 2,
+        "mode": "view",
+        "created_at": "2026-10-23T01:02:03Z",
+        "source": {
+          "database_id": "robot-data",
+          "asset_id": "x0a1b2c3d-source",
+          "asset_version": "1",
+          "codebase_version": "v3.0",
+          "total_episodes": 5,
+          "review_updated_at": "2026-10-21T08:59:42Z",
+          "files": [
+            {
+              "path": "meta/info.json",
+              "version_id": "Zr6TgP1mWq4XsLc9Vb.nHkJ2yFd7AeRuI",
+              "size": 3482
+            }
+          ]
+        },
+        "episodes": [
+          0,
+          2,
+          4
+        ],
+        "excluded_episodes": [],
+        "total_episodes": 3,
+        "total_frames": 21,
+        "total_duration_sec": 0.7,
+        "stats": {
+          "path": "meta/stats.json",
+          "computed_from": "episodes"
+        },
+        "tool": {
+          "lerobot_version": "0.6.1"
+        }
+      }
+    },
+    {
+      "case": "View without source.files",
+      "manifest": {
+        "curation_manifest_version": 2,
+        "mode": "view",
+        "created_at": "2026-10-23T01:02:03Z",
+        "source": {
+          "database_id": "robot-data",
+          "asset_id": "x0a1b2c3d-source",
+          "asset_version": "1",
+          "codebase_version": "v3.0",
+          "total_episodes": 5,
+          "review_updated_at": "2026-10-21T08:59:42Z",
+          "storage": {
+            "bucket": "vams-asset-bucket-example",
+            "asset_root_key": "x0a1b2c3d-source/"
+          }
+        },
+        "episodes": [
+          0,
+          2,
+          4
+        ],
+        "excluded_episodes": [],
+        "total_episodes": 3,
+        "total_frames": 21,
+        "total_duration_sec": 0.7,
+        "stats": {
+          "path": "meta/stats.json",
+          "computed_from": "episodes"
+        },
+        "tool": {
+          "lerobot_version": "0.6.1"
+        }
+      }
+    },
+    {
+      "case": "View with a source file whose version_id is empty",
+      "manifest": {
+        "curation_manifest_version": 2,
+        "mode": "view",
+        "created_at": "2026-10-23T01:02:03Z",
+        "source": {
+          "database_id": "robot-data",
+          "asset_id": "x0a1b2c3d-source",
+          "asset_version": "1",
+          "codebase_version": "v3.0",
+          "total_episodes": 5,
+          "review_updated_at": "2026-10-21T08:59:42Z",
+          "storage": {
+            "bucket": "vams-asset-bucket-example",
+            "asset_root_key": "x0a1b2c3d-source/"
+          },
+          "files": [
+            {
+              "path": "meta/info.json",
+              "version_id": "",
+              "size": 3482
+            }
+          ]
+        },
+        "episodes": [
+          0,
+          2,
+          4
+        ],
+        "excluded_episodes": [],
+        "total_episodes": 3,
+        "total_frames": 21,
+        "total_duration_sec": 0.7,
+        "stats": {
+          "path": "meta/stats.json",
+          "computed_from": "episodes"
+        },
+        "tool": {
+          "lerobot_version": "0.6.1"
+        }
+      }
+    },
+    {
+      "case": "Negative episode index",
+      "manifest": {
+        "curation_manifest_version": 2,
+        "mode": "view",
+        "created_at": "2026-10-23T01:02:03Z",
+        "source": {
+          "database_id": "robot-data",
+          "asset_id": "x0a1b2c3d-source",
+          "asset_version": "1",
+          "codebase_version": "v3.0",
+          "total_episodes": 5,
+          "review_updated_at": "2026-10-21T08:59:42Z",
+          "storage": {
+            "bucket": "vams-asset-bucket-example",
+            "asset_root_key": "x0a1b2c3d-source/"
+          },
+          "files": [
+            {
+              "path": "meta/info.json",
+              "version_id": "Zr6TgP1mWq4XsLc9Vb.nHkJ2yFd7AeRuI",
+              "size": 3482
+            }
+          ]
+        },
+        "episodes": [
+          -1,
+          0,
+          2
+        ],
+        "excluded_episodes": [],
+        "total_episodes": 3,
+        "total_frames": 21,
+        "total_duration_sec": 0.7,
+        "stats": {
+          "path": "meta/stats.json",
+          "computed_from": "episodes"
+        },
+        "tool": {
+          "lerobot_version": "0.6.1"
+        }
+      }
+    },
+    {
+      "case": "Non-integer episode index",
+      "manifest": {
+        "curation_manifest_version": 2,
+        "mode": "view",
+        "created_at": "2026-10-23T01:02:03Z",
+        "source": {
+          "database_id": "robot-data",
+          "asset_id": "x0a1b2c3d-source",
+          "asset_version": "1",
+          "codebase_version": "v3.0",
+          "total_episodes": 5,
+          "review_updated_at": "2026-10-21T08:59:42Z",
+          "storage": {
+            "bucket": "vams-asset-bucket-example",
+            "asset_root_key": "x0a1b2c3d-source/"
+          },
+          "files": [
+            {
+              "path": "meta/info.json",
+              "version_id": "Zr6TgP1mWq4XsLc9Vb.nHkJ2yFd7AeRuI",
+              "size": 3482
+            }
+          ]
+        },
+        "episodes": [
+          0,
+          2.5,
+          4
+        ],
+        "excluded_episodes": [],
+        "total_episodes": 3,
+        "total_frames": 21,
+        "total_duration_sec": 0.7,
+        "stats": {
+          "path": "meta/stats.json",
+          "computed_from": "episodes"
+        },
+        "tool": {
+          "lerobot_version": "0.6.1"
+        }
+      }
+    },
+    {
+      "case": "Duplicate episode index",
+      "manifest": {
+        "curation_manifest_version": 2,
+        "mode": "view",
+        "created_at": "2026-10-23T01:02:03Z",
+        "source": {
+          "database_id": "robot-data",
+          "asset_id": "x0a1b2c3d-source",
+          "asset_version": "1",
+          "codebase_version": "v3.0",
+          "total_episodes": 5,
+          "review_updated_at": "2026-10-21T08:59:42Z",
+          "storage": {
+            "bucket": "vams-asset-bucket-example",
+            "asset_root_key": "x0a1b2c3d-source/"
+          },
+          "files": [
+            {
+              "path": "meta/info.json",
+              "version_id": "Zr6TgP1mWq4XsLc9Vb.nHkJ2yFd7AeRuI",
+              "size": 3482
+            }
+          ]
+        },
+        "episodes": [
+          0,
+          2,
+          2,
+          4
+        ],
+        "excluded_episodes": [],
+        "total_episodes": 3,
+        "total_frames": 21,
+        "total_duration_sec": 0.7,
+        "stats": {
+          "path": "meta/stats.json",
+          "computed_from": "episodes"
+        },
+        "tool": {
+          "lerobot_version": "0.6.1"
+        }
+      }
+    },
+    {
+      "case": "Episode index both kept and excluded",
+      "manifest": {
+        "curation_manifest_version": 2,
+        "mode": "view",
+        "created_at": "2026-10-23T01:02:03Z",
+        "source": {
+          "database_id": "robot-data",
+          "asset_id": "x0a1b2c3d-source",
+          "asset_version": "1",
+          "codebase_version": "v3.0",
+          "total_episodes": 5,
+          "review_updated_at": "2026-10-21T08:59:42Z",
+          "storage": {
+            "bucket": "vams-asset-bucket-example",
+            "asset_root_key": "x0a1b2c3d-source/"
+          },
+          "files": [
+            {
+              "path": "meta/info.json",
+              "version_id": "Zr6TgP1mWq4XsLc9Vb.nHkJ2yFd7AeRuI",
+              "size": 3482
+            }
+          ]
+        },
+        "episodes": [
+          0,
+          2,
+          4
+        ],
+        "excluded_episodes": [
+          {
+            "episode_index": 2,
+            "reasons": [
+              "review"
+            ]
+          }
+        ],
+        "total_episodes": 3,
+        "total_frames": 21,
+        "total_duration_sec": 0.7,
+        "stats": {
+          "path": "meta/stats.json",
+          "computed_from": "episodes"
+        },
+        "tool": {
+          "lerobot_version": "0.6.1"
+        }
+      }
+    },
+    {
+      "case": "View without stats.path",
+      "manifest": {
+        "curation_manifest_version": 2,
+        "mode": "view",
+        "created_at": "2026-10-23T01:02:03Z",
+        "source": {
+          "database_id": "robot-data",
+          "asset_id": "x0a1b2c3d-source",
+          "asset_version": "1",
+          "codebase_version": "v3.0",
+          "total_episodes": 5,
+          "review_updated_at": "2026-10-21T08:59:42Z",
+          "storage": {
+            "bucket": "vams-asset-bucket-example",
+            "asset_root_key": "x0a1b2c3d-source/"
+          },
+          "files": [
+            {
+              "path": "meta/info.json",
+              "version_id": "Zr6TgP1mWq4XsLc9Vb.nHkJ2yFd7AeRuI",
+              "size": 3482
+            }
+          ]
+        },
+        "episodes": [
+          0,
+          2,
+          4
+        ],
+        "excluded_episodes": [],
+        "total_episodes": 3,
+        "total_frames": 21,
+        "total_duration_sec": 0.7,
+        "stats": {
+          "computed_from": "episodes"
+        },
+        "tool": {
+          "lerobot_version": "0.6.1"
+        }
+      }
+    }
+  ]
+}

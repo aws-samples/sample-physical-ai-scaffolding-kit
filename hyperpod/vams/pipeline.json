@@ -1,0 +1,36 @@
+{
+    "pipelineName": "PASK LeRobot OpenPI Training",
+    "category": "VLA Training",
+    "description": "Fine-tune pi0 / pi0.5 with LeRobot on the PASK HyperPod cluster. The whole input asset is the LeRobot dataset; the checkpoint is written back to the output asset.",
+    "executionConfig": {
+        "executionType": "SQS",
+        "waitForCallback": "Enabled",
+        "taskTimeout": "432000",
+        "taskHeartbeatTimeout": "",
+        "sqs": {
+            "queueUrl": ""
+        }
+    },
+    "systemConfig": {
+        "inputFileArity": "one",
+        "assetScope": {
+            "singleAssetOnly": true,
+            "wholeAsset": true,
+            "folderAllowed": false,
+            "crossAssetAllowed": false
+        },
+        "metadataInputs": {
+            "assetMetadata": true,
+            "fileMetadata": false,
+            "fileAttributes": false,
+            "databaseMetadata": false
+        },
+        "requireTemplate": true,
+        "allowCustomTemplateOverride": false,
+        "auxPreviewPipelineSuffix": "",
+        "inputFileFilters": {
+            "allow": [],
+            "exclude": []
+        }
+    }
+}
