@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-01-02T00:00:00Z",
+  "thresholds": {
+    "schemaVersion": 1,
+    "headWindowFraction": 0.1,
+    "tailWindowFraction": 0.25,
+    "minWindowPoints": 5,
+    "smoothingWindow": 11,
+    "minPoints": 20,
+    "minCompletionRatio": 0.95,
+    "divergingTailSlopePer1k": 0.05,
+    "convergingTailImprovement": 0.01,
+    "plateauTailImprovement": 0.01,
+    "spikeFactor": 3.0,
+    "maxSpikes": 3,
+    "maxTailCv": 0.15,
+    "overfitEpochs": 30,
+    "dataloaderBoundRatio": 0.5,
+    "gpuMemoryHeadroomPercent": 60,
+    "gpuMemoryTightPercent": 90
+  },
+  "target": {
+    "runId": "00000000000000000000000000000011",
+    "runName": "vams-00000000000000000000000000000012",
+    "features": {
+      "num_points": 300,
+      "last_step": 30000,
+      "planned_steps": 30000,
+      "completion_ratio": 1.0,
+      "initial_loss": 0.1185843212530017,
+      "final_loss": 0.05400276752188802,
+      "min_loss": 0.05228160919621587,
+      "min_loss_step": 30000,
+      "loss_reduction": 0.5446044894360682,
+      "tail_slope_per_1k": -0.005473278549094014,
+      "tail_improvement": 0.022535956654844758,
+      "tail_cv": 0.03236918759661711,
+      "nonfinite_loss": 0,
+      "nonfinite_grad_norm": 0,
+      "loss_spikes": 0,
+      "grad_norm_spikes": 0,
+      "lr_progress": 0.10028108681633426,
+      "epochs": 32.03416978109984,
+      "dataloading_ratio": 0.0019258832030157064,
+      "gpu_mem_gb_max": 10.122235918045044,
+      "gpu_memory_percent_max": 50.3,
+      "gpu_utilization_median": 100.0,
+      "samples_per_s_median": 1.922921224867098,
+      "estimated_frames": 3746.0,
+      "estimated_episodes": 1.0,
+      "final_samples": 120000.0
+    },
+    "labels": [
+      "converging",
+      "overfit_risk",
+      "gpu_memory_headroom"
+    ],
+    "findings": [
+      "loss is still decreasing: tail improvement 0.02254, tail slope -0.005473 per 1k steps, final loss 0.054",
+      "data was seen 32.03 epochs, more than 30, while the training loss keeps decreasing",
+      "eval loss is not recorded, so overfitting is not detected directly",
+      "maximum GPU memory usage is 50.3%, below 60% (10.12 GB allocated by training)"
+    ],
+    "evalFeatures": null,
+    "trainingParams": {
+      "POLICY_TYPE": "pi05",
+      "PRETRAINED_PATH": "lerobot/pi05_base",
+      "FINETUNE_MODE": "lora",
+      "LORA_R": 16,
+      "LORA_ALPHA": 16,
+      "STEPS": 30000,
+      "BATCH_SIZE": 4,
+      "SAVE_FREQ": 5000,
+      "LOG_FREQ": 100,
+      "NUM_WORKERS": 4,
+      "COMPILE_MODEL": false,
+      "IMAGE_TAG": "latest"
+    },
+    "paramDiffFromTarget": {}
+  },
+  "comparisons": [],
+  "datasets": {
+    "targetRunId": "00000000000000000000000000000011",
+    "thresholds": {
+      "fewEpisodesMax": 1
+    },
+    "assets": [
+      {
+        "databaseId": "default-XXXXXXXX",
+        "assetId": "teleop_fold_dataset_XXXX",
+        "assetName": "teleop_fold_dataset_XXXX",
+        "status": "active",
+        "roles": [
+          "input"
+        ],
+        "kind": "dataset",
+        "features": {
+          "totalEpisodes": 1,
+          "totalFrames": 3746,
+          "totalDurationSec": 62.433,
+          "fps": 60,
+          "totalTasks": 1,
+          "tasks": "Take one T-shirt from the stack on the right, move it to the center, spread it out, and fold it.",
+          "robotType": "openarm_bimanual",
+          "codebaseVersion": "v3.0",
+          "cameraKeys": "observation.images.cam_high, observation.images.cam_right_wrist, observation.images.cam_left_wrist",
+          "stateDim": 16,
+          "actionDim": 16,
+          "datasetKind": null,
+          "viewSourceAssetId": null,
+          "statsPresent": true,
+          "statsCountMatchesFrames": true,
+          "exportMetaFilters": {
+            "operation": [
+              "D005"
+            ],
+            "object": [
+              "A002"
+            ],
+            "object_condition": [
+              "B000"
+            ],
+            "initial_placement": [
+              "C000"
+            ],
+            "task_evaluation": [
+              "success"
+            ]
+          },
+          "qualityVersion": "2",
+          "qualityComputedAt": "2026-01-02T00:00:00Z",
+          "qualityEpisodeCount": 1,
+          "qualityFlaggedCount": 1,
+          "reviewUpdatedAt": "2026-01-02T00:00:00Z",
+          "reviewedEpisodeCount": 1
+        },
+        "flagCounts": {
+          "task_text_issue": 1
+        },
+        "reviewExcludedEpisodes": [],
+        "reviewFailureEpisodes": [],
+        "runStatusCounts": {
+          "FINISHED": 2,
+          "FAILED": 1,
+          "KILLED": 1
+        },
+        "runIds": [
+          "00000000000000000000000000000011",
+          "00000000000000000000000000000014",
+          "00000000000000000000000000000016",
+          "00000000000000000000000000000018"
+        ]
+      }
+    ],
+    "datasetExclusions": [
+      {
+        "assetId": "teleop_fold_dataset_XXXX",
+        "assetName": "teleop_fold_dataset_XXXX",
+        "reasons": [
+          "few_episodes"
+        ]
+      }
+    ],
+    "episodeExclusions": [],
+    "alreadyExcludedEpisodes": [],
+    "findings": [
+      "teleop_fold_dataset_XXXX: 1 of 1 episodes have quality flags (task_text_issue=1); the per-episode flags are in the quality file of the asset, not in its metadata"
+    ]
+  }
+}

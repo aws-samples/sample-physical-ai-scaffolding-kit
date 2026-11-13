@@ -1,0 +1,40 @@
+{
+  "_comments": {
+    "schemaVersion": "Version of this file. The advisor supports 1.",
+    "ranges": "Allowed values of integer parameters. min and max are inclusive; choices lists every allowed value. A bound that is not written is not checked.",
+    "relations": "Rules between parameters. saveFreqLteSteps requires SAVE_FREQ <= STEPS. logFreqLteSaveFreq requires LOG_FREQ <= SAVE_FREQ. policyPretrainedPairs lists the PRETRAINED_PATH values allowed for each POLICY_TYPE; the PRETRAINED_PATH of the previous run is always allowed.",
+    "maxChangedKeys": "Largest number of parameters one proposal may change from the previous run.",
+    "maxChangeFactor": "Largest ratio between the proposed and the previous value of an integer parameter, in either direction.",
+    "fixedKeys": "Parameters that must keep the value of the previous run.",
+    "warnings": "Values that are allowed but reported as warnings. Each entry names a parameter, the values that trigger the warning, and the message.",
+    "note": "STEPS and SAVE_FREQ have a lower bound of 1, the same as the poller allow list, so that short smoke runs such as STEPS 20 with SAVE_FREQ 20 can keep or extend their own values; maxChangeFactor limits how far one proposal moves them. NUM_WORKERS max follows '#SBATCH --cpus-per-task=8' in slurm_train.sh. The FINETUNE_MODE warning follows the GPU memory section of lerobot_pi05_training.md."
+  },
+  "schemaVersion": 1,
+  "ranges": {
+    "LORA_R": {"choices": [4, 8, 16, 32, 64]},
+    "LORA_ALPHA": {"min": 4, "max": 128},
+    "STEPS": {"min": 1, "max": 200000},
+    "BATCH_SIZE": {"min": 1, "max": 64},
+    "NUM_WORKERS": {"min": 1, "max": 8},
+    "SAVE_FREQ": {"min": 1},
+    "LOG_FREQ": {"min": 1}
+  },
+  "relations": {
+    "saveFreqLteSteps": true,
+    "logFreqLteSaveFreq": true,
+    "policyPretrainedPairs": {
+      "pi05": ["lerobot/pi05_base"],
+      "pi0": ["lerobot/pi0_base"]
+    }
+  },
+  "maxChangedKeys": 3,
+  "maxChangeFactor": 4.0,
+  "fixedKeys": ["IMAGE_TAG", "PRETRAINED_PATH", "POLICY_TYPE"],
+  "warnings": [
+    {
+      "key": "FINETUNE_MODE",
+      "values": ["expert_only", "full"],
+      "message": "may not fit in a 24 GB GPU; prepare a GPU with more memory"
+    }
+  ]
+}

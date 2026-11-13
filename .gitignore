@@ -26,3 +26,5 @@ samples/lerobot-openpi/outputs
 samples/lerobot-openpi/tmp
 
 CLAUDE.md
+# Claude Code local settings (AWS profile and region)
+.claude/settings.local.json

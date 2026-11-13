@@ -1,0 +1,50 @@
+[project]
+name = "pask-training-advisor"
+version = "0.1.0"
+description = "Tool that diagnoses LeRobot training runs recorded in MLflow and validates proposals for the next training parameters"
+requires-python = ">=3.12"
+dependencies = [
+    "mlflow-skinny==3.10.1",
+    "sagemaker-mlflow==0.5.0",
+    "numpy",
+    "matplotlib",
+    "pask-vams-poller",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[project.scripts]
+pask-training-advisor = "pask_training_advisor.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pask_training_advisor"]
+
+[tool.uv.sources]
+pask-vams-poller = { path = "../../../../hyperpod/vams-poller", editable = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+preview = true
+extend-select = [
+    "I",
+    "E",
+    "F",
+    "UP",
+    "B",
+    "PLC0415",  # https://docs.astral.sh/ruff/rules/import-outside-top-level/
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

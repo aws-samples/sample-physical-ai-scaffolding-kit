@@ -1,0 +1,180 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-01-02T00:00:00Z",
+  "vamsProfile": "<profile>",
+  "experiments": [
+    "vams-training",
+    "lerobot-pi"
+  ],
+  "targetRunId": "00000000000000000000000000000011",
+  "assets": [
+    {
+      "databaseId": "default-XXXXXXXX",
+      "assetId": "teleop_fold_dataset_XXXX",
+      "roles": [
+        "input"
+      ],
+      "assetName": "teleop_fold_dataset_XXXX",
+      "status": "active",
+      "metadata": {
+        "lerobot_codebase_version": {
+          "type": "string",
+          "value": "v3.0"
+        },
+        "lerobot_robot_type": {
+          "type": "string",
+          "value": "openarm_bimanual"
+        },
+        "lerobot_fps": {
+          "type": "number",
+          "value": "60"
+        },
+        "lerobot_total_episodes": {
+          "type": "number",
+          "value": "1"
+        },
+        "lerobot_total_frames": {
+          "type": "number",
+          "value": "3746"
+        },
+        "lerobot_total_duration_sec": {
+          "type": "number",
+          "value": "62.433"
+        },
+        "lerobot_total_tasks": {
+          "type": "number",
+          "value": "1"
+        },
+        "lerobot_tasks": {
+          "type": "multiline_string",
+          "value": "Take one T-shirt from the stack on the right, move it to the center, spread it out, and fold it."
+        },
+        "lerobot_camera_keys": {
+          "type": "string",
+          "value": "observation.images.cam_high, observation.images.cam_right_wrist, observation.images.cam_left_wrist"
+        },
+        "lerobot_state_dim": {
+          "type": "number",
+          "value": "16"
+        },
+        "lerobot_action_dim": {
+          "type": "number",
+          "value": "16"
+        },
+        "lerobot_export_meta_filters": {
+          "type": "json",
+          "value": "{\"operation\": [\"D005\"], \"object\": [\"A002\"], \"object_condition\": [\"B000\"], \"initial_placement\": [\"C000\"], \"task_evaluation\": [\"success\"]}"
+        },
+        "lerobot_stats_present": {
+          "type": "boolean",
+          "value": "true"
+        },
+        "lerobot_stats_count_matches_frames": {
+          "type": "boolean",
+          "value": "true"
+        },
+        "lerobot_quality_computed_at": {
+          "type": "date",
+          "value": "2026-01-02T00:00:00Z"
+        },
+        "lerobot_quality_version": {
+          "type": "string",
+          "value": "2"
+        },
+        "lerobot_quality_episode_count": {
+          "type": "number",
+          "value": "1"
+        },
+        "lerobot_quality_flagged_count": {
+          "type": "number",
+          "value": "1"
+        },
+        "lerobot_quality_flag_counts": {
+          "type": "json",
+          "value": "{\"length_outlier\": 0, \"idle_high\": 0, \"idle_lead_long\": 0, \"idle_trail_long\": 0, \"jerk_high\": 0, \"low_movement\": 0, \"accel_spike\": 0, \"path_inefficient\": 0, \"gap_high\": 0, \"camera_offset_high\": 0, \"task_text_issue\": 1}"
+        },
+        "lerobot_review_episodes": {
+          "type": "json",
+          "value": "{\"0\":{\"verdict\":\"success\",\"reason\":\"\",\"exclude\":false,\"reviewedBy\":\"vams-user\",\"reviewedAt\":\"2026-01-02T00:00:00Z\"}}"
+        },
+        "lerobot_review_updated_at": {
+          "type": "date",
+          "value": "2026-01-02T00:00:00Z"
+        },
+        "lerobot_dataset_kind": {
+          "type": "string",
+          "value": ""
+        },
+        "lerobot_view_source_asset_id": {
+          "type": "string",
+          "value": ""
+        }
+      }
+    }
+  ],
+  "snapshotRuns": [
+    {
+      "runId": "00000000000000000000000000000011",
+      "role": "target",
+      "inputDatabaseId": "default-XXXXXXXX",
+      "inputAssetId": "teleop_fold_dataset_XXXX",
+      "inputKind": "dataset",
+      "sourceAssetId": null,
+      "view": null
+    }
+  ],
+  "runsUsingAssets": [
+    {
+      "runId": "00000000000000000000000000000011",
+      "runName": "vams-00000000000000000000000000000012",
+      "experimentName": "vams-training",
+      "status": "FINISHED",
+      "startTime": 1767225600000,
+      "inputDatabaseId": "default-XXXXXXXX",
+      "inputAssetId": "teleop_fold_dataset_XXXX",
+      "inputAssetName": "teleop_fold_dataset_XXXX",
+      "inputKind": "dataset",
+      "sourceDatabaseId": null,
+      "sourceAssetId": null
+    },
+    {
+      "runId": "00000000000000000000000000000014",
+      "runName": "vams-00000000000000000000000000000015",
+      "experimentName": "vams-training",
+      "status": "FAILED",
+      "startTime": 1766433432980,
+      "inputDatabaseId": "default-XXXXXXXX",
+      "inputAssetId": "teleop_fold_dataset_XXXX",
+      "inputAssetName": "teleop_fold_dataset_XXXX",
+      "inputKind": null,
+      "sourceDatabaseId": null,
+      "sourceAssetId": null
+    },
+    {
+      "runId": "00000000000000000000000000000016",
+      "runName": "vams-00000000000000000000000000000017",
+      "experimentName": "vams-training",
+      "status": "KILLED",
+      "startTime": 1766431234441,
+      "inputDatabaseId": "default-XXXXXXXX",
+      "inputAssetId": "teleop_fold_dataset_XXXX",
+      "inputAssetName": "teleop_fold_dataset_XXXX",
+      "inputKind": null,
+      "sourceDatabaseId": null,
+      "sourceAssetId": null
+    },
+    {
+      "runId": "00000000000000000000000000000018",
+      "runName": "vams-00000000000000000000000000000019",
+      "experimentName": "vams-training",
+      "status": "FINISHED",
+      "startTime": 1766430519013,
+      "inputDatabaseId": "default-XXXXXXXX",
+      "inputAssetId": "teleop_fold_dataset_XXXX",
+      "inputAssetName": "teleop_fold_dataset_XXXX",
+      "inputKind": null,
+      "sourceDatabaseId": null,
+      "sourceAssetId": null
+    }
+  ]
+}
