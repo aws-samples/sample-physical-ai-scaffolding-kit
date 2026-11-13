@@ -47,14 +47,13 @@ const LIFECYCLE_SCRIPTS_GITHUB_REF = '240279b4a8f9c12297c72ef1bee37ad3a2558884';
 const VAMS_POLLER_DIR = path.join(__dirname, '../../vams-poller');
 /** Key prefix of the poller sources in the lifecycle script bucket, read by install_vams_poller.sh. */
 const VAMS_POLLER_KEY_PREFIX = 'vams_poller/';
-/** Files of hyperpod/vams-poller that the nodes do not need. Only src/, pyproject.toml and requirements.txt remain. */
+/** Files of hyperpod/vams-poller that the nodes do not need. Only src/, pyproject.toml and uv.lock remain. */
 const VAMS_POLLER_EXCLUDES = [
   '.gitignore',
   '.venv',
   '.pytest_cache',
   '.ruff_cache',
   'tests',
-  'uv.lock',
   '**/__pycache__',
 ];
 

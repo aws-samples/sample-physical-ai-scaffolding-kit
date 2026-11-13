@@ -541,7 +541,7 @@ describe('VAMS integration enabled', () => {
     expect(cluster.DependsOn).toContain(deploymentId);
   });
 
-  test('the poller asset holds only src/, pyproject.toml and requirements.txt', () => {
+  test('the poller asset holds only src/, pyproject.toml and uv.lock', () => {
     const stack = createStack(config);
     const stagings = stack.node
       .findAll()
@@ -551,10 +551,10 @@ describe('VAMS integration enabled', () => {
       );
     expect(stagings).toHaveLength(1);
     const files = listFiles(stagings[0].absoluteStagedPath);
-    expect(files).toEqual(expect.arrayContaining(['pyproject.toml', 'requirements.txt', 'src/pask_vams_poller/config.py']));
+    expect(files).toEqual(expect.arrayContaining(['pyproject.toml', 'uv.lock', 'src/pask_vams_poller/config.py']));
     for (const file of files) {
       expect(
-        file === 'pyproject.toml' || file === 'requirements.txt' || (file.startsWith('src/') && !file.includes('__pycache__')),
+        file === 'pyproject.toml' || file === 'uv.lock' || (file.startsWith('src/') && !file.includes('__pycache__')),
       ).toBe(true);
     }
   });
