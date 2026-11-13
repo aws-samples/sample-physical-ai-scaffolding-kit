@@ -82,6 +82,9 @@ CDK가 deploy하는 architecture의 여러 설정을 구성할 수 있습니다.
   "Lustre": {
     "S3Prefix": "",  // Specify the S3 bucket path for the Lustre link target if needed
     "FileSystemPath": "/s3link"  // The path on the node will be `/fsx/<value specified here>`
+  },
+  "Mlflow": {
+    "Enabled": false  // training을 기록하는 MLflow App을 만드는 경우 true로 설정
   }
 }
 ```
@@ -119,7 +122,11 @@ PASK.HyperPodClusterSecurityGroup = Security group used by the cluster
 PASK.HyperPodClusterSubnet = Subnet ID where the cluster is deployed
 PASK.HyperPodLifeCycleScriptBucketName = S3 bucket for lifecycle scripts
 PASK.HyperPodLoginGroupName = Login group name of the cluster
+PASK.MlflowAppArn = MLflow App ARN (the value for MLFLOW_TRACKING_URI. Mlflow.Enabled가 true일 때만 출력)
+PASK.MlflowArtifactBucketName = S3 bucket name for MLflow artifacts (Mlflow.Enabled가 true일 때만 출력)
 PASK.Region = Region where resources are deployed
+PASK.S3LinkMountPath = Lustre path on the nodes that is linked to S3
+PASK.S3LinkUri = S3 URI linked to the Lustre path
 ```
 
 Cluster에서 이 정보를 가져오려면 다음 command를 사용합니다. 실제로 사용하는 region과 stack name으로 바꿔 실행하세요.
@@ -127,6 +134,42 @@ Cluster에서 이 정보를 가져오려면 다음 command를 사용합니다. �
 ```bash
 export AWS_DEFAULT_REGION=us-east-1
 aws cloudformation describe-stacks --stack-name PASK --query "Stacks[0].Outputs"
+```
+
+위의 `cdk deploy` 출력에는 `BucketDataBucketName`처럼 output 이름이 표시되지만, CloudFormation의 `OutputKey`에는 CDK logical ID suffix가 붙습니다(예: `BucketDataBucketName8A747711`, `HyperPodClusterId538E5BBE`).
+값 하나만 가져오려면 `OutputKey`를 prefix로 지정합니다.
+
+```bash
+aws cloudformation describe-stacks --stack-name PASK \
+  --query "Stacks[0].Outputs[?starts_with(OutputKey, 'BucketDataBucketName')].OutputValue | [0]" --output text
+```
+
+`MlflowAppArn`과 `MlflowArtifactBucketName`은 training을 기록하는 Amazon SageMaker AI MLflow App(`pask-mlflow`)에 관한 output입니다.
+`cdk.json`의 `Mlflow.Enabled`를 `true`로 하여 배포한 경우에만 MLflow App과 이 output을 생성합니다.
+Sample의 `setup.sh`는 stack에서 이 Outputs를 읽어 `MLFLOW_TRACKING_URI` 등을 설정합니다.
+Cluster node는 기존 NAT Gateway를 통해 MLflow App에 연결하므로 VPC endpoint는 생성하지 않습니다.
+Internet 연결 없이 사용하려면 MLflow App용(`aws.sagemaker.<region>.mlflow`)과 SageMaker API용 interface VPC endpoint를 추가하세요.
+
+> [!NOTE]
+> `MlflowArtifactBucketName` bucket은 기록한 artifact를 보존하기 위해 stack을 삭제해도 삭제되지 않습니다.
+> 더 이상 필요하지 않으면 bucket을 비운 뒤 수동으로 삭제하세요.
+
+MLflow App을 사용할 수 있는지는 다음 command로 확인합니다. `Status`가 `Created`이면 사용할 수 있습니다.
+
+```bash
+MLFLOW_APP_ARN=$(aws cloudformation describe-stacks --stack-name PASK \
+  --query "Stacks[0].Outputs[?starts_with(OutputKey, 'MlflowAppArn')].OutputValue | [0]" --output text)
+aws sagemaker describe-mlflow-app --arn "$MLFLOW_APP_ARN" \
+  --query "{Name:Name,Status:Status,Version:MlflowVersion}"
+```
+
+MLflow UI는 다음 command로 가져온 URL을 browser에서 열어 표시합니다.
+이 URL은 sign-in된 상태로 여는 URL이며, 기본적으로 300초 후에 만료됩니다. 만료되면 다시 가져옵니다.
+URL을 다른 사람과 공유하지 마세요.
+
+```bash
+aws sagemaker create-presigned-mlflow-app-url --arn "$MLFLOW_APP_ARN" \
+  --query AuthorizedUrl --output text
 ```
 
 이 시점에서 기본 resource 준비가 완료됩니다.
@@ -270,6 +313,12 @@ cdk deploy
 ```
 
 Deployment가 성공하면 worker node를 사용할 수 있습니다.
+`cdk deploy`가 끝난 시점에는 추가한 node가 아직 시작 중(`Pending`)일 수 있습니다. 사용하기 전에 다음 command로 `Running`이 되었는지 확인합니다.
+
+```bash
+aws sagemaker list-cluster-nodes --cluster-name pask-cluster \
+  --query "ClusterNodeSummaries[].[InstanceGroupName,InstanceType,InstanceStatus.Status]" --output text
+```
 
 다음과 유사한 error로 deployment가 실패하면 instance를 allocate할 수 없다는 뜻입니다. 잠시 후 다시 시도하거나, deploy 전에 instance를 reserve하세요.
 

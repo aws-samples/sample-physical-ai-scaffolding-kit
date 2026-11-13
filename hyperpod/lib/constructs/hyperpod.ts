@@ -30,6 +30,8 @@ export interface HyperPodProps {
 const LIFECYCLE_SCRIPTS_GITHUB_REF = '240279b4a8f9c12297c72ef1bee37ad3a2558884';
 
 export class HyperPod extends Construct {
+  public readonly clusterExecutionRole: aws_iam.Role;
+
   constructor(scope: Construct, id: string, props: HyperPodProps) {
     super(scope, id);
 
@@ -186,7 +188,7 @@ export class HyperPod extends Construct {
         }),
       ],
     });
-    const clusterExecutionRole = new aws_iam.Role(this, 'ExecutionRole', {
+    this.clusterExecutionRole = new aws_iam.Role(this, 'ExecutionRole', {
       assumedBy: new aws_iam.ServicePrincipal('sagemaker.amazonaws.com'),
       managedPolicies: [
         aws_iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSageMakerClusterInstanceRolePolicy'),
@@ -197,6 +199,7 @@ export class HyperPod extends Construct {
         AllowEcrRepositoryPolicy: ecrPolicy,
       },
     });
+    const clusterExecutionRole = this.clusterExecutionRole;
 
     clusterLogsGroup.grantWrite(clusterExecutionRole);
     lifeCycleScriptBucket.grantReadWrite(clusterExecutionRole);

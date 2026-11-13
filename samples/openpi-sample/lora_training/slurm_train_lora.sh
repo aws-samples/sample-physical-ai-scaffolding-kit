@@ -19,6 +19,20 @@
 #   sbatch /path/to/slurm_train_lora.sh [CONFIG_NAME] [EXP_NAME]
 # Example:
 #   sbatch slurm_train_lora.sh pi0_libero_low_mem_finetune my_lora_run
+#   RESUME=true sbatch slurm_train_lora.sh pi0_libero_low_mem_finetune my_lora_run
+#
+# Environment Variables:
+#   RESUME (optional): true to resume EXP_NAME from its latest checkpoint and
+#     keep logging to the same MLflow run (default: false, which overwrites EXP_NAME)
+#   EXPORT_CHECKPOINT (optional): true to copy the final checkpoint to
+#     ${PASK_S3LINK_DIR}/checkpoints so that it is exported to S3 (default: true).
+#     Requires PASK_S3LINK_DIR and PASK_S3LINK_URI. Writes about 7 GB per run.
+#   MLFLOW_TRACKING_URI (optional): SageMaker MLflow App ARN. MLflow tracking is
+#     disabled when unset (written to ~/.bashrc by setup.sh)
+#   MLFLOW_EXPERIMENT_NAME (optional): MLflow experiment name
+#     (default: project_name of the training config)
+#   MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL (optional): System metrics sampling
+#     interval in seconds (default: 10)
 # ================================================
 
 set -e
@@ -26,6 +40,14 @@ set -e
 # Parse arguments
 CONFIG_NAME="${1:-pi0_libero_low_mem_finetune}"
 EXP_NAME="${2:-lora_run_$(date +%Y%m%d_%H%M%S)}"
+RESUME="${RESUME:-false}"
+EXPORT_CHECKPOINT="${EXPORT_CHECKPOINT:-true}"
+
+if [ "${RESUME}" = true ]; then
+    CHECKPOINT_MODE_FLAG="--resume"
+else
+    CHECKPOINT_MODE_FLAG="--overwrite"
+fi
 
 echo "=================================================="
 echo "OpenPI LoRA Training Job"
@@ -34,6 +56,12 @@ echo "Job ID: ${SLURM_JOB_ID}"
 echo "Node: ${SLURM_NODELIST}"
 echo "Config: ${CONFIG_NAME}"
 echo "Experiment: ${EXP_NAME}"
+echo "Resume: ${RESUME}"
+if [ -n "${MLFLOW_TRACKING_URI}" ]; then
+    echo "MLflow: enabled (${MLFLOW_TRACKING_URI})"
+else
+    echo "MLflow: disabled (MLFLOW_TRACKING_URI is not set)"
+fi
 echo "Start Time: $(date)"
 echo "=================================================="
 
@@ -119,6 +147,36 @@ fi
 # Change to project directory
 cd "${OPENPI_PROJECT_ROOT}"
 
+# MLflow settings passed into the container. When MLflow is disabled,
+# MLFLOW_TRACKING_URI is unset because bash under srun reads ~/.bashrc, where
+# setup.sh writes it, so that training behaves exactly as without MLflow.
+MLFLOW_EXPORTS="
+         unset MLFLOW_TRACKING_URI"
+if [ -n "${MLFLOW_TRACKING_URI}" ]; then
+    OPENPI_GIT_COMMIT=$(git -C "${OPENPI_PROJECT_ROOT}" rev-parse --short HEAD)
+    MLFLOW_EXPORTS="
+         export MLFLOW_TRACKING_URI='${MLFLOW_TRACKING_URI}'
+         export AWS_DEFAULT_REGION='${AWS_DEFAULT_REGION:-$(echo "${MLFLOW_TRACKING_URI}" | cut -d: -f4)}'
+         export MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL='${MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL:-10}'
+         export OPENPI_GIT_COMMIT='${OPENPI_GIT_COMMIT}'
+         export PASK_CLUSTER_NAME='${PASK_CLUSTER_NAME}'
+         export SLURM_JOB_ID='${SLURM_JOB_ID}'"
+    if [ -n "${MLFLOW_EXPERIMENT_NAME}" ]; then
+        MLFLOW_EXPORTS="${MLFLOW_EXPORTS}
+         export MLFLOW_EXPERIMENT_NAME='${MLFLOW_EXPERIMENT_NAME}'"
+    fi
+fi
+
+# Final checkpoint export to the S3-linked FSx directory. The copied checkpoint
+# is about 7 GB and is exported to S3 by the FSx data repository association.
+CHECKPOINT_EXPORT_EXPORTS=""
+if [ "${EXPORT_CHECKPOINT}" = true ] && [ -n "${PASK_S3LINK_DIR}" ] && [ -n "${PASK_S3LINK_URI}" ]; then
+    CHECKPOINT_EXPORT_EXPORTS="
+         export PASK_CHECKPOINT_EXPORT_DIR='${PASK_S3LINK_DIR}/checkpoints'
+         export PASK_CHECKPOINT_EXPORT_S3_URI='${PASK_S3LINK_URI%/}/checkpoints'"
+    echo "Final checkpoint export: ${PASK_S3LINK_URI%/}/checkpoints"
+fi
+
 # Run training with Pyxis (Slurm container integration)
 echo "Starting training..."
 srun --container-image="${CONTAINER_IMAGE}" \
@@ -130,7 +188,9 @@ srun --container-image="${CONTAINER_IMAGE}" \
          export HF_TOKEN=${HF_TOKEN}
          export XLA_PYTHON_CLIENT_MEM_FRACTION=${XLA_PYTHON_CLIENT_MEM_FRACTION}
          export XLA_FLAGS='${XLA_FLAGS}'
-         export PYTHONPATH=${OPENPI_PROJECT_ROOT}:${OPENPI_PROJECT_ROOT}/src
+         export PYTHONPATH=${OPENPI_PROJECT_ROOT}:${OPENPI_PROJECT_ROOT}/src:${OPENPI_PROJECT_ROOT}/packages/openpi-client/src
+         ${MLFLOW_EXPORTS}
+         ${CHECKPOINT_EXPORT_EXPORTS}
 
          echo 'Container environment setup complete'
          echo 'Python version:' \$(python --version)
@@ -141,10 +201,13 @@ srun --container-image="${CONTAINER_IMAGE}" \
          # Run training
          # Note: Config name is passed as first positional argument (tyro convention)
          # Note: For boolean flags, use --no-FLAG to set False (tyro convention)
-         uv run scripts/train.py \\
+         # Note: the container venv is on a read-only squashfs mount, so uv run
+         # cannot re-sync the project. The interpreter on PATH is that venv.
+         # Note: exec replaces this shell so that SIGTERM from Slurm reaches Python.
+         exec python scripts/train.py \\
              ${CONFIG_NAME} \\
              --exp-name ${EXP_NAME} \\
-             --overwrite \\
+             ${CHECKPOINT_MODE_FLAG} \\
              --no-wandb-enabled
      "
 

@@ -82,6 +82,9 @@ To make changes, run `vim cdk.json` and edit using the command-line editor.
   "Lustre": {
     "S3Prefix": "",  // Specify the S3 bucket path for the Lustre link target if needed
     "FileSystemPath": "/s3link"  // The path on the node will be `/fsx/<value specified here>`
+  },
+  "Mlflow": {
+    "Enabled": false  // Set to true to create the MLflow App that tracks training runs
   }
 }
 ```
@@ -119,7 +122,11 @@ PASK.HyperPodClusterSecurityGroup = Security group used by the cluster
 PASK.HyperPodClusterSubnet = Subnet ID where the cluster is deployed
 PASK.HyperPodLifeCycleScriptBucketName = S3 bucket for lifecycle scripts
 PASK.HyperPodLoginGroupName = Login group name of the cluster
+PASK.MlflowAppArn = MLflow App ARN (the value for MLFLOW_TRACKING_URI; output only when Mlflow.Enabled is true)
+PASK.MlflowArtifactBucketName = S3 bucket name for MLflow artifacts (output only when Mlflow.Enabled is true)
 PASK.Region = Region where resources are deployed
+PASK.S3LinkMountPath = Lustre path on the nodes that is linked to S3
+PASK.S3LinkUri = S3 URI linked to the Lustre path
 ```
 
 To retrieve this information from the cluster, use the following command. (Replace the region and stack name with the ones you are actually using.)
@@ -127,6 +134,42 @@ To retrieve this information from the cluster, use the following command. (Repla
 ```bash
 export AWS_DEFAULT_REGION=us-east-1
 aws cloudformation describe-stacks --stack-name PASK --query "Stacks[0].Outputs"
+```
+
+The `cdk deploy` output above shows names such as `BucketDataBucketName`, but the CloudFormation `OutputKey` has a CDK logical ID suffix (for example `BucketDataBucketName8A747711` or `HyperPodClusterId538E5BBE`).
+To get a single value, match the `OutputKey` by prefix.
+
+```bash
+aws cloudformation describe-stacks --stack-name PASK \
+  --query "Stacks[0].Outputs[?starts_with(OutputKey, 'BucketDataBucketName')].OutputValue | [0]" --output text
+```
+
+`MlflowAppArn` and `MlflowArtifactBucketName` are outputs for the Amazon SageMaker AI MLflow App (`pask-mlflow`) that tracks training runs.
+The MLflow App and these outputs are created only when you deploy with `Mlflow.Enabled` set to `true` in `cdk.json`.
+The `setup.sh` scripts in the samples read these Outputs from the stack and set `MLFLOW_TRACKING_URI` and related variables.
+The cluster nodes connect to the MLflow App through the existing NAT Gateway, so the stack does not create VPC endpoints.
+To use it without internet access, add interface VPC endpoints for the MLflow App (`aws.sagemaker.<region>.mlflow`) and the SageMaker API.
+
+> [!NOTE]
+> The `MlflowArtifactBucketName` bucket is retained when you delete the stack, so that the tracked artifacts are kept.
+> If you no longer need it, empty the bucket and delete it manually.
+
+To check that the MLflow App is ready, run the following command. The app is ready when `Status` is `Created`.
+
+```bash
+MLFLOW_APP_ARN=$(aws cloudformation describe-stacks --stack-name PASK \
+  --query "Stacks[0].Outputs[?starts_with(OutputKey, 'MlflowAppArn')].OutputValue | [0]" --output text)
+aws sagemaker describe-mlflow-app --arn "$MLFLOW_APP_ARN" \
+  --query "{Name:Name,Status:Status,Version:MlflowVersion}"
+```
+
+To open the MLflow UI, open the URL returned by the following command in a browser.
+The URL opens the UI already signed in and expires after 300 seconds by default. If it expires, get a new one.
+Do not share the URL with others.
+
+```bash
+aws sagemaker create-presigned-mlflow-app-url --arn "$MLFLOW_APP_ARN" \
+  --query AuthorizedUrl --output text
 ```
 
 At this point, all the basic resources are ready.
@@ -270,6 +313,12 @@ cdk deploy
 ```
 
 On successful deployment, the worker nodes will become available.
+When `cdk deploy` finishes, the added nodes may still be starting (`Pending`). Before using them, check that they are `Running` with the following command.
+
+```bash
+aws sagemaker list-cluster-nodes --cluster-name pask-cluster \
+  --query "ClusterNodeSummaries[].[InstanceGroupName,InstanceType,InstanceStatus.Status]" --output text
+```
 
 If the deployment fails with an error similar to the following, it means the instances could not be allocated. Wait and try again later, or reserve the instances before deploying.
 
