@@ -296,14 +296,17 @@ Lifecycle script는 노드를 만들 때에만 실행되므로, 이미 만들어
     `SeparateLoginRole`이 `true`인 경우, 표시된 role 이름이 Outputs의 `HyperPodLoginExecutionRoleARN` role 이름과 같은지 확인합니다.
     `false`인 경우에는 `HyperPodClusterExecutionRoleARN` role 이름과 같은지 확인합니다.
 
-2. `setup.sh`에 `--poller-env`를 붙여 실행하고, 학습용 env file을 만듭니다.
+2. Login 노드의 home 디렉터리에 PASK repository를 clone하고, `setup.sh`에 `--poller-env`를 붙여 실행하여 학습용 env file을 만듭니다.
 
     ```bash
+    cd ~
+    git clone https://github.com/aws-samples/sample-physical-ai-scaffolding-kit.git
     cd ~/sample-physical-ai-scaffolding-kit/samples/lerobot-openpi/training
     bash setup.sh --hf-token "hf_xxxxx" --poller-env
     source ~/.bashrc
     ```
 
+    이미 clone한 경우에는 `git clone` 대신 `git -C ~/sample-physical-ai-scaffolding-kit pull`로 최신 상태로 만듭니다.
     `setup.sh`는 `~/.bashrc`에 쓰는 값과 같은 값을 전개한 뒤, `~/.config/pask/lerobot-openpi.env`(권한 0600)에 씁니다.
     `--hf-token` 등 다른 옵션은 [LeRobot을 사용한 pi0.5 학습](/samples/lerobot-openpi/docs/ko/lerobot_pi05_training.md)과 같습니다.
 
@@ -351,6 +354,11 @@ Lifecycle script에 의한 설치가 실패해도 노드 생성은 실패하지 
 학습에는 VAMS 데이터베이스 1개와 그 안의 아셋 2개를 사용합니다.
 파이프라인과 워크플로도 같은 데이터베이스에 등록하므로, 이 섹션을 먼저 마칩니다.
 
+이 섹션의 절차는 login 노드가 아닌 로컬 PC에서, "VamsCLI 준비"에서 만든 venv를 활성화한 shell에서 실행합니다.
+새 shell에서는 먼저 `source <VAMS repository>/tools/VamsCLI/.venv/bin/activate`로 venv를 활성화합니다.
+Venv를 활성화하면 `vamscli`는 어느 디렉터리에서든 실행할 수 있으며, `tools/VamsCLI`로 이동할 필요는 없습니다.
+`file upload`의 `--directory`에 상대 경로를 전달하면 현재 디렉터리를 기준으로 해석됩니다.
+
 1. 데이터베이스를 만듭니다.
 
     ```bash
@@ -363,19 +371,27 @@ Lifecycle script에 의한 설치가 실패해도 노드 생성은 실패하지 
 2. 입력 아셋을 만들고, LeRobot v3.0 데이터셋을 업로드합니다.
 
     ```bash
-    vamscli assets create -d "${DATABASE_ID}" --name "<데이터셋 이름>" --description "<설명>"
+    vamscli assets create -d "${DATABASE_ID}" --name "<데이터셋 이름>" --description "<설명>" --no-distributable
     vamscli file upload -d "${DATABASE_ID}" -a "<입력 아셋 ID>" --directory <데이터셋 디렉터리> --recursive
     ```
 
     아셋 ID는 `assets create`의 출력에 표시됩니다.
     `--directory`에는 `meta/info.json`을 바로 아래에 가진 디렉터리를 지정합니다.
+    일반적으로는 직접 준비한 LeRobot v3.0 데이터셋을 사용합니다.
+    바로 시험해 보려면 이 섹션 끝의 "샘플 데이터셋"에 있는 `lerobot/libero`를 사용할 수 있습니다.
 
 3. 학습된 model을 넣을 출력 아셋을 만듭니다.
     내용은 비워 둡니다.
 
     ```bash
-    vamscli assets create -d "${DATABASE_ID}" --name "<모델 이름>" --description "<설명>"
+    vamscli assets create -d "${DATABASE_ID}" --name "<모델 이름>" --description "<설명>" --distributable
     ```
+
+`assets create`에는 `--distributable`과 `--no-distributable` 중 하나가 필요합니다.
+`--distributable`을 붙인 아셋만 VAMS API(`vamscli assets download`나 Web 화면)에서 file을 download할 수 있습니다.
+Poller는 VAMS bucket을 S3에서 직접 읽으므로, 입력 아셋이 `--no-distributable`이어도 학습할 수 있습니다.
+출력 아셋은 학습된 model을 VAMS에서 download할 수 있도록 `--distributable`로 합니다.
+조직의 방침으로 download를 막는 경우에는 출력 아셋도 `--no-distributable`로 합니다.
 
 입력 아셋은 루트에 LeRobot 데이터셋을 가진 아셋으로 합니다.
 루트에 `meta/info.json`이 있고, 그 아래에 `meta/`, `data/`, `videos/` 등이 있는 형태입니다.
@@ -397,6 +413,23 @@ View의 해석 흐름은 [VAMS 연동 구조](/hyperpod/docs/ko/VAMS_INTEGRATION
 출력 아셋은 입력과 다른 아셋으로 합니다.
 Poller는 학습된 model file을 출력 아셋의 루트에 다시 기록합니다.
 출력 아셋을 입력과 같게 하면 model file이 데이터셋의 루트에 놓이고, 같은 아셋으로 다음에 학습할 때 데이터셋으로 복사되어 버립니다.
+
+### 샘플 데이터셋
+
+바로 시험해 보려면 Hugging Face Hub의 [`lerobot/libero`](https://huggingface.co/datasets/lerobot/libero)(LeRobot v3.0, Apache-2.0, 약 1.9 GB)를 입력 아셋으로 사용할 수 있습니다.
+[LeRobot을 사용한 pi0.5 학습](/samples/lerobot-openpi/docs/ko/lerobot_pi05_training.md)의 기본 데이터셋과 같습니다.
+로컬 PC에서 VamsCLI의 venv에 Hugging Face CLI(`hf`)를 설치하여 download하고, 2단계의 `--directory`에 전달합니다.
+
+```bash
+pip install -U huggingface_hub
+hf download lerobot/libero --repo-type dataset --local-dir ./libero
+rm -rf ./libero/.cache
+vamscli assets create -d "${DATABASE_ID}" --name "libero" --description "lerobot/libero (LeRobot v3.0)" --no-distributable
+vamscli file upload -d "${DATABASE_ID}" -a "<입력 아셋 ID>" --directory ./libero --recursive
+```
+
+`hf download`는 `--local-dir` 아래에 download 관리용 `.cache/`를 만듭니다.
+그대로 업로드하면 학습 job의 입력에도 복사되므로, 업로드 전에 삭제합니다.
 
 ## 파이프라인 등록
 

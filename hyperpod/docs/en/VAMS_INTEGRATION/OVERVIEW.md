@@ -294,14 +294,17 @@ Run the following steps by connecting to the login node via SSH as the ubuntu us
     If `SeparateLoginRole` is `true`, confirm that the role name shown is the same as the role name of `HyperPodLoginExecutionRoleARN` in the Outputs.
     If it is `false`, confirm that it is the same as the role name of `HyperPodClusterExecutionRoleARN`.
 
-2. Run `setup.sh` with `--poller-env` to create the env file for training.
+2. Clone the PASK repository into the home directory on the login node, and run `setup.sh` with `--poller-env` to create the env file for training.
 
     ```bash
+    cd ~
+    git clone https://github.com/aws-samples/sample-physical-ai-scaffolding-kit.git
     cd ~/sample-physical-ai-scaffolding-kit/samples/lerobot-openpi/training
     bash setup.sh --hf-token "hf_xxxxx" --poller-env
     source ~/.bashrc
     ```
 
+    If you have already cloned the repository, update it with `git -C ~/sample-physical-ai-scaffolding-kit pull` instead of `git clone`.
     `setup.sh` expands the same values that it writes to `~/.bashrc`, and then writes them to `~/.config/pask/lerobot-openpi.env` (permission 0600).
     Other options such as `--hf-token` are the same as in [Training pi0.5 with LeRobot](/samples/lerobot-openpi/docs/en/lerobot_pi05_training.md).
 
@@ -349,6 +352,11 @@ If the poller is not running on a new login node, redo steps 3 and 4.
 Training uses one VAMS database and two assets in it.
 Pipelines and workflows are also registered in the same database, so complete this section first.
 
+Run the steps in this section on your local PC, not on the login node, in a shell where the venv created in "Preparing VamsCLI" is activated.
+In a new shell, activate the venv first with `source <VAMS repository>/tools/VamsCLI/.venv/bin/activate`.
+While the venv is activated, `vamscli` runs from any directory, and you do not need to move to `tools/VamsCLI`.
+A relative path passed to `--directory` of `file upload` is resolved from the current directory.
+
 1. Create a database.
 
     ```bash
@@ -361,19 +369,27 @@ Pipelines and workflows are also registered in the same database, so complete th
 2. Create an input asset and upload a LeRobot v3.0 dataset.
 
     ```bash
-    vamscli assets create -d "${DATABASE_ID}" --name "<dataset name>" --description "<description>"
+    vamscli assets create -d "${DATABASE_ID}" --name "<dataset name>" --description "<description>" --no-distributable
     vamscli file upload -d "${DATABASE_ID}" -a "<input asset ID>" --directory <dataset directory> --recursive
     ```
 
     The asset ID is shown in the output of `assets create`.
     For `--directory`, specify the directory that directly contains `meta/info.json`.
+    Normally, you use a LeRobot v3.0 dataset that you prepared yourself.
+    To try the integration right away, you can use `lerobot/libero` described in "Sample Dataset" at the end of this section.
 
 3. Create an output asset into which the trained model is placed.
     Leave its contents empty.
 
     ```bash
-    vamscli assets create -d "${DATABASE_ID}" --name "<model name>" --description "<description>"
+    vamscli assets create -d "${DATABASE_ID}" --name "<model name>" --description "<description>" --distributable
     ```
+
+`assets create` requires either `--distributable` or `--no-distributable`.
+Only files of an asset created with `--distributable` can be downloaded through the VAMS API (`vamscli assets download` or the web UI).
+The poller reads the VAMS bucket directly from S3, so training works even if the input asset is `--no-distributable`.
+Make the output asset `--distributable` so that the trained model can be downloaded from VAMS.
+If your organization's policy prohibits downloads, make the output asset `--no-distributable` as well.
 
 The input asset is an asset whose root contains a LeRobot dataset.
 The root contains `meta/info.json`, and `meta/`, `data/`, `videos/`, and so on are under it.
@@ -395,6 +411,23 @@ The flow for resolving a view is described in the "How Curation Views Are Resolv
 The output asset must be a different asset from the input.
 The poller writes the trained model files back to the root of the output asset.
 If the output asset is the same as the input, the model files are placed at the dataset root, and the next training run on the same asset copies them as part of the dataset.
+
+### Sample Dataset
+
+To try the integration right away, you can use [`lerobot/libero`](https://huggingface.co/datasets/lerobot/libero) on the Hugging Face Hub (LeRobot v3.0, Apache-2.0, about 1.9 GB) as the input asset.
+It is the same dataset as the default dataset of [Training pi0.5 with LeRobot](/samples/lerobot-openpi/docs/en/lerobot_pi05_training.md).
+On your local PC, install the Hugging Face CLI (`hf`) into the VamsCLI venv, download the dataset, and pass it to `--directory` in step 2.
+
+```bash
+pip install -U huggingface_hub
+hf download lerobot/libero --repo-type dataset --local-dir ./libero
+rm -rf ./libero/.cache
+vamscli assets create -d "${DATABASE_ID}" --name "libero" --description "lerobot/libero (LeRobot v3.0)" --no-distributable
+vamscli file upload -d "${DATABASE_ID}" -a "<input asset ID>" --directory ./libero --recursive
+```
+
+`hf download` creates `.cache/` for download management under `--local-dir`.
+If you upload it as is, it is also copied to the input of the training job, so delete it before uploading.
 
 ## Registering the Pipeline
 

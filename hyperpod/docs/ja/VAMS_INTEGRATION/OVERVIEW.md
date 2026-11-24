@@ -294,14 +294,17 @@ DynamoDB のテーブルは、スタックを削除しても削除されませ�
     `SeparateLoginRole` が `true` の場合は、表示されるロールの名前が、Outputs の `HyperPodLoginExecutionRoleARN` のロールの名前と同じであることを確かめます。
     `false` の場合は、`HyperPodClusterExecutionRoleARN` のロールの名前と同じであることを確かめます。
 
-2. `setup.sh` に `--poller-env` を付けて実行し、学習用の env ファイルを作ります。
+2. login ノードのホームディレクトリに PASK のリポジトリを clone し、`setup.sh` に `--poller-env` を付けて実行して、学習用の env ファイルを作ります。
 
     ```bash
+    cd ~
+    git clone https://github.com/aws-samples/sample-physical-ai-scaffolding-kit.git
     cd ~/sample-physical-ai-scaffolding-kit/samples/lerobot-openpi/training
     bash setup.sh --hf-token "hf_xxxxx" --poller-env
     source ~/.bashrc
     ```
 
+    clone 済みの場合は、`git clone` の代わりに `git -C ~/sample-physical-ai-scaffolding-kit pull` で最新にします。
     `setup.sh` は、`~/.bashrc` に書く値と同じ値を、展開してから `~/.config/pask/lerobot-openpi.env`（権限 0600）に書きます。
     `--hf-token` などのほかのオプションは、[LeRobot での pi0.5 の学習](/samples/lerobot-openpi/docs/ja/lerobot_pi05_training.md) と同じです。
 
@@ -349,6 +352,11 @@ login ノードを作り直したときは、ライフサイクルスクリプ�
 学習には、VAMS のデータベースを 1 つと、その中のアセットを 2 つ使います。
 パイプラインとワークフローも同じデータベースに登録するので、この章を先に済ませます。
 
+この章の手順は、login ノードではなくローカル PC で、「VamsCLI の準備」で作った venv を有効にしたシェルで実行します。
+新しいシェルでは、先に `source <VAMS のリポジトリ>/tools/VamsCLI/.venv/bin/activate` で venv を有効にします。
+venv を有効にしていれば、`vamscli` はどのディレクトリからでも実行でき、`tools/VamsCLI` に移る必要はありません。
+`file upload` の `--directory` に相対パスを渡す場合は、カレントディレクトリからのパスになります。
+
 1. データベースを作ります。
 
     ```bash
@@ -361,19 +369,27 @@ login ノードを作り直したときは、ライフサイクルスクリプ�
 2. 入力のアセットを作り、LeRobot v3.0 のデータセットをアップロードします。
 
     ```bash
-    vamscli assets create -d "${DATABASE_ID}" --name "<データセットの名前>" --description "<説明>"
+    vamscli assets create -d "${DATABASE_ID}" --name "<データセットの名前>" --description "<説明>" --no-distributable
     vamscli file upload -d "${DATABASE_ID}" -a "<入力のアセットの ID>" --directory <データセットのディレクトリ> --recursive
     ```
 
     アセットの ID は、`assets create` の出力に表示されます。
     `--directory` には、`meta/info.json` を直下に持つディレクトリを指定します。
+    通常は、自分で用意した LeRobot v3.0 のデータセットを使います。
+    すぐに試す場合は、この章の末尾の「サンプルのデータセット」にある `lerobot/libero` を使えます。
 
 3. 学習済みモデルを入れる出力のアセットを作ります。
     中身は空のままにします。
 
     ```bash
-    vamscli assets create -d "${DATABASE_ID}" --name "<モデルの名前>" --description "<説明>"
+    vamscli assets create -d "${DATABASE_ID}" --name "<モデルの名前>" --description "<説明>" --distributable
     ```
+
+`assets create` には、`--distributable` か `--no-distributable` のどちらかが必要です。
+`--distributable` を付けたアセットだけが、VAMS の API（`vamscli assets download` や Web の画面）からファイルをダウンロードできます。
+ポーラーは VAMS のバケットを S3 から直接読むので、入力のアセットは `--no-distributable` でも学習できます。
+出力のアセットは、学習済みのモデルを VAMS からダウンロードできるように `--distributable` にします。
+組織の方針でダウンロードを止める場合は、出力のアセットも `--no-distributable` にします。
 
 入力のアセットは、ルートに LeRobot のデータセットを持つアセットにします。
 ルートに `meta/info.json` があり、`meta/`、`data/`、`videos/` などがその下にある形です。
@@ -395,6 +411,23 @@ VAMS に LeRobot Dataset Curation のパイプラインがある場合は、そ�
 出力のアセットは、入力とは別のアセットにします。
 ポーラーは学習済みのモデルのファイルを、出力のアセットのルートに書き戻します。
 出力のアセットを入力と同じにすると、モデルのファイルがデータセットのルートに置かれ、同じアセットで次に学習したときにデータセットとしてコピーされます。
+
+### サンプルのデータセット
+
+すぐに試すときは、Hugging Face Hub の [`lerobot/libero`](https://huggingface.co/datasets/lerobot/libero)（LeRobot v3.0、Apache-2.0、約 1.9 GB）を入力のアセットにできます。
+[LeRobot での pi0.5 の学習](/samples/lerobot-openpi/docs/ja/lerobot_pi05_training.md) の既定のデータセットと同じものです。
+ローカル PC で、VamsCLI の venv に Hugging Face の CLI（`hf`）を入れてダウンロードし、手順 2 の `--directory` に渡します。
+
+```bash
+pip install -U huggingface_hub
+hf download lerobot/libero --repo-type dataset --local-dir ./libero
+rm -rf ./libero/.cache
+vamscli assets create -d "${DATABASE_ID}" --name "libero" --description "lerobot/libero (LeRobot v3.0)" --no-distributable
+vamscli file upload -d "${DATABASE_ID}" -a "<入力のアセットの ID>" --directory ./libero --recursive
+```
+
+`hf download` は、`--local-dir` の下にダウンロードの管理用の `.cache/` を作ります。
+そのままアップロードすると学習ジョブの入力にもコピーされるので、アップロードの前に消します。
 
 ## パイプラインの登録
 
