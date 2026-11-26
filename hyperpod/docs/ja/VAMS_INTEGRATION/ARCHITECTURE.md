@@ -50,7 +50,7 @@ PASK が自分で記録するのは、hyperpod スタックに slurmdbd が無�
 実行が成功すると、利用者は次のものを受け取ります。
 
 - 出力のアセットに、`checkpoints/last/pretrained_model` 配下のファイル（重み、設定、前処理と後処理の設定）が入ります。optimizer の状態は入りません。
-- VAMS の実行の詳細の results に、`pask_training.json`（Slurm のジョブ ID、学習パラメータ、dataset digest、MLflow の run ID、入力の種類）が入ります。ビューの場合は、元のアセットと残したエピソードの数も入ります。
+- VAMS の実行の詳細の results に、`pask_training.json`（Slurm のジョブ ID、学習パラメータ、dataset digest、MLflow の run ID、入力の種類）が入ります。ビューの場合は、元のアセットと残したエピソードの数も入ります。同じ系譜（MLflow の run ID、Slurm のジョブ ID、入力、学習パラメータ）は、出力のアセットのメタデータにも書きます。
 - MLflow の run に、`pask.trigger=vams` と `vams.*` のタグ（VAMS の実行 ID、入力と出力のアセットなど）、入力のデータセット、入力のファイル一覧（artifact `vams/input_manifest.json`）が記録されます。ビューの場合は、元のアセットのタグ、ビューのマニフェスト（artifact `vams/curation_manifest.json`）、学習に使った正規化統計（artifact `vams/norm_stats.json`）も記録されます。
 
 VAMS で実行を中断すると、ポーラーは中断を検知してジョブを `scancel` します。

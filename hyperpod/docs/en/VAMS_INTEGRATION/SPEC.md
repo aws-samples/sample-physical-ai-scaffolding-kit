@@ -765,7 +765,8 @@ For `SUCCEEDED`, the poller writes back to the destinations in the `outputs` of 
 |---|---|
 | Prefix `outputs.files` in `outputs.bucket` | Files under `checkpoints/last/pretrained_model`. The part after the prefix is relative to `pretrained_model` |
 | `pask_training.json` under the prefix `outputs.results` in `outputs.bucket` | Summary of the training |
-| `outputs.previews`, `outputs.metadata` | Not used |
+| `asset.metadata.json` under the prefix `outputs.metadata` in `outputs.bucket` | Metadata of the output asset (the lineage of the training) |
+| `outputs.previews` | Not used |
 
 training_state (the optimizer state) is not returned.
 Each object to be written back is given a `ContentType` determined from its extension. If it cannot be determined from the extension, `application/octet-stream` is used.
@@ -807,6 +808,26 @@ If a limit is exceeded, the execution fails with `PASK.OutputUploadFailed` befor
 | `viewEpisodeCount` | Only for a view. Number of retained episodes (`view.episodeCount`) |
 
 These items are included so that the source asset can be traced from the VAMS execution details without looking at MLflow.
+
+The output asset also gets metadata from `asset.metadata.json` under the prefix `outputs.metadata`.
+VAMS reads the file by its reserved name `asset.metadata.json`, and `updateType` is `update`, so the keys are added and the other keys of the asset are kept.
+
+| Key | Type | Content |
+|---|---|---|
+| `pask_pipeline_execution_id` | string | `pipelineExecutionId` |
+| `pask_slurm_job_id` | string | Slurm job ID |
+| `pask_mlflow_run_id`, `pask_mlflow_experiment_id` | string | MLflow run ID and experiment ID |
+| `pask_training_parameters` | json | `parameters` of `pask_training.json` |
+| `pask_dataset_digest` | string | Dataset digest |
+| `pask_input_kind` | string | `view` or `dataset` |
+| `pask_input_asset` | json | `databaseId` and `assetId` of the input asset (`input` in `vams_context.json`). For a view, the view asset |
+| `pask_view_source` | json | Only for a view. Same as `viewSource` of `pask_training.json` |
+| `pask_view_episode_count` | number | Only for a view. Number of retained episodes |
+| `pask_started_at`, `pask_finished_at` | string | Start and end time of the job |
+
+A key whose value is not known is omitted.
+If `outputs.metadata` of the manifest is empty, `asset.metadata.json` is not written and the execution does not fail.
+The poller does not read MLflow, so the metadata has the IDs of the MLflow run but not the metrics such as the final loss. Look at the run in MLflow for them.
 
 A permanent failure of the write-back (such as exceeding a limit) rewrites `outcome` to `FAILED` (`PASK.OutputUploadFailed`) (`C(FINALIZING)`), and sends `SendTaskFailure`.
 A transient error is retried with backoff.

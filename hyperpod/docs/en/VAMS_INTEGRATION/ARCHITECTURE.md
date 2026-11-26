@@ -50,7 +50,7 @@ For either input, specifying a single file or a folder inside the asset is not a
 When the execution succeeds, users receive the following.
 
 - The output asset contains the files under `checkpoints/last/pretrained_model` (weights, configuration, and preprocessing and postprocessing settings). The optimizer state is not included.
-- The results of the VAMS execution details contain `pask_training.json` (Slurm job ID, training parameters, dataset digest, MLflow run ID, and input type). For a view, it also contains the original asset and the number of retained episodes.
+- The results of the VAMS execution details contain `pask_training.json` (Slurm job ID, training parameters, dataset digest, MLflow run ID, and input type). For a view, it also contains the original asset and the number of retained episodes. The same lineage (MLflow run ID, Slurm job ID, input, and training parameters) is also written to the metadata of the output asset.
 - The MLflow run records the tags `pask.trigger=vams` and `vams.*` (the VAMS execution ID, the input and output assets, and so on), the input dataset, and the list of input files (artifact `vams/input_manifest.json`). For a view, it also records the tags of the original asset, the view manifest (artifact `vams/curation_manifest.json`), and the normalization statistics used for training (artifact `vams/norm_stats.json`).
 
 When you abort an execution in VAMS, the poller detects the abort and `scancel`s the job.

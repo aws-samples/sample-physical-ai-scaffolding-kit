@@ -58,6 +58,12 @@ logger = logging.getLogger(__name__)
 CHECKPOINT_RELATIVE_PATH = os.path.join("checkpoints", "last", "pretrained_model")
 RESULTS_FILE_NAME = "pask_training.json"
 RESULTS_CONTENT_TYPE = "application/json"
+# Reserved basename that VAMS reads from ``outputs.metadata`` as the metadata of the output asset.
+ASSET_METADATA_FILE_NAME = "asset.metadata.json"
+ASSET_METADATA_KEY_PREFIX = "pask_"
+METADATA_TYPE_STRING = "string"
+METADATA_TYPE_NUMBER = "number"
+METADATA_TYPE_JSON = "json"
 DEFAULT_CONTENT_TYPE = "application/octet-stream"
 SLURM_ERR_TAIL_BYTES = 4096
 VIEW_SOURCE_REQUIRED_KEYS = ("databaseId", "assetId")
@@ -134,12 +140,34 @@ class _OutputPlan:
         files: ``(local path, S3 key)`` pairs under ``outputs.files``.
         results_key: S3 key of ``pask_training.json`` under ``outputs.results``.
         results_body: UTF-8 JSON of ``pask_training.json``.
+        metadata_key: S3 key of ``asset.metadata.json`` under ``outputs.metadata``, or None
+            when the manifest has no metadata prefix.
+        metadata_body: UTF-8 JSON of ``asset.metadata.json``, or None with ``metadata_key``.
     """
 
     bucket: str
     files: list[tuple[str, str]]
     results_key: str
     results_body: bytes = field(repr=False)
+    metadata_key: str | None = None
+    metadata_body: bytes | None = field(default=None, repr=False)
+
+
+@dataclass
+class _RunMarkers:
+    """The run directory files whose values are only reported.
+
+    Attributes:
+        started: ``job_started.json``, or an empty dict when it was not read.
+        finished: ``job_exit.json``, or an empty dict when it was not read.
+        context: ``vams_context.json``, or an empty dict when it was not read.
+        input_summary: ``_input_summary`` of ``context``.
+    """
+
+    started: dict[str, Any]
+    finished: dict[str, Any]
+    context: dict[str, Any]
+    input_summary: dict[str, Any]
 
 
 @dataclass
@@ -534,18 +562,31 @@ def _build_output_plan(item: ExecutionItem, ctx: PollerContext) -> _OutputPlan:
             ErrorName.OUTPUT_UPLOAD_FAILED,
             f"{len(files)} checkpoint files exceed the VAMS limit of {OUTPUT_FILES_LIMIT}",
         )
-    results_body = _build_results_body(item, parameters)
+    markers = _read_run_markers(item)
+    results_body = _build_results_body(item, parameters, markers)
     if len(results_body) > RESULTS_FILE_MAX_BYTES:
         raise PermanentFailure(
             ErrorName.OUTPUT_UPLOAD_FAILED,
             f"{RESULTS_FILE_NAME} has {len(results_body)} bytes, over {RESULTS_FILE_MAX_BYTES}",
         )
-    return _OutputPlan(
+    plan = _OutputPlan(
         bucket=outputs["bucket"],
         files=files,
         results_key=_join_key(outputs["results"], RESULTS_FILE_NAME),
         results_body=results_body,
     )
+    # The metadata only records where the model came from, so a manifest without a metadata
+    # prefix still gets its model and training summary. VAMS always sets the prefix.
+    if outputs["metadata"]:
+        plan.metadata_key = _join_key(outputs["metadata"], ASSET_METADATA_FILE_NAME)
+        plan.metadata_body = _build_asset_metadata_body(item, parameters, markers)
+    else:
+        logger.warning(
+            "manifest outputs.metadata of %s is empty, so %s is not written",
+            item.pipelineExecutionId,
+            ASSET_METADATA_FILE_NAME,
+        )
+    return plan
 
 
 def _list_checkpoint_files(checkpoint_dir: str) -> list[tuple[str, str]]:
@@ -597,32 +638,139 @@ def _join_key(prefix: str, relative_path: str) -> str:
     return f"{prefix.rstrip('/')}/{relative_path}"
 
 
-def _build_results_body(item: ExecutionItem, parameters: dict[str, str]) -> bytes:
+def _read_run_markers(item: ExecutionItem) -> _RunMarkers:
+    """Read the run directory files that are only reported.
+
+    Args:
+        item: FINALIZING execution with a SUCCEEDED outcome.
+
+    Returns:
+        The files. A missing or malformed file is logged and read as an empty dict.
+    """
+    context = _read_optional_marker(os.path.join(item.runDir, VAMS_CONTEXT_FILE))
+    return _RunMarkers(
+        started=_read_optional_marker(os.path.join(item.runDir, JOB_STARTED_FILE)),
+        finished=_read_optional_marker(os.path.join(item.runDir, JOB_EXIT_FILE)),
+        context=context,
+        input_summary=_input_summary(context),
+    )
+
+
+def _build_results_body(
+    item: ExecutionItem, parameters: dict[str, str], markers: _RunMarkers
+) -> bytes:
     """Build ``pask_training.json``.
 
     Args:
         item: FINALIZING execution with a SUCCEEDED outcome.
         parameters: Training parameters that passed the allow list.
+        markers: Run directory files.
 
     Returns:
         The UTF-8 JSON.
     """
-    started = _read_optional_marker(os.path.join(item.runDir, JOB_STARTED_FILE))
-    finished = _read_optional_marker(os.path.join(item.runDir, JOB_EXIT_FILE))
-    context = _read_optional_marker(os.path.join(item.runDir, VAMS_CONTEXT_FILE))
     summary = {
         "pipelineExecutionId": item.pipelineExecutionId,
         "slurmJobId": item.slurmJobId,
         "parameters": parameters,
-        "datasetDigest": context.get("datasetDigest"),
-        **_input_summary(context),
+        "datasetDigest": markers.context.get("datasetDigest"),
+        **markers.input_summary,
         "mlflowRunId": item.mlflowRunId,
         "mlflowExperimentId": item.mlflowExperimentId,
-        "startedAt": started.get("startedAt"),
-        "finishedAt": finished.get("finishedAt"),
+        "startedAt": markers.started.get("startedAt"),
+        "finishedAt": markers.finished.get("finishedAt"),
         "status": item.outcome["status"],
     }
     return json.dumps(summary, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def _build_asset_metadata_body(
+    item: ExecutionItem, parameters: dict[str, str], markers: _RunMarkers
+) -> bytes:
+    """Build ``asset.metadata.json``, the metadata that VAMS puts on the output asset.
+
+    The keys carry the lineage of the model: the MLflow run, the Slurm job, the training
+    input, and the training parameters. A value that is not known is left out, so no key
+    holds an empty or ``null`` value.
+
+    Args:
+        item: FINALIZING execution with a SUCCEEDED outcome.
+        parameters: Training parameters that passed the allow list.
+        markers: Run directory files.
+
+    Returns:
+        The UTF-8 JSON in the format that VAMS reads from ``outputs.metadata``.
+    """
+    context = markers.context
+    input_summary = markers.input_summary
+    input_info = context.get("input")
+    input_asset = (
+        {key: input_info[key] for key in VIEW_SOURCE_REQUIRED_KEYS if key in input_info}
+        if isinstance(input_info, dict)
+        else {}
+    )
+    candidates: list[tuple[str, str, Any]] = [
+        ("pipeline_execution_id", METADATA_TYPE_STRING, item.pipelineExecutionId),
+        ("slurm_job_id", METADATA_TYPE_STRING, item.slurmJobId),
+        ("mlflow_run_id", METADATA_TYPE_STRING, item.mlflowRunId),
+        ("mlflow_experiment_id", METADATA_TYPE_STRING, item.mlflowExperimentId),
+        ("training_parameters", METADATA_TYPE_JSON, parameters),
+        ("dataset_digest", METADATA_TYPE_STRING, context.get("datasetDigest")),
+        ("input_kind", METADATA_TYPE_STRING, input_summary.get("inputKind")),
+        (
+            "input_asset",
+            METADATA_TYPE_JSON,
+            input_asset if set(input_asset) == set(VIEW_SOURCE_REQUIRED_KEYS) else None,
+        ),
+        ("view_source", METADATA_TYPE_JSON, input_summary.get("viewSource")),
+        ("view_episode_count", METADATA_TYPE_NUMBER, input_summary.get("viewEpisodeCount")),
+        ("started_at", METADATA_TYPE_STRING, markers.started.get("startedAt")),
+        ("finished_at", METADATA_TYPE_STRING, markers.finished.get("finishedAt")),
+    ]
+    entries = [
+        {
+            "metadataKey": f"{ASSET_METADATA_KEY_PREFIX}{name}",
+            "metadataValue": _metadata_value_text(value_type, value),
+            "metadataValueType": value_type,
+        }
+        for name, value_type, value in candidates
+        if _is_known_metadata_value(value_type, value)
+    ]
+    document = {"type": "metadata", "updateType": "update", "metadata": entries}
+    return json.dumps(document, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def _is_known_metadata_value(value_type: str, value: Any) -> bool:
+    """Tell whether a metadata candidate has a value that VAMS accepts for its type.
+
+    Args:
+        value_type: ``string``, ``number``, or ``json``.
+        value: The value read from the run, possibly missing or of an unexpected shape.
+
+    Returns:
+        True when the value is a non-empty string, a non-empty object for ``json``, or an
+        integer (not a bool) for ``number``.
+    """
+    if value_type == METADATA_TYPE_NUMBER:
+        return isinstance(value, int) and not isinstance(value, bool)
+    if value_type == METADATA_TYPE_JSON:
+        return isinstance(value, dict) and bool(value)
+    return isinstance(value, str) and bool(value)
+
+
+def _metadata_value_text(value_type: str, value: Any) -> str:
+    """Render a metadata value as the string that ``metadataValue`` holds.
+
+    Args:
+        value_type: ``string``, ``number``, or ``json``.
+        value: A value that passed ``_is_known_metadata_value``.
+
+    Returns:
+        The JSON text for ``json``, otherwise ``str(value)``.
+    """
+    if value_type == METADATA_TYPE_JSON:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return str(value)
 
 
 def _input_summary(context: dict[str, Any]) -> dict[str, Any]:
@@ -728,8 +876,15 @@ def _upload_outputs(holder: _ItemHolder, ctx: PollerContext, plan: _OutputPlan) 
             _upload_file(ctx, local_path, plan.bucket, key)
             written.append(key)
         if not keepalive.should_stop.is_set():
-            _put_results(ctx, plan)
+            _put_json(ctx, plan.bucket, plan.results_key, plan.results_body)
             written.append(plan.results_key)
+        if (
+            plan.metadata_key is not None
+            and plan.metadata_body is not None
+            and not keepalive.should_stop.is_set()
+        ):
+            _put_json(ctx, plan.bucket, plan.metadata_key, plan.metadata_body)
+            written.append(plan.metadata_key)
     if holder.closed_token is not None:
         ctx.store.to_abort_suspected(holder.item, holder.closed_token)
         logger.warning(
@@ -788,26 +943,23 @@ def _upload_file(ctx: PollerContext, local_path: str, bucket: str, key: str) -> 
         _raise_for_s3_error(error, error, key)
 
 
-def _put_results(ctx: PollerContext, plan: _OutputPlan) -> None:
-    """Write ``pask_training.json`` to ``outputs.results``.
+def _put_json(ctx: PollerContext, bucket: str, key: str, body: bytes) -> None:
+    """Write one JSON object that VAMS reads from the pipeline outputs.
 
     Args:
         ctx: Poller dependencies.
-        plan: Plan with the results key and body.
+        bucket: Output bucket.
+        key: Output key.
+        body: UTF-8 JSON.
 
     Raises:
         PermanentFailure: S3 denied the write.
         TransientError: Any other S3 or connection error.
     """
     try:
-        ctx.s3.put_object(
-            Bucket=plan.bucket,
-            Key=plan.results_key,
-            Body=plan.results_body,
-            ContentType=RESULTS_CONTENT_TYPE,
-        )
+        ctx.s3.put_object(Bucket=bucket, Key=key, Body=body, ContentType=RESULTS_CONTENT_TYPE)
     except (ClientError, ConnectionError, HTTPClientError) as error:
-        _raise_for_s3_error(error, error, plan.results_key)
+        _raise_for_s3_error(error, error, key)
 
 
 def _raise_for_s3_error(error: Exception, cause: BaseException | None, key: str) -> None:

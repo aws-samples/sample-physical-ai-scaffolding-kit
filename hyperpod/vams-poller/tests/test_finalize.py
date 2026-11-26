@@ -46,6 +46,8 @@ MANIFEST_KEY = "pipelines/pask-train/wfx1/manifest.json"
 CONFIG_KEY = "pipelines/pask-train/wfx1/config.json"
 FILES_PREFIX = "pipelines/pask-train/wfx1/output/files/"
 RESULTS_PREFIX = "pipelines/pask-train/wfx1/output/results/"
+METADATA_PREFIX = "pipelines/pask-train/wfx1/output/metadata/"
+ASSET_METADATA_KEY = f"{METADATA_PREFIX}asset.metadata.json"
 TRAINING_PARAMS = {"POLICY_TYPE": "pi05", "STEPS": 3000}
 SUCCEEDED_OUTCOME = {"status": "SUCCEEDED"}
 DATASET_DIGEST = "sha256:" + "ab" * 32
@@ -175,7 +177,7 @@ def vams_bucket(s3_client: Any) -> str:
             "bucket": VAMS_BUCKET,
             "files": FILES_PREFIX,
             "previews": "pipelines/pask-train/wfx1/output/previews/",
-            "metadata": "pipelines/pask-train/wfx1/output/metadata/",
+            "metadata": METADATA_PREFIX,
             "results": RESULTS_PREFIX,
         },
         "outputTarget": {"locationType": "asset", "assetId": "a1", "databaseId": "db1"},
@@ -537,6 +539,7 @@ def test_finalizing_writes_back_and_reports_success(
     assert _list_keys(s3_client, VAMS_BUCKET, RESULTS_PREFIX) == [
         f"{RESULTS_PREFIX}pask_training.json"
     ]
+    assert _list_keys(s3_client, VAMS_BUCKET, METADATA_PREFIX) == [ASSET_METADATA_KEY]
     model_head = s3_client.head_object(Bucket=VAMS_BUCKET, Key=f"{FILES_PREFIX}model.safetensors")
     config_head = s3_client.head_object(Bucket=VAMS_BUCKET, Key=f"{FILES_PREFIX}config.json")
     assert model_head["ContentType"] == "application/octet-stream"
@@ -563,7 +566,11 @@ def test_finalizing_writes_back_and_reports_success(
     assert item.state is State.SUCCEEDED
     assert item.notifyResult == "ACCEPTED"
     assert item.pending == PENDING_CLEANUP
-    assert item.outputs == [*expected_files, f"{RESULTS_PREFIX}pask_training.json"]
+    assert item.outputs == [
+        *expected_files,
+        f"{RESULTS_PREFIX}pask_training.json",
+        ASSET_METADATA_KEY,
+    ]
     assert all("training_state" not in key for key in item.outputs)
     assert sfn.outcome_calls() == [
         ("success", TOKEN, {"status": "SUCCEEDED", "slurmJobId": JOB_ID, "mlflowRunId": "run-1"})
@@ -728,6 +735,125 @@ def test_results_without_vams_context_report_null_input_kind(
     assert results["datasetDigest"] is None
     assert "viewSource" not in results
     assert "viewEpisodeCount" not in results
+
+
+def _read_asset_metadata(s3_client: Any) -> dict[str, Any]:
+    """Read ``asset.metadata.json`` and return the entries by key with the file envelope checked."""
+    metadata_object = s3_client.get_object(Bucket=VAMS_BUCKET, Key=ASSET_METADATA_KEY)
+    assert metadata_object["ContentType"] == "application/json"
+    document = json.loads(metadata_object["Body"].read())
+    assert document["type"] == "metadata"
+    assert document["updateType"] == "update"
+    entries = {entry["metadataKey"]: entry for entry in document["metadata"]}
+    assert len(entries) == len(document["metadata"])
+    return entries
+
+
+def test_asset_metadata_of_a_dataset_records_the_training_lineage(
+    ctx: PollerContext,
+    put_item: Callable[..., None],
+    s3_client: Any,
+    run_path: Path,
+    output_path: Path,
+) -> None:
+    _finalize_and_read_results(
+        ctx,
+        put_item,
+        s3_client,
+        run_path,
+        output_path,
+        {"schemaVersion": 1, "datasetDigest": DATASET_DIGEST},
+    )
+
+    entries = _read_asset_metadata(s3_client)
+    assert {key: (e["metadataValueType"], e["metadataValue"]) for key, e in entries.items()} == {
+        "pask_pipeline_execution_id": ("string", PID),
+        "pask_slurm_job_id": ("string", JOB_ID),
+        "pask_mlflow_run_id": ("string", "run-1"),
+        "pask_mlflow_experiment_id": ("string", "7"),
+        "pask_training_parameters": (
+            "json",
+            json.dumps({"POLICY_TYPE": "pi05", "STEPS": "3000"}, sort_keys=True),
+        ),
+        "pask_dataset_digest": ("string", DATASET_DIGEST),
+        "pask_input_kind": ("string", "dataset"),
+        "pask_started_at": ("string", "2026-09-21T10:00:00Z"),
+        "pask_finished_at": ("string", "2026-09-21T12:00:00Z"),
+    }
+
+
+def test_asset_metadata_of_a_view_records_the_input_asset_and_the_source(
+    ctx: PollerContext,
+    put_item: Callable[..., None],
+    s3_client: Any,
+    run_path: Path,
+    output_path: Path,
+) -> None:
+    source = {"databaseId": "db-src", "assetId": "asset-src", "assetVersion": "1"}
+    _finalize_and_read_results(
+        ctx, put_item, s3_client, run_path, output_path, _view_context(source)
+    )
+
+    entries = _read_asset_metadata(s3_client)
+    assert entries["pask_input_kind"]["metadataValue"] == "view"
+    assert json.loads(entries["pask_input_asset"]["metadataValue"]) == {
+        "databaseId": "db1",
+        "assetId": "asset-view",
+    }
+    assert entries["pask_input_asset"]["metadataValueType"] == "json"
+    assert json.loads(entries["pask_view_source"]["metadataValue"]) == source
+    assert entries["pask_view_episode_count"]["metadataValue"] == "12"
+    assert entries["pask_view_episode_count"]["metadataValueType"] == "number"
+
+
+def test_asset_metadata_leaves_out_values_that_are_not_known(
+    ctx: PollerContext,
+    put_item: Callable[..., None],
+    s3_client: Any,
+    run_path: Path,
+    output_path: Path,
+) -> None:
+    put_item(State.FINALIZING, outcome=SUCCEEDED_OUTCOME)
+    _finish_job(run_path, 0)
+    (run_path / "vams_context.json").unlink()
+    _write_checkpoint(output_path)
+
+    process_finalizing(_get(ctx.store), ctx)
+
+    assert _get(ctx.store).state is State.SUCCEEDED
+    entries = _read_asset_metadata(s3_client)
+    assert set(entries) == {
+        "pask_pipeline_execution_id",
+        "pask_slurm_job_id",
+        "pask_training_parameters",
+        "pask_started_at",
+        "pask_finished_at",
+    }
+    assert all(entry["metadataValue"] for entry in entries.values())
+
+
+def test_empty_metadata_prefix_skips_the_asset_metadata_and_still_succeeds(
+    ctx: PollerContext,
+    put_item: Callable[..., None],
+    s3_client: Any,
+    run_path: Path,
+    output_path: Path,
+) -> None:
+    manifest = json.loads(s3_client.get_object(Bucket=VAMS_BUCKET, Key=MANIFEST_KEY)["Body"].read())
+    manifest["outputs"]["metadata"] = ""
+    s3_client.put_object(Bucket=VAMS_BUCKET, Key=MANIFEST_KEY, Body=json.dumps(manifest))
+    put_item(State.FINALIZING, outcome=SUCCEEDED_OUTCOME)
+    _finish_job(run_path, 0)
+    _write_checkpoint(output_path)
+
+    process_finalizing(_get(ctx.store), ctx)
+
+    item = _get(ctx.store)
+    assert item.state is State.SUCCEEDED
+    assert _list_keys(s3_client, VAMS_BUCKET, METADATA_PREFIX) == []
+    assert item.outputs is not None
+    assert f"{RESULTS_PREFIX}pask_training.json" in item.outputs
+    assert not any(key.endswith("asset.metadata.json") for key in item.outputs)
 
 
 def test_too_many_files_fail_with_output_upload_failed(

@@ -52,7 +52,7 @@ PASK가 이것을 직접 기록하는 이유는 hyperpod stack에 slurmdbd가 �
 실행이 성공하면 사용자는 다음을 받습니다.
 
 - 출력 asset에 `checkpoints/last/pretrained_model` 아래의 파일(가중치, 설정, 전처리와 후처리 설정)이 들어갑니다. optimizer 상태는 들어가지 않습니다.
-- VAMS 실행 상세의 results에 `pask_training.json`(Slurm job ID, 학습 파라미터, dataset digest, MLflow run ID, 입력 종류)이 들어갑니다. view인 경우에는 원본 asset과 남긴 episode 수도 들어갑니다.
+- VAMS 실행 상세의 results에 `pask_training.json`(Slurm job ID, 학습 파라미터, dataset digest, MLflow run ID, 입력 종류)이 들어갑니다. view인 경우에는 원본 asset과 남긴 episode 수도 들어갑니다. 같은 계보(MLflow run ID, Slurm job ID, 입력, 학습 파라미터)는 출력 asset의 메타데이터에도 씁니다.
 - MLflow run에 `pask.trigger=vams`와 `vams.*` tag(VAMS 실행 ID, 입력과 출력 asset 등), 입력 dataset, 입력 파일 목록(artifact `vams/input_manifest.json`)이 기록됩니다. view인 경우에는 원본 asset의 tag, view manifest(artifact `vams/curation_manifest.json`), 학습에 사용한 정규화 통계(artifact `vams/norm_stats.json`)도 기록됩니다.
 
 VAMS에서 실행을 중단하면, poller는 중단을 감지하고 job을 `scancel`합니다.

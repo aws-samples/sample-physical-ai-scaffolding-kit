@@ -767,7 +767,8 @@ job이 `squeue --name`에서 사라지면, poller는 실행 디렉터리의 `job
 |---|---|
 | `outputs.bucket`의 `outputs.files` prefix | `checkpoints/last/pretrained_model` 아래의 파일. prefix 뒤는 `pretrained_model`로부터의 상대 경로 |
 | `outputs.bucket`의 `outputs.results` prefix 아래 `pask_training.json` | 학습 요약 |
-| `outputs.previews`, `outputs.metadata` | 사용하지 않습니다 |
+| `outputs.bucket`의 `outputs.metadata` 프리픽스에 있는 `asset.metadata.json` | 출력 asset의 메타데이터(학습의 계보) |
+| `outputs.previews` | 사용하지 않습니다 |
 
 training_state(optimizer의 상태)는 반환하지 않습니다.
 write-back하는 객체에는 확장자로 결정한 `ContentType`을 붙이고, 확장자로 결정할 수 없으면 `application/octet-stream`으로 합니다.
@@ -809,6 +810,26 @@ VAMS가 가져올 수 있는 출력에는 다음 상한이 있습니다.
 | `viewEpisodeCount` | view인 경우에만. 남긴 에피소드의 수(`view.episodeCount`) |
 
 MLflow를 보지 않고도 VAMS 실행의 상세에서 원래 asset을 추적할 수 있도록, 이 항목들을 넣습니다.
+
+출력 asset에는 `outputs.metadata` 프리픽스에 두는 `asset.metadata.json`에서 다음 메타데이터도 붙습니다.
+VAMS는 예약된 이름 `asset.metadata.json`으로 이 파일을 읽습니다. `updateType`은 `update`이므로 키를 추가할 뿐이며, asset의 다른 키는 남습니다.
+
+| 키 | 타입 | 내용 |
+|---|---|---|
+| `pask_pipeline_execution_id` | string | `pipelineExecutionId` |
+| `pask_slurm_job_id` | string | Slurm job ID |
+| `pask_mlflow_run_id`, `pask_mlflow_experiment_id` | string | MLflow run ID와 experiment ID |
+| `pask_training_parameters` | json | `pask_training.json`의 `parameters` |
+| `pask_dataset_digest` | string | dataset digest |
+| `pask_input_kind` | string | `view` 또는 `dataset` |
+| `pask_input_asset` | json | 입력 asset의 `databaseId`와 `assetId`(`vams_context.json`의 `input`). view인 경우에는 view asset |
+| `pask_view_source` | json | view인 경우에만. `pask_training.json`의 `viewSource`와 같음 |
+| `pask_view_episode_count` | number | view인 경우에만. 남긴 에피소드의 수 |
+| `pask_started_at`, `pask_finished_at` | string | job의 시작 시각과 종료 시각 |
+
+값을 알 수 없는 키는 생략합니다.
+manifest의 `outputs.metadata`가 비어 있으면 `asset.metadata.json`을 쓰지 않으며, 실행도 실패시키지 않습니다.
+poller는 MLflow를 읽지 않으므로 메타데이터에 들어가는 것은 MLflow run의 ID까지이며, 최종 loss 같은 메트릭은 들어가지 않습니다. 메트릭은 MLflow에서 run을 확인하십시오.
 
 write-back의 영구적인 실패(상한 초과 등)는 `outcome`을 `FAILED`(`PASK.OutputUploadFailed`)로 다시 쓰고(`C(FINALIZING)`), `SendTaskFailure`를 보냅니다.
 일시적인 오류는 백오프 후 재시도합니다.

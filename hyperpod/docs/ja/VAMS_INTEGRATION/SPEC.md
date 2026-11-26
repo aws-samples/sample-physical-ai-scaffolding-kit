@@ -767,7 +767,8 @@ VAMS の taskTimeout を過ぎた場合も、heartbeat が `TaskTimedOut` を返
 |---|---|
 | `outputs.bucket` の `outputs.files` の prefix | `checkpoints/last/pretrained_model` 配下のファイル。prefix の後ろは `pretrained_model` からの相対パス |
 | `outputs.bucket` の `outputs.results` の prefix の `pask_training.json` | 学習の要約 |
-| `outputs.previews`、`outputs.metadata` | 使いません |
+| `outputs.bucket` の `outputs.metadata` のプレフィックスにある `asset.metadata.json` | 出力のアセットのメタデータ（学習の系譜） |
+| `outputs.previews` | 使いません |
 
 training_state（optimizer の状態）は返しません。
 書き戻すオブジェクトには、拡張子から決めた `ContentType` を付け、拡張子から決められなければ `application/octet-stream` にします。
@@ -809,6 +810,26 @@ VAMS が取り込める出力には次の上限があります。
 | `viewEpisodeCount` | ビューのときだけ。残したエピソードの数（`view.episodeCount`） |
 
 MLflow を見なくても、VAMS の実行の詳細から元のアセットを辿れるように、これらの項目を入れます。
+
+出力のアセットには、`outputs.metadata` のプレフィックスに置く `asset.metadata.json` から、次のメタデータも付きます。
+VAMS は予約された名前 `asset.metadata.json` でこのファイルを読みます。`updateType` は `update` なので、キーを足すだけで、アセットのほかのキーは残ります。
+
+| キー | 型 | 内容 |
+|---|---|---|
+| `pask_pipeline_execution_id` | string | `pipelineExecutionId` |
+| `pask_slurm_job_id` | string | Slurm のジョブ ID |
+| `pask_mlflow_run_id`、`pask_mlflow_experiment_id` | string | MLflow の run ID と experiment ID |
+| `pask_training_parameters` | json | `pask_training.json` の `parameters` |
+| `pask_dataset_digest` | string | dataset digest |
+| `pask_input_kind` | string | `view` か `dataset` |
+| `pask_input_asset` | json | 入力のアセットの `databaseId` と `assetId`（`vams_context.json` の `input`）。ビューの場合はビューのアセット |
+| `pask_view_source` | json | ビューのときだけ。`pask_training.json` の `viewSource` と同じ |
+| `pask_view_episode_count` | number | ビューのときだけ。残したエピソードの数 |
+| `pask_started_at`、`pask_finished_at` | string | ジョブの開始と終了の時刻 |
+
+値が分からないキーは省きます。
+manifest の `outputs.metadata` が空の場合は、`asset.metadata.json` を書かず、実行も失敗にしません。
+ポーラーは MLflow を読まないので、メタデータに入るのは MLflow の run の ID までで、最終の loss などのメトリクスは入りません。メトリクスは MLflow で run を見てください。
 
 書き戻しの恒久的な失敗（上限の超過など）は、`outcome` を `FAILED`（`PASK.OutputUploadFailed`）に書き換え（`C(FINALIZING)`）、`SendTaskFailure` にします。
 一時的なエラーはバックオフしてリトライします。
