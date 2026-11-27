@@ -19,6 +19,8 @@
 # The #SBATCH values above target ml.g6.2xlarge (1x NVIDIA L4 24 GB, 8 vCPU, 32 GiB).
 # Override them on the sbatch command line for other instance types, e.g.:
 #   sbatch --cpus-per-task=16 --mem=60G slurm_train.sh my_job
+# --output and --error can be overridden the same way, e.g.:
+#   sbatch --output=/path/to/slurm_%j.out --error=/path/to/slurm_%j.err slurm_train.sh my_job
 #
 # Usage (run from the training/ directory):
 #   sbatch slurm_train.sh [JOB_NAME]
@@ -58,10 +60,86 @@
 #   MLFLOW_ADAPTER_MAX_MB  Maximum adapter size in MB to upload as an artifact (default: 200)
 #   MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL  System metrics interval in seconds (default: 10)
 #
+# Environment Variables set by the VAMS poller (leave unset for manual runs):
+#   VAMS_RUN_DIR      Run directory of the VAMS execution. When set, this script writes
+#                     the marker files below to it, and for POLICY_TYPE=pi05 recomputes the
+#                     q01/q99 statistics of the dataset before training when they are missing.
+#                     The recomputation is skipped when VAMS_VIEW_MANIFEST_FILE is set
+#   VAMS_CONTEXT_FILE Path to vams_context.json, passed to mlflow_train.py to record the
+#                     VAMS provenance. Requires MLFLOW_TRACKING_URI; the job fails without it
+#   VAMS_VIEW_MANIFEST_FILE  Path to curation_manifest.json of a VAMS curation view. When
+#                     set, the normalization statistics of the kept episodes are computed
+#                     into ${DATASET_ROOT}/meta/stats.json before training, the pi05 quantile
+#                     recomputation is skipped, and the variable is passed to the
+#                     container. Requires VAMS_CONTEXT_FILE, from which mlflow_train.py
+#                     selects the kept episodes
+#
+# Marker files written to ${VAMS_RUN_DIR} (JSON, written to a temporary file and renamed):
+#   job_started.json  {"slurmJobId": "<id>", "startedAt": "<UTC ISO 8601>", "hostname": "<host>"}
+#                     written before the environment check
+#   job_exit.json     {"slurmJobId": "<id>", "exitCode": <int>, "finishedAt": "<UTC ISO 8601>"}
+#                     written by an EXIT trap, also when the script stops on an error
+#
 # The learning rate is not passed; the LeRobot policy preset is used.
 # ================================================
 
 set -e
+
+utc_now() {
+    date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+# Writes $2 to $1 through a temporary file in the same directory, so that a
+# reader never sees a partially written file. Every step is checked explicitly
+# because errexit is ignored when this runs inside an if condition (the EXIT trap).
+write_file_atomically() {
+    local target_path="$1"
+    local content="$2"
+    local temp_path
+    temp_path="$(mktemp "${target_path}.tmp.XXXXXX")" || return 1
+    printf '%s\n' "${content}" > "${temp_path}" || { rm -f "${temp_path}"; return 1; }
+    mv -f "${temp_path}" "${target_path}" || { rm -f "${temp_path}"; return 1; }
+}
+
+write_job_started_marker() {
+    local marker_json
+    marker_json="$(python3 -c '
+import json, sys
+print(json.dumps({"slurmJobId": sys.argv[1], "startedAt": sys.argv[2], "hostname": sys.argv[3]}))
+' "${SLURM_JOB_ID}" "$(utc_now)" "$(hostname)")" || return 1
+    write_file_atomically "${VAMS_RUN_DIR}/job_started.json" "${marker_json}"
+}
+
+# shellcheck disable=SC2329 # Invoked from the EXIT trap handler.
+write_job_exit_marker() {
+    local exit_code="$1"
+    local marker_json
+    marker_json="$(python3 -c '
+import json, sys
+print(json.dumps({"slurmJobId": sys.argv[1], "exitCode": int(sys.argv[2]), "finishedAt": sys.argv[3]}))
+' "${SLURM_JOB_ID}" "${exit_code}" "$(utc_now)")" || return 1
+    write_file_atomically "${VAMS_RUN_DIR}/job_exit.json" "${marker_json}"
+}
+
+# EXIT trap: records the exit code of the script for the VAMS poller and keeps it
+# as the exit code of the job.
+# shellcheck disable=SC2329 # Invoked by the EXIT trap.
+on_vams_job_exit() {
+    local exit_code=$?
+    if ! write_job_exit_marker "${exit_code}"; then
+        echo "ERROR: Failed to write ${VAMS_RUN_DIR}/job_exit.json" >&2
+    fi
+    exit "${exit_code}"
+}
+
+if [ -n "${VAMS_RUN_DIR:-}" ]; then
+    if [ ! -d "${VAMS_RUN_DIR}" ]; then
+        echo "ERROR: VAMS_RUN_DIR is not a directory: ${VAMS_RUN_DIR}"
+        exit 1
+    fi
+    trap on_vams_job_exit EXIT
+    write_job_started_marker
+fi
 
 JOB_NAME="${1:-${JOB_NAME:-pi05_lora_$(date +%Y%m%d_%H%M%S)}}"
 
@@ -180,6 +258,38 @@ elif [ -e "${OUTPUT_DIR}" ]; then
     exit 1
 fi
 
+# A VAMS run must be recorded to MLflow with its provenance, so it never falls
+# back to an untracked run.
+if [ -n "${VAMS_CONTEXT_FILE:-}" ]; then
+    if [ -z "${MLFLOW_TRACKING_URI}" ]; then
+        echo "ERROR: VAMS_CONTEXT_FILE is set but MLFLOW_TRACKING_URI is not set"
+        echo "A VAMS run requires MLflow tracking. Run setup.sh without --no-mlflow and submit again"
+        exit 1
+    fi
+    if [ ! -f "${VAMS_CONTEXT_FILE}" ]; then
+        echo "ERROR: VAMS context file not found: ${VAMS_CONTEXT_FILE}"
+        exit 1
+    fi
+fi
+
+# A view selects its kept episodes through mlflow_train.py, which reads them from
+# the view recorded in vams_context.json.
+if [ -n "${VAMS_VIEW_MANIFEST_FILE:-}" ]; then
+    if [ -z "${VAMS_CONTEXT_FILE:-}" ]; then
+        echo "ERROR: VAMS_VIEW_MANIFEST_FILE is set but VAMS_CONTEXT_FILE is not set"
+        echo "A VAMS curation view selects its episodes through the VAMS context of the run"
+        exit 1
+    fi
+    if [ ! -f "${VAMS_VIEW_MANIFEST_FILE}" ]; then
+        echo "ERROR: VAMS view manifest file not found: ${VAMS_VIEW_MANIFEST_FILE}"
+        exit 1
+    fi
+    if [ ! -d "${DATASET_ROOT}" ]; then
+        echo "ERROR: Dataset root of the VAMS view is not a directory: ${DATASET_ROOT}"
+        exit 1
+    fi
+fi
+
 if [ "${RESUME}" = "true" ]; then
     echo "  Settings:        from ${RESUME_CONFIG_PATH}"
     echo "  Steps:           ${STEPS_OVERRIDE:-from train_config.json}"
@@ -201,6 +311,11 @@ if [ -n "${MLFLOW_TRACKING_URI}" ]; then
     fi
 else
     echo "  MLflow:          disabled (MLFLOW_TRACKING_URI is not set)"
+fi
+if [ -n "${VAMS_RUN_DIR:-}" ]; then
+    echo "  VAMS run dir:    ${VAMS_RUN_DIR}"
+    echo "  VAMS context:    ${VAMS_CONTEXT_FILE:-(not set)}"
+    echo "  VAMS view:       ${VAMS_VIEW_MANIFEST_FILE:-(not set)}"
 fi
 echo ""
 
@@ -309,6 +424,100 @@ if [ -n "${MLFLOW_TRACKING_URI}" ]; then
     export MLFLOW_ADAPTER_MAX_MB
     export IMAGE_TAG
     export PASK_CLUSTER_NAME
+    if [ -n "${VAMS_CONTEXT_FILE:-}" ]; then
+        export VAMS_CONTEXT_FILE
+    fi
+fi
+# A view is never fetched from the Hugging Face Hub even without HF_HUB_OFFLINE: its
+# dataset repo_id vams/<databaseId>/<assetId> has three segments, so huggingface_hub
+# rejects it with HFValidationError before any network request. HF_HUB_OFFLINE is not
+# set so that the pretrained weights and tokenizer can still be downloaded.
+if [ -n "${VAMS_VIEW_MANIFEST_FILE:-}" ]; then
+    export VAMS_VIEW_MANIFEST_FILE
+fi
+
+# The statistics of a view are computed from the rows of the kept episodes only.
+# lerobot-edit-dataset recompute_stats is not used for a view because it also reads
+# the rows of the excluded episodes that share a data file with the kept ones.
+if [ -n "${VAMS_VIEW_MANIFEST_FILE:-}" ]; then
+    echo "Computing normalization statistics of the kept episodes (VAMS view)..."
+    VIEW_STATS_EXIT_CODE=0
+    srun --container-image="${CONTAINER_IMAGE}" \
+         --container-mounts="/fsx:/fsx" \
+         --container-workdir="${LEROBOT_PI_BASE_DIR}" \
+         --export="ALL,HOME=${CONTAINER_HOME}" \
+         python training/compute_view_stats.py \
+         --root "${DATASET_ROOT}" \
+         --manifest "${VAMS_VIEW_MANIFEST_FILE}" \
+         || VIEW_STATS_EXIT_CODE=$?
+    if [ ${VIEW_STATS_EXIT_CODE} -ne 0 ]; then
+        echo "ERROR: Computing the statistics of the VAMS view failed with exit code: ${VIEW_STATS_EXIT_CODE}"
+        exit ${VIEW_STATS_EXIT_CODE}
+    fi
+    echo ""
+fi
+
+# pi0.5 normalizes observation.state and action with the q01/q99 quantiles. A VAMS
+# dataset is not prepared by slurm_prepare_dataset.sh, so the same check and
+# recomputation run here in the training container before training.
+# DATASET_ROOT of a VAMS run is the staged copy under /fsx/s3link/vams/<id>/. The
+# recomputed meta/stats.json is exported only to vams/<id>/ in the PASK data bucket
+# by the FSx automatic export; the dataset in the VAMS asset bucket is not changed.
+# A view has its statistics computed above, so it is skipped here.
+if [ -n "${VAMS_RUN_DIR:-}" ] && [ -z "${VAMS_VIEW_MANIFEST_FILE:-}" ] && [ "${POLICY_TYPE}" = "pi05" ]; then
+    echo "Checking quantile statistics (VAMS run, policy: ${POLICY_TYPE})..."
+
+    read -r -d '' QUANTILE_STATS_SCRIPT <<'EOF' || true
+set -euo pipefail
+DATASET_REPO_ID="$1"
+DATASET_ROOT="$2"
+
+has_quantile_stats() {
+    python -c '
+import json, sys
+from pathlib import Path
+
+stats_path = Path(sys.argv[1])
+if not stats_path.is_file():
+    sys.exit(1)
+stats = json.loads(stats_path.read_text())
+required_keys = ("observation.state", "action")
+has_quantiles = all("q01" in stats.get(key, {}) and "q99" in stats.get(key, {}) for key in required_keys)
+sys.exit(0 if has_quantiles else 1)
+' "${DATASET_ROOT}/meta/stats.json"
+}
+
+if has_quantile_stats; then
+    echo "  meta/stats.json already has q01/q99 for observation.state and action"
+    exit 0
+fi
+
+echo "  meta/stats.json is missing q01/q99 for observation.state or action"
+echo "  Recomputing statistics in place: ${DATASET_ROOT}/meta/stats.json"
+lerobot-edit-dataset \
+    --repo_id="${DATASET_REPO_ID}" \
+    --root="${DATASET_ROOT}" \
+    --new_root="${DATASET_ROOT}" \
+    --operation.type=recompute_stats \
+    --operation.overwrite=true
+if ! has_quantile_stats; then
+    echo "ERROR: q01/q99 are still missing in ${DATASET_ROOT}/meta/stats.json after recomputation"
+    exit 1
+fi
+EOF
+
+    QUANTILE_STATS_EXIT_CODE=0
+    srun --container-image="${CONTAINER_IMAGE}" \
+         --container-mounts="/fsx:/fsx" \
+         --container-workdir="${LEROBOT_PI_BASE_DIR}" \
+         --export="ALL,HOME=${CONTAINER_HOME}" \
+         bash -c "${QUANTILE_STATS_SCRIPT}" container_quantile_stats "${DATASET_REPO_ID}" "${DATASET_ROOT}" \
+         || QUANTILE_STATS_EXIT_CODE=$?
+    if [ ${QUANTILE_STATS_EXIT_CODE} -ne 0 ]; then
+        echo "ERROR: Quantile statistics check failed with exit code: ${QUANTILE_STATS_EXIT_CODE}"
+        exit ${QUANTILE_STATS_EXIT_CODE}
+    fi
+    echo ""
 fi
 
 echo "[4/4] Running training..."

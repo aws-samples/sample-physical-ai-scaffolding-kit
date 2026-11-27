@@ -4,9 +4,11 @@
 #   1. Create the required directories on FSx
 #   2. Read the MLflow App ARN and the cluster name from the CloudFormation stack outputs
 #   3. Add the LeRobot OpenPI configuration block to ~/.bashrc
+#   4. With --poller-env, write the same values to ~/.config/pask/lerobot-openpi.env
 #
 # Usage: ./setup.sh [--hf-token "hf_xxxxx"] [--mlflow-tracking-uri <ARN>]
 #                   [--stack-name <name>] [--region <region>] [--no-mlflow]
+#                   [--poller-env]
 #
 # Options:
 #   --hf-token             Hugging Face token written to the block as HF_TOKEN
@@ -14,19 +16,25 @@
 #   --stack-name           CloudFormation stack name (default: PASK)
 #   --region               Region of the stack (default: EC2 metadata via IMDSv2)
 #   --no-mlflow            Do not write the MLflow settings to the block
+#   --poller-env           Also write the values of the block, expanded, to
+#                          ~/.config/pask/lerobot-openpi.env (mode 0600, one KEY=VALUE per line).
+#                          The VAMS poller reads this file because it does not read ~/.bashrc
 
 set -e
 
-USAGE='Usage: ./setup.sh [--hf-token "hf_xxxxx"] [--mlflow-tracking-uri <ARN>] [--stack-name <name>] [--region <region>] [--no-mlflow]'
+USAGE='Usage: ./setup.sh [--hf-token "hf_xxxxx"] [--mlflow-tracking-uri <ARN>] [--stack-name <name>] [--region <region>] [--no-mlflow] [--poller-env]'
 BLOCK_START="# LeRobot OpenPI Configuration"
 BLOCK_END="# End LeRobot OpenPI Configuration"
 BASHRC="${HOME}/.bashrc"
+POLLER_ENV_DIR="${HOME}/.config/pask"
+POLLER_ENV_FILE="${POLLER_ENV_DIR}/lerobot-openpi.env"
 
 HF_TOKEN_ARG=""
 MLFLOW_TRACKING_URI_ARG=""
 STACK_NAME="PASK"
 REGION_ARG=""
 ENABLE_MLFLOW=true
+WRITE_POLLER_ENV=false
 
 require_value() {
     if [[ -z "$2" ]]; then
@@ -62,6 +70,10 @@ while [[ $# -gt 0 ]]; do
             ENABLE_MLFLOW=false
             shift
             ;;
+        --poller-env)
+            WRITE_POLLER_ENV=true
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
             echo "${USAGE}"
@@ -69,6 +81,11 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+TOTAL_STEPS=3
+if [ "${WRITE_POLLER_ENV}" = true ]; then
+    TOTAL_STEPS=4
+fi
 
 echo "=================================================="
 echo "LeRobot OpenPI Environment Setup"
@@ -83,7 +100,7 @@ echo "Script location: ${SCRIPT_DIR}"
 echo "Base directory:  ${BASE_DIR}"
 echo ""
 
-echo "[1/3] Creating required directories..."
+echo "[1/${TOTAL_STEPS}] Creating required directories..."
 
 DIRS=(
     "${BASE_DIR}/logs"
@@ -116,7 +133,66 @@ get_stack_output() {
         --output text
 }
 
-echo "[2/3] Resolving the MLflow settings..."
+# Prints the value of the last "export NAME=VALUE" line in ~/.bashrc without
+# surrounding quotes, or nothing when there is no such line. Fails when the value
+# needs shell expansion, because the poller environment file holds literal values.
+read_bashrc_export_value() {
+    local name="$1"
+    local line
+    local value
+    line="$(grep -E "^[[:space:]]*export[[:space:]]+${name}=" "${BASHRC}" | tail -n 1)"
+    if [ -z "${line}" ]; then
+        return 0
+    fi
+    value="${line#*=}"
+    value="${value%"${value##*[![:space:]]}"}"
+    if [[ "${value}" =~ ^\"(.*)\"$ ]] || [[ "${value}" =~ ^\'(.*)\'$ ]]; then
+        value="${BASH_REMATCH[1]}"
+    fi
+    case "${value}" in
+        *[\$\`\"\'\#[:space:]]*)
+            echo "ERROR: ${name} in ${BASHRC} is not a literal path: ${value}" >&2
+            echo "Set it as 'export ${name}=/literal/path' in ${BASHRC}, or remove the line, and run this script again" >&2
+            return 1
+            ;;
+    esac
+    printf '%s' "${value}"
+}
+
+POLLER_ENV_ENTRIES=()
+
+# Appends KEY=VALUE to the poller environment file entries. A value with a line
+# break would be read as more than one entry, so it is rejected.
+add_poller_env_entry() {
+    local key="$1"
+    local value="$2"
+    case "${value}" in
+        *$'\n'*|*$'\r'*)
+            echo "ERROR: The value of ${key} contains a line break and cannot be written to ${POLLER_ENV_FILE}"
+            exit 1
+            ;;
+    esac
+    POLLER_ENV_ENTRIES+=("${key}=${value}")
+}
+
+# Writes POLLER_ENV_ENTRIES to POLLER_ENV_FILE with mode 0600. The file is created
+# in the same directory under umask 077 and renamed, so that it is never readable
+# by others and the poller never reads a partially written file.
+write_poller_env_file() {
+    local temp_path
+    (umask 077 && mkdir -p "${POLLER_ENV_DIR}")
+    chmod 700 "${POLLER_ENV_DIR}"
+    temp_path="$(umask 077 && mktemp "${POLLER_ENV_FILE}.tmp.XXXXXX")"
+    if ! (umask 077 && printf '%s\n' "${POLLER_ENV_ENTRIES[@]}" > "${temp_path}") \
+            || ! chmod 600 "${temp_path}" \
+            || ! mv -f "${temp_path}" "${POLLER_ENV_FILE}"; then
+        rm -f "${temp_path}"
+        echo "ERROR: Failed to write ${POLLER_ENV_FILE}"
+        exit 1
+    fi
+}
+
+echo "[2/${TOTAL_STEPS}] Resolving the MLflow settings..."
 
 MLFLOW_TRACKING_URI_VALUE=""
 MLFLOW_REGION=""
@@ -170,7 +246,7 @@ else
 fi
 echo ""
 
-echo "[3/3] Updating ${BASHRC}..."
+echo "[3/${TOTAL_STEPS}] Updating ${BASHRC}..."
 
 touch "${BASHRC}"
 
@@ -223,6 +299,41 @@ EOF
 echo "  Added the LeRobot OpenPI block to ${BASHRC}"
 echo ""
 
+if [ "${WRITE_POLLER_ENV}" = true ]; then
+    echo "[4/${TOTAL_STEPS}] Writing ${POLLER_ENV_FILE}..."
+
+    ENROOT_CACHE_PATH_VALUE="$(read_bashrc_export_value ENROOT_CACHE_PATH)"
+    ENROOT_DATA_PATH_VALUE="$(read_bashrc_export_value ENROOT_DATA_PATH)"
+    ENROOT_TEMP_PATH_VALUE="$(read_bashrc_export_value ENROOT_TEMP_PATH)"
+
+    add_poller_env_entry LEROBOT_PI_BASE_DIR "${BASE_DIR}"
+    add_poller_env_entry LEROBOT_PI_LOG_DIR "${BASE_DIR}/logs"
+    add_poller_env_entry LEROBOT_PI_OUTPUT_DIR "${BASE_DIR}/outputs"
+    add_poller_env_entry LEROBOT_PI_CACHE_DIR "${BASE_DIR}/.cache"
+    add_poller_env_entry LEROBOT_PI_HF_HOME "${BASE_DIR}/.cache/huggingface"
+    add_poller_env_entry LEROBOT_PI_HF_LEROBOT_HOME "${BASE_DIR}/.cache/huggingface/lerobot"
+    if [ -n "${HF_TOKEN_ARG}" ]; then
+        add_poller_env_entry HF_TOKEN "${HF_TOKEN_ARG}"
+    fi
+    if [ -n "${MLFLOW_TRACKING_URI_VALUE}" ]; then
+        add_poller_env_entry MLFLOW_TRACKING_URI "${MLFLOW_TRACKING_URI_VALUE}"
+        add_poller_env_entry AWS_DEFAULT_REGION "${MLFLOW_REGION}"
+        if [ -n "${CLUSTER_NAME}" ]; then
+            add_poller_env_entry PASK_CLUSTER_NAME "${CLUSTER_NAME}"
+        fi
+    fi
+    add_poller_env_entry ENROOT_CACHE_PATH "${ENROOT_CACHE_PATH_VALUE:-/fsx/enroot}"
+    add_poller_env_entry ENROOT_DATA_PATH "${ENROOT_DATA_PATH_VALUE:-/fsx/enroot/data}"
+    add_poller_env_entry ENROOT_TEMP_PATH "${ENROOT_TEMP_PATH_VALUE:-/fsx/enroot/tmp}"
+
+    write_poller_env_file
+    echo "  Wrote ${#POLLER_ENV_ENTRIES[@]} variables (mode 0600):"
+    for entry in "${POLLER_ENV_ENTRIES[@]}"; do
+        echo "    ${entry%%=*}"
+    done
+    echo ""
+fi
+
 echo "=================================================="
 echo "Setup complete"
 echo "=================================================="
@@ -256,6 +367,12 @@ if [ "${WRITE_ENROOT_TEMP}" = true ]; then
     echo "  ENROOT_TEMP_PATH:           /fsx/enroot/tmp"
 else
     echo "  ENROOT_TEMP_PATH:           already defined outside this block"
+fi
+if [ "${WRITE_POLLER_ENV}" = true ]; then
+    echo ""
+    echo "Poller environment file: ${POLLER_ENV_FILE}"
+    echo "  The VAMS poller reads this file to submit training jobs, because it does not read ~/.bashrc."
+    echo "  Run this script again with --poller-env after changing the options above."
 fi
 echo ""
 echo "Next steps:"

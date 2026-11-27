@@ -125,6 +125,25 @@
       },
       "Mlflow": {
         "Enabled": false
+      },
+      "Vams": {
+        "Enabled": false,
+        "ConfigName": "vams",
+        "AssetBucketNames": [],
+        "WorkflowBucketName": "",
+        "SeparateLoginRole": true,
+        "KmsKeyArns": [],
+        "QueueVisibilityTimeoutSeconds": 300,
+        "MaxReceiveCount": 5,
+        "HeartbeatIntervalSeconds": 300,
+        "AbortGraceSeconds": 1800,
+        "LeaseSeconds": 900,
+        "ItemTtlDays": 30,
+        "StagingExpirationDays": 10,
+        "IngestWaitSeconds": 3600,
+        "MaxConcurrentRuns": 1,
+        "SlurmPartition": "",
+        "MlflowExperimentName": "vams-training"
       }
     }
   }

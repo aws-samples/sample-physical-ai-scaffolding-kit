@@ -1,0 +1,110 @@
+{
+    "templateId": "pask-lerobot-openpi-default",
+    "templateName": "LeRobot OpenPI training (pi0.5 LoRA)",
+    "description": "Training parameters passed to slurm_train.sh. The keys are the allow list of the PASK VAMS poller.",
+    "configFormat": "json",
+    "configBody": "{\"POLICY_TYPE\": \"{{POLICY_TYPE}}\", \"PRETRAINED_PATH\": \"{{PRETRAINED_PATH}}\", \"FINETUNE_MODE\": \"{{FINETUNE_MODE}}\", \"LORA_R\": {{LORA_R}}, \"LORA_ALPHA\": {{LORA_ALPHA}}, \"STEPS\": {{STEPS}}, \"BATCH_SIZE\": {{BATCH_SIZE}}, \"SAVE_FREQ\": {{SAVE_FREQ}}, \"LOG_FREQ\": {{LOG_FREQ}}, \"NUM_WORKERS\": {{NUM_WORKERS}}, \"COMPILE_MODEL\": {{COMPILE_MODEL}}, \"IMAGE_TAG\": \"{{IMAGE_TAG}}\"}",
+    "allowCustomEdit": false,
+    "isDefault": true,
+    "inputInstructions": "Select the whole asset that holds a LeRobot dataset at its root (meta/info.json at the asset root), or a curation view (curation_manifest.json with mode view at the asset root), as the input, and another asset as the output. The checkpoint (checkpoints/last/pretrained_model) is written to the output asset, and the training summary is recorded as results/pask_training.json.",
+    "tagSchema": [
+        {
+            "tagKey": "POLICY_TYPE",
+            "type": "enum",
+            "enumValues": ["pi05", "pi0"],
+            "required": true,
+            "default": "pi05",
+            "label": "Policy type",
+            "description": "Policy to train. pi05 needs the q01/q99 quantiles in meta/stats.json."
+        },
+        {
+            "tagKey": "PRETRAINED_PATH",
+            "type": "string",
+            "required": true,
+            "default": "lerobot/pi05_base",
+            "label": "Pretrained model",
+            "description": "Hugging Face Hub ID of the base model. Use lerobot/pi0_base with POLICY_TYPE pi0."
+        },
+        {
+            "tagKey": "FINETUNE_MODE",
+            "type": "enum",
+            "enumValues": ["lora", "expert_only", "full"],
+            "required": true,
+            "default": "lora",
+            "label": "Fine-tuning mode",
+            "description": "lora trains LoRA adapters, expert_only trains the action expert, full trains every parameter."
+        },
+        {
+            "tagKey": "LORA_R",
+            "type": "integer",
+            "required": true,
+            "default": 16,
+            "label": "LoRA rank",
+            "description": "Rank of the LoRA adapters. Used only with FINETUNE_MODE lora."
+        },
+        {
+            "tagKey": "LORA_ALPHA",
+            "type": "integer",
+            "required": true,
+            "default": 16,
+            "label": "LoRA alpha",
+            "description": "Scaling factor of the LoRA adapters. Used only with FINETUNE_MODE lora."
+        },
+        {
+            "tagKey": "STEPS",
+            "type": "integer",
+            "required": true,
+            "default": 30000,
+            "label": "Training steps",
+            "description": "Total number of training steps."
+        },
+        {
+            "tagKey": "BATCH_SIZE",
+            "type": "integer",
+            "required": true,
+            "default": 4,
+            "label": "Batch size",
+            "description": "Samples per training step."
+        },
+        {
+            "tagKey": "SAVE_FREQ",
+            "type": "integer",
+            "required": true,
+            "default": 5000,
+            "label": "Checkpoint interval",
+            "description": "Steps between checkpoints. Each checkpoint takes FSx space until the run is cleaned up."
+        },
+        {
+            "tagKey": "LOG_FREQ",
+            "type": "integer",
+            "required": true,
+            "default": 100,
+            "label": "Log interval",
+            "description": "Steps between training log lines and MLflow metrics."
+        },
+        {
+            "tagKey": "NUM_WORKERS",
+            "type": "integer",
+            "required": true,
+            "default": 4,
+            "label": "Data loader workers",
+            "description": "Number of data loader worker processes. Must be 1 or more."
+        },
+        {
+            "tagKey": "COMPILE_MODEL",
+            "type": "boolean",
+            "required": true,
+            "default": false,
+            "label": "torch.compile",
+            "description": "Compile the model with torch.compile."
+        },
+        {
+            "tagKey": "IMAGE_TAG",
+            "type": "string",
+            "required": true,
+            "default": "latest",
+            "label": "Container image tag",
+            "description": "Tag of the lerobot-pi-train enroot image built on the cluster."
+        }
+    ]
+}

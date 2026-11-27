@@ -1,0 +1,2238 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-01-02T00:00:00+00:00",
+  "trackingUri": "arn:aws:sagemaker:<region>:<account-id>:mlflow-app/<app-id>",
+  "target": {
+    "runId": "00000000000000000000000000000001",
+    "runName": "pi05_lora_full_XXXX",
+    "experimentId": "1",
+    "experimentName": "lerobot-pi",
+    "status": "FINISHED",
+    "startTime": 1767225600000,
+    "endTime": 1767270090403,
+    "params": {
+      "dataset.repo_id": "lerobot/libero",
+      "dataset.repo_type": "dataset",
+      "dataset.root": "/fsx/ubuntu/sample-physical-ai-scaffolding-kit/samples/lerobot-openpi/.cache/huggingface/lerobot/lerobot/libero",
+      "dataset.episodes": "None",
+      "dataset.image_transforms.enable": "False",
+      "dataset.image_transforms.max_num_transforms": "3",
+      "dataset.image_transforms.random_order": "False",
+      "dataset.image_transforms.tfs.brightness.weight": "1.0",
+      "dataset.image_transforms.tfs.brightness.type": "ColorJitter",
+      "dataset.image_transforms.tfs.brightness.kwargs.brightness": "[0.8, 1.2]",
+      "dataset.image_transforms.tfs.contrast.weight": "1.0",
+      "dataset.image_transforms.tfs.contrast.type": "ColorJitter",
+      "dataset.image_transforms.tfs.contrast.kwargs.contrast": "[0.8, 1.2]",
+      "dataset.image_transforms.tfs.saturation.weight": "1.0",
+      "dataset.image_transforms.tfs.saturation.type": "ColorJitter",
+      "dataset.image_transforms.tfs.saturation.kwargs.saturation": "[0.5, 1.5]",
+      "dataset.image_transforms.tfs.hue.weight": "1.0",
+      "dataset.image_transforms.tfs.hue.type": "ColorJitter",
+      "dataset.image_transforms.tfs.hue.kwargs.hue": "[-0.05, 0.05]",
+      "dataset.image_transforms.tfs.sharpness.weight": "1.0",
+      "dataset.image_transforms.tfs.sharpness.type": "SharpnessJitter",
+      "dataset.image_transforms.tfs.sharpness.kwargs.sharpness": "[0.5, 1.5]",
+      "dataset.image_transforms.tfs.affine.weight": "1.0",
+      "dataset.image_transforms.tfs.affine.type": "RandomAffine",
+      "dataset.image_transforms.tfs.affine.kwargs.degrees": "[-5.0, 5.0]",
+      "dataset.image_transforms.tfs.affine.kwargs.translate": "[0.05, 0.05]",
+      "dataset.revision": "None",
+      "dataset.use_imagenet_stats": "True",
+      "dataset.video_backend": "torchcodec",
+      "dataset.return_uint8": "False",
+      "dataset.depth_output_unit": "mm",
+      "dataset.streaming": "False",
+      "dataset.eval_split": "0.0",
+      "env": "None",
+      "policy.type": "pi05",
+      "policy.n_obs_steps": "1",
+      "policy.device": "cuda",
+      "policy.use_amp": "False",
+      "policy.use_peft": "False",
+      "policy.push_to_hub": "False",
+      "policy.repo_id": "None",
+      "policy.private": "None",
+      "policy.tags": "None",
+      "policy.license": "None",
+      "policy.pretrained_path": "lerobot/pi05_base",
+      "policy.pretrained_revision": "None",
+      "policy.paligemma_variant": "gemma_2b",
+      "policy.action_expert_variant": "gemma_300m",
+      "policy.dtype": "bfloat16",
+      "policy.chunk_size": "50",
+      "policy.n_action_steps": "50",
+      "policy.max_state_dim": "32",
+      "policy.max_action_dim": "32",
+      "policy.num_inference_steps": "10",
+      "policy.time_sampling_beta_alpha": "1.5",
+      "policy.time_sampling_beta_beta": "1.0",
+      "policy.time_sampling_scale": "0.999",
+      "policy.time_sampling_offset": "0.001",
+      "policy.min_period": "0.004",
+      "policy.max_period": "4.0",
+      "policy.use_relative_actions": "False",
+      "policy.relative_exclude_joints": "['gripper']",
+      "policy.action_feature_names": "None",
+      "policy.rtc_config": "None",
+      "policy.image_resolution": "[224, 224]",
+      "policy.empty_cameras": "0",
+      "policy.tokenizer_max_length": "200",
+      "policy.normalization_mapping.VISUAL": "IDENTITY",
+      "policy.normalization_mapping.STATE": "QUANTILES",
+      "policy.normalization_mapping.ACTION": "QUANTILES",
+      "policy.gradient_checkpointing": "True",
+      "policy.compile_model": "False",
+      "policy.compile_mode": "max-autotune",
+      "policy.freeze_vision_encoder": "False",
+      "policy.train_expert_only": "False",
+      "policy.optimizer_lr": "2.5e-05",
+      "policy.optimizer_betas": "[0.9, 0.95]",
+      "policy.optimizer_eps": "1e-08",
+      "policy.optimizer_weight_decay": "0.01",
+      "policy.optimizer_grad_clip_norm": "1.0",
+      "policy.scheduler_warmup_steps": "1000",
+      "policy.scheduler_decay_steps": "30000",
+      "policy.scheduler_decay_lr": "2.5e-06",
+      "reward_model": "None",
+      "output_dir": "/fsx/ubuntu/sample-physical-ai-scaffolding-kit/samples/lerobot-openpi/outputs/pi05_lora_full_XXXX",
+      "job_name": "pi05_lora_full_XXXX",
+      "resume": "False",
+      "seed": "1000",
+      "cudnn_deterministic": "False",
+      "num_workers": "4",
+      "batch_size": "4",
+      "prefetch_factor": "4",
+      "persistent_workers": "True",
+      "dataloader_multiprocessing_context": "spawn",
+      "steps": "30000",
+      "env_eval_freq": "20000",
+      "log_freq": "100",
+      "eval_steps": "0",
+      "max_eval_samples": "0",
+      "tolerance_s": "0.0001",
+      "save_checkpoint": "True",
+      "save_freq": "5000",
+      "use_policy_training_preset": "True",
+      "optimizer.type": "adamw",
+      "optimizer.lr": "2.5e-05",
+      "optimizer.weight_decay": "0.01",
+      "optimizer.grad_clip_norm": "1.0",
+      "optimizer.betas": "[0.9, 0.95]",
+      "optimizer.eps": "1e-08",
+      "scheduler.type": "cosine_decay_with_warmup",
+      "scheduler.num_warmup_steps": "1000",
+      "scheduler.num_decay_steps": "30000",
+      "scheduler.peak_lr": "2.5e-05",
+      "scheduler.decay_lr": "2.5e-06",
+      "eval.n_episodes": "50",
+      "eval.batch_size": "5",
+      "eval.use_async_envs": "True",
+      "eval.recording": "False",
+      "eval.recording_repo_id": "None",
+      "eval.recording_private": "False",
+      "wandb.enable": "True",
+      "wandb.disable_artifact": "False",
+      "wandb.project": "lerobot-pi",
+      "wandb.entity": "None",
+      "wandb.notes": "None",
+      "wandb.run_id": "None",
+      "wandb.mode": "None",
+      "wandb.add_tags": "True",
+      "peft.target_modules": "None",
+      "peft.full_training_modules": "None",
+      "peft.method_type": "LORA",
+      "peft.init_type": "None",
+      "peft.r": "16",
+      "peft.lora_alpha": "16",
+      "job.target": "None",
+      "job.image": "huggingface/lerobot-gpu:latest",
+      "job.timeout": "2d",
+      "job.detach": "False",
+      "job.tags": "[]",
+      "save_checkpoint_to_hub": "False",
+      "sample_weighting": "None",
+      "checkpoint_path": "None"
+    },
+    "tags": {
+      "mlflow.user": "ubuntu",
+      "mlflow.source.name": "training/mlflow_train.py",
+      "mlflow.source.type": "LOCAL",
+      "mlflow.runName": "pi05_lora_full_XXXX",
+      "lerobot.pretrained_path": "lerobot/pi05_base",
+      "lerobot.version": "0.6.1",
+      "lerobot.policy_type": "pi05",
+      "lerobot.finetune_mode": "lora",
+      "lerobot.dataset_repo_id": "lerobot/libero",
+      "pask.output_dir": "/fsx/ubuntu/sample-physical-ai-scaffolding-kit/samples/lerobot-openpi/outputs/pi05_lora_full_XXXX",
+      "pask.image_tag": "latest",
+      "pask.cluster": "pask-cluster",
+      "pask.run_type": "train",
+      "slurm.job_id": "1002",
+      "slurm.job_ids": "1002",
+      "pask.last_checkpoint_dir": "/fsx/ubuntu/sample-physical-ai-scaffolding-kit/samples/lerobot-openpi/outputs/pi05_lora_full_XXXX/checkpoints/030000"
+    },
+    "metrics": {
+      "train/loss": [
+        {
+          "step": 100,
+          "value": 0.47383635237812993,
+          "timestamp": 1767226097246
+        },
+        {
+          "step": 1700,
+          "value": 0.323487952798605,
+          "timestamp": 1767228459475
+        },
+        {
+          "step": 3200,
+          "value": 0.2960871180891991,
+          "timestamp": 1767230670844
+        },
+        {
+          "step": 4800,
+          "value": 0.25517232693731784,
+          "timestamp": 1767233027772
+        },
+        {
+          "step": 6400,
+          "value": 0.24871318809688092,
+          "timestamp": 1767235384448
+        },
+        {
+          "step": 8000,
+          "value": 0.23991586558520794,
+          "timestamp": 1767237732357
+        },
+        {
+          "step": 9500,
+          "value": 0.2408665683865547,
+          "timestamp": 1767239930690
+        },
+        {
+          "step": 11100,
+          "value": 0.24323186844587327,
+          "timestamp": 1767242289752
+        },
+        {
+          "step": 12700,
+          "value": 0.23251916639506817,
+          "timestamp": 1767244642297
+        },
+        {
+          "step": 14300,
+          "value": 0.23757157757878303,
+          "timestamp": 1767247012657
+        },
+        {
+          "step": 15800,
+          "value": 0.23112516470253466,
+          "timestamp": 1767249243014
+        },
+        {
+          "step": 17400,
+          "value": 0.22232255697250367,
+          "timestamp": 1767251628351
+        },
+        {
+          "step": 19000,
+          "value": 0.21920880302786827,
+          "timestamp": 1767254020430
+        },
+        {
+          "step": 20600,
+          "value": 0.23273961290717124,
+          "timestamp": 1767256397291
+        },
+        {
+          "step": 22100,
+          "value": 0.22235910847783089,
+          "timestamp": 1767258554180
+        },
+        {
+          "step": 23700,
+          "value": 0.22240121468901633,
+          "timestamp": 1767260853746
+        },
+        {
+          "step": 25300,
+          "value": 0.23087649680674077,
+          "timestamp": 1767263185313
+        },
+        {
+          "step": 26900,
+          "value": 0.21916272796690464,
+          "timestamp": 1767265537921
+        },
+        {
+          "step": 28400,
+          "value": 0.21791583083570004,
+          "timestamp": 1767267742345
+        },
+        {
+          "step": 30000,
+          "value": 0.2325887070596218,
+          "timestamp": 1767270087697
+        }
+      ],
+      "train/grad_norm": [
+        {
+          "step": 100,
+          "value": 0.0764040918275714,
+          "timestamp": 1767226097246
+        },
+        {
+          "step": 1700,
+          "value": 0.21443298824131488,
+          "timestamp": 1767228459475
+        },
+        {
+          "step": 3200,
+          "value": 0.31333437621593474,
+          "timestamp": 1767230670844
+        },
+        {
+          "step": 4800,
+          "value": 0.34710545390844344,
+          "timestamp": 1767233027772
+        },
+        {
+          "step": 6400,
+          "value": 0.38801675036549566,
+          "timestamp": 1767235384448
+        },
+        {
+          "step": 8000,
+          "value": 0.4580518163740635,
+          "timestamp": 1767237732357
+        },
+        {
+          "step": 9500,
+          "value": 0.4467942364513874,
+          "timestamp": 1767239930690
+        },
+        {
+          "step": 11100,
+          "value": 0.5041922987997531,
+          "timestamp": 1767242289752
+        },
+        {
+          "step": 12700,
+          "value": 0.548100086003542,
+          "timestamp": 1767244642297
+        },
+        {
+          "step": 14300,
+          "value": 0.6295095138251782,
+          "timestamp": 1767247012657
+        },
+        {
+          "step": 15800,
+          "value": 0.6446680980920791,
+          "timestamp": 1767249243014
+        },
+        {
+          "step": 17400,
+          "value": 0.6494510036706924,
+          "timestamp": 1767251628351
+        },
+        {
+          "step": 19000,
+          "value": 0.6652834273874759,
+          "timestamp": 1767254020430
+        },
+        {
+          "step": 20600,
+          "value": 0.6524525263905525,
+          "timestamp": 1767256397291
+        },
+        {
+          "step": 22100,
+          "value": 0.6583280114829541,
+          "timestamp": 1767258554180
+        },
+        {
+          "step": 23700,
+          "value": 0.7611256332695484,
+          "timestamp": 1767260853746
+        },
+        {
+          "step": 25300,
+          "value": 0.7419994974136352,
+          "timestamp": 1767263185313
+        },
+        {
+          "step": 26900,
+          "value": 0.7559945978224277,
+          "timestamp": 1767265537921
+        },
+        {
+          "step": 28400,
+          "value": 0.7282927776873112,
+          "timestamp": 1767267742345
+        },
+        {
+          "step": 30000,
+          "value": 0.7989670208096504,
+          "timestamp": 1767270087697
+        }
+      ],
+      "train/lr": [
+        {
+          "step": 100,
+          "value": 1.2862137862137855e-06,
+          "timestamp": 1767226097246
+        },
+        {
+          "step": 1700,
+          "value": 2.4832327996299404e-05,
+          "timestamp": 1767228459475
+        },
+        {
+          "step": 3200,
+          "value": 2.4393220842161712e-05,
+          "timestamp": 1767230670844
+        },
+        {
+          "step": 4800,
+          "value": 2.363636626516644e-05,
+          "timestamp": 1767233027772
+        },
+        {
+          "step": 6400,
+          "value": 2.2602615074801568e-05,
+          "timestamp": 1767235384448
+        },
+        {
+          "step": 8000,
+          "value": 2.132092049776347e-05,
+          "timestamp": 1767237732357
+        },
+        {
+          "step": 9500,
+          "value": 1.9925986145874917e-05,
+          "timestamp": 1767239930690
+        },
+        {
+          "step": 11100,
+          "value": 1.8271352454151004e-05,
+          "timestamp": 1767242289752
+        },
+        {
+          "step": 12700,
+          "value": 1.649008505810889e-05,
+          "timestamp": 1767244642297
+        },
+        {
+          "step": 14300,
+          "value": 1.4632073562911921e-05,
+          "timestamp": 1767247012657
+        },
+        {
+          "step": 15800,
+          "value": 1.2866751976890055e-05,
+          "timestamp": 1767249243014
+        },
+        {
+          "step": 17400,
+          "value": 1.1008772343562664e-05,
+          "timestamp": 1767251628351
+        },
+        {
+          "step": 19000,
+          "value": 9.227568811199383e-06,
+          "timestamp": 1767254020430
+        },
+        {
+          "step": 20600,
+          "value": 7.5730291962744046e-06,
+          "timestamp": 1767256397291
+        },
+        {
+          "step": 22100,
+          "value": 6.178208148862606e-06,
+          "timestamp": 1767258554180
+        },
+        {
+          "step": 23700,
+          "value": 4.896658000255327e-06,
+          "timestamp": 1767260853746
+        },
+        {
+          "step": 25300,
+          "value": 3.8630715979811866e-06,
+          "timestamp": 1767263185313
+        },
+        {
+          "step": 26900,
+          "value": 3.1063975533639276e-06,
+          "timestamp": 1767265537921
+        },
+        {
+          "step": 28400,
+          "value": 2.667469455426704e-06,
+          "timestamp": 1767267742345
+        },
+        {
+          "step": 30000,
+          "value": 2.5002025416883998e-06,
+          "timestamp": 1767270087697
+        }
+      ],
+      "train/update_s": [
+        {
+          "step": 100,
+          "value": 1.4233672419405776,
+          "timestamp": 1767226097246
+        },
+        {
+          "step": 1700,
+          "value": 1.4689751826616702,
+          "timestamp": 1767228459475
+        },
+        {
+          "step": 3200,
+          "value": 1.4720933321031042,
+          "timestamp": 1767230670844
+        },
+        {
+          "step": 4800,
+          "value": 1.4616841970797396,
+          "timestamp": 1767233027772
+        },
+        {
+          "step": 6400,
+          "value": 1.4664510865078773,
+          "timestamp": 1767235384448
+        },
+        {
+          "step": 8000,
+          "value": 1.4603710555384168,
+          "timestamp": 1767237732357
+        },
+        {
+          "step": 9500,
+          "value": 1.4756004120205761,
+          "timestamp": 1767239930690
+        },
+        {
+          "step": 11100,
+          "value": 1.4708028342097532,
+          "timestamp": 1767242289752
+        },
+        {
+          "step": 12700,
+          "value": 1.4628087373566814,
+          "timestamp": 1767244642297
+        },
+        {
+          "step": 14300,
+          "value": 1.4835059888020623,
+          "timestamp": 1767247012657
+        },
+        {
+          "step": 15800,
+          "value": 1.487799765757518,
+          "timestamp": 1767249243014
+        },
+        {
+          "step": 17400,
+          "value": 1.4843866061727748,
+          "timestamp": 1767251628351
+        },
+        {
+          "step": 19000,
+          "value": 1.490285650527221,
+          "timestamp": 1767254020430
+        },
+        {
+          "step": 20600,
+          "value": 1.449844585537794,
+          "timestamp": 1767256397291
+        },
+        {
+          "step": 22100,
+          "value": 1.4230659295077204,
+          "timestamp": 1767258554180
+        },
+        {
+          "step": 23700,
+          "value": 1.4327562249422772,
+          "timestamp": 1767260853746
+        },
+        {
+          "step": 25300,
+          "value": 1.4647499463299756,
+          "timestamp": 1767263185313
+        },
+        {
+          "step": 26900,
+          "value": 1.4639562879584265,
+          "timestamp": 1767265537921
+        },
+        {
+          "step": 28400,
+          "value": 1.464682037293096,
+          "timestamp": 1767267742345
+        },
+        {
+          "step": 30000,
+          "value": 1.464106150896987,
+          "timestamp": 1767270087697
+        }
+      ],
+      "train/dataloading_s": [
+        {
+          "step": 100,
+          "value": 0.09699395299248863,
+          "timestamp": 1767226097246
+        },
+        {
+          "step": 1700,
+          "value": 0.003062521847896278,
+          "timestamp": 1767228459475
+        },
+        {
+          "step": 3200,
+          "value": 0.0032866032532183455,
+          "timestamp": 1767230670844
+        },
+        {
+          "step": 4800,
+          "value": 0.003167959979036823,
+          "timestamp": 1767233027772
+        },
+        {
+          "step": 6400,
+          "value": 0.003141201413818635,
+          "timestamp": 1767235384448
+        },
+        {
+          "step": 8000,
+          "value": 0.0031538724194979297,
+          "timestamp": 1767237732357
+        },
+        {
+          "step": 9500,
+          "value": 0.002693392904475331,
+          "timestamp": 1767239930690
+        },
+        {
+          "step": 11100,
+          "value": 0.002798735563410446,
+          "timestamp": 1767242289752
+        },
+        {
+          "step": 12700,
+          "value": 0.0027883244422264395,
+          "timestamp": 1767244642297
+        },
+        {
+          "step": 14300,
+          "value": 0.0026751234900439158,
+          "timestamp": 1767247012657
+        },
+        {
+          "step": 15800,
+          "value": 0.0031733640417223796,
+          "timestamp": 1767249243014
+        },
+        {
+          "step": 17400,
+          "value": 0.0032760673784650862,
+          "timestamp": 1767251628351
+        },
+        {
+          "step": 19000,
+          "value": 0.0025415841990616174,
+          "timestamp": 1767254020430
+        },
+        {
+          "step": 20600,
+          "value": 0.0025267103605438024,
+          "timestamp": 1767256397291
+        },
+        {
+          "step": 22100,
+          "value": 0.002775168489315547,
+          "timestamp": 1767258554180
+        },
+        {
+          "step": 23700,
+          "value": 0.0024963729502633213,
+          "timestamp": 1767260853746
+        },
+        {
+          "step": 25300,
+          "value": 0.00342880304728169,
+          "timestamp": 1767263185313
+        },
+        {
+          "step": 26900,
+          "value": 0.003080339331063442,
+          "timestamp": 1767265537921
+        },
+        {
+          "step": 28400,
+          "value": 0.003026978901471011,
+          "timestamp": 1767267742345
+        },
+        {
+          "step": 30000,
+          "value": 0.0031162015884183348,
+          "timestamp": 1767270087697
+        }
+      ],
+      "train/samples_per_s": [
+        {
+          "step": 100,
+          "value": 2.6309537584429727,
+          "timestamp": 1767226097246
+        },
+        {
+          "step": 1700,
+          "value": 2.7173217015746656,
+          "timestamp": 1767228459475
+        },
+        {
+          "step": 3200,
+          "value": 2.7111660557007307,
+          "timestamp": 1767230670844
+        },
+        {
+          "step": 4800,
+          "value": 2.730650994863164,
+          "timestamp": 1767233027772
+        },
+        {
+          "step": 6400,
+          "value": 2.7218433526599535,
+          "timestamp": 1767235384448
+        },
+        {
+          "step": 8000,
+          "value": 2.7331273445278987,
+          "timestamp": 1767237732357
+        },
+        {
+          "step": 9500,
+          "value": 2.7058220677606086,
+          "timestamp": 1767239930690
+        },
+        {
+          "step": 11100,
+          "value": 2.7144379335967543,
+          "timestamp": 1767242289752
+        },
+        {
+          "step": 12700,
+          "value": 2.729263113485167,
+          "timestamp": 1767244642297
+        },
+        {
+          "step": 14300,
+          "value": 2.6914620075011473,
+          "timestamp": 1767247012657
+        },
+        {
+          "step": 15800,
+          "value": 2.6828115946922533,
+          "timestamp": 1767249243014
+        },
+        {
+          "step": 17400,
+          "value": 2.6887815841016507,
+          "timestamp": 1767251628351
+        },
+        {
+          "step": 19000,
+          "value": 2.6794795184276095,
+          "timestamp": 1767254020430
+        },
+        {
+          "step": 20600,
+          "value": 2.7541166720221315,
+          "timestamp": 1767256397291
+        },
+        {
+          "step": 22100,
+          "value": 2.8053616953663623,
+          "timestamp": 1767258554180
+        },
+        {
+          "step": 23700,
+          "value": 2.7869658664080577,
+          "timestamp": 1767260853746
+        },
+        {
+          "step": 25300,
+          "value": 2.7244638990290793,
+          "timestamp": 1767263185313
+        },
+        {
+          "step": 26900,
+          "value": 2.7265849574529275,
+          "timestamp": 1767265537921
+        },
+        {
+          "step": 28400,
+          "value": 2.72533585054283,
+          "timestamp": 1767267742345
+        },
+        {
+          "step": 30000,
+          "value": 2.726239818541606,
+          "timestamp": 1767270087697
+        }
+      ],
+      "train/gpu_mem_gb": [
+        {
+          "step": 100,
+          "value": 9.702889385223388,
+          "timestamp": 1767226097246
+        },
+        {
+          "step": 1700,
+          "value": 9.702985286712646,
+          "timestamp": 1767228459475
+        },
+        {
+          "step": 3200,
+          "value": 9.702985286712646,
+          "timestamp": 1767230670844
+        },
+        {
+          "step": 4800,
+          "value": 9.702985286712646,
+          "timestamp": 1767233027772
+        },
+        {
+          "step": 6400,
+          "value": 9.702985286712646,
+          "timestamp": 1767235384448
+        },
+        {
+          "step": 8000,
+          "value": 9.702985286712646,
+          "timestamp": 1767237732357
+        },
+        {
+          "step": 9500,
+          "value": 9.702985286712646,
+          "timestamp": 1767239930690
+        },
+        {
+          "step": 11100,
+          "value": 9.702985286712646,
+          "timestamp": 1767242289752
+        },
+        {
+          "step": 12700,
+          "value": 9.702985286712646,
+          "timestamp": 1767244642297
+        },
+        {
+          "step": 14300,
+          "value": 9.702985286712646,
+          "timestamp": 1767247012657
+        },
+        {
+          "step": 15800,
+          "value": 9.702985286712646,
+          "timestamp": 1767249243014
+        },
+        {
+          "step": 17400,
+          "value": 9.702985286712646,
+          "timestamp": 1767251628351
+        },
+        {
+          "step": 19000,
+          "value": 9.702985286712646,
+          "timestamp": 1767254020430
+        },
+        {
+          "step": 20600,
+          "value": 9.702985286712646,
+          "timestamp": 1767256397291
+        },
+        {
+          "step": 22100,
+          "value": 9.702985286712646,
+          "timestamp": 1767258554180
+        },
+        {
+          "step": 23700,
+          "value": 9.702985286712646,
+          "timestamp": 1767260853746
+        },
+        {
+          "step": 25300,
+          "value": 9.702985286712646,
+          "timestamp": 1767263185313
+        },
+        {
+          "step": 26900,
+          "value": 9.702985286712646,
+          "timestamp": 1767265537921
+        },
+        {
+          "step": 28400,
+          "value": 9.702985286712646,
+          "timestamp": 1767267742345
+        },
+        {
+          "step": 30000,
+          "value": 9.702985286712646,
+          "timestamp": 1767270087697
+        }
+      ],
+      "train/epochs": [
+        {
+          "step": 100,
+          "value": 0.0014627100360192346,
+          "timestamp": 1767226097246
+        },
+        {
+          "step": 1700,
+          "value": 0.024866070612326988,
+          "timestamp": 1767228459475
+        },
+        {
+          "step": 3200,
+          "value": 0.046806721152615506,
+          "timestamp": 1767230670844
+        },
+        {
+          "step": 4800,
+          "value": 0.07021008172892326,
+          "timestamp": 1767233027772
+        },
+        {
+          "step": 6400,
+          "value": 0.09361344230523101,
+          "timestamp": 1767235384448
+        },
+        {
+          "step": 8000,
+          "value": 0.11701680288153878,
+          "timestamp": 1767237732357
+        },
+        {
+          "step": 9500,
+          "value": 0.1389574534218273,
+          "timestamp": 1767239930690
+        },
+        {
+          "step": 11100,
+          "value": 0.16236081399813504,
+          "timestamp": 1767242289752
+        },
+        {
+          "step": 12700,
+          "value": 0.1857641745744428,
+          "timestamp": 1767244642297
+        },
+        {
+          "step": 14300,
+          "value": 0.20916753515075057,
+          "timestamp": 1767247012657
+        },
+        {
+          "step": 15800,
+          "value": 0.23110818569103908,
+          "timestamp": 1767249243014
+        },
+        {
+          "step": 17400,
+          "value": 0.25451154626734684,
+          "timestamp": 1767251628351
+        },
+        {
+          "step": 19000,
+          "value": 0.2779149068436546,
+          "timestamp": 1767254020430
+        },
+        {
+          "step": 20600,
+          "value": 0.3013182674199623,
+          "timestamp": 1767256397291
+        },
+        {
+          "step": 22100,
+          "value": 0.32325891796025086,
+          "timestamp": 1767258554180
+        },
+        {
+          "step": 23700,
+          "value": 0.3466622785365586,
+          "timestamp": 1767260853746
+        },
+        {
+          "step": 25300,
+          "value": 0.3700656391128664,
+          "timestamp": 1767263185313
+        },
+        {
+          "step": 26900,
+          "value": 0.3934689996891741,
+          "timestamp": 1767265537921
+        },
+        {
+          "step": 28400,
+          "value": 0.41540965022946263,
+          "timestamp": 1767267742345
+        },
+        {
+          "step": 30000,
+          "value": 0.4388130108057704,
+          "timestamp": 1767270087697
+        }
+      ],
+      "train/samples": [
+        {
+          "step": 100,
+          "value": 400.0,
+          "timestamp": 1767226097246
+        },
+        {
+          "step": 1700,
+          "value": 6800.0,
+          "timestamp": 1767228459475
+        },
+        {
+          "step": 3200,
+          "value": 12800.0,
+          "timestamp": 1767230670844
+        },
+        {
+          "step": 4800,
+          "value": 19200.0,
+          "timestamp": 1767233027772
+        },
+        {
+          "step": 6400,
+          "value": 25600.0,
+          "timestamp": 1767235384448
+        },
+        {
+          "step": 8000,
+          "value": 32000.0,
+          "timestamp": 1767237732357
+        },
+        {
+          "step": 9500,
+          "value": 38000.0,
+          "timestamp": 1767239930690
+        },
+        {
+          "step": 11100,
+          "value": 44400.0,
+          "timestamp": 1767242289752
+        },
+        {
+          "step": 12700,
+          "value": 50800.0,
+          "timestamp": 1767244642297
+        },
+        {
+          "step": 14300,
+          "value": 57200.0,
+          "timestamp": 1767247012657
+        },
+        {
+          "step": 15800,
+          "value": 63200.0,
+          "timestamp": 1767249243014
+        },
+        {
+          "step": 17400,
+          "value": 69600.0,
+          "timestamp": 1767251628351
+        },
+        {
+          "step": 19000,
+          "value": 76000.0,
+          "timestamp": 1767254020430
+        },
+        {
+          "step": 20600,
+          "value": 82400.0,
+          "timestamp": 1767256397291
+        },
+        {
+          "step": 22100,
+          "value": 88400.0,
+          "timestamp": 1767258554180
+        },
+        {
+          "step": 23700,
+          "value": 94800.0,
+          "timestamp": 1767260853746
+        },
+        {
+          "step": 25300,
+          "value": 101200.0,
+          "timestamp": 1767263185313
+        },
+        {
+          "step": 26900,
+          "value": 107600.0,
+          "timestamp": 1767265537921
+        },
+        {
+          "step": 28400,
+          "value": 113600.0,
+          "timestamp": 1767267742345
+        },
+        {
+          "step": 30000,
+          "value": 120000.0,
+          "timestamp": 1767270087697
+        }
+      ],
+      "train/episodes": [
+        {
+          "step": 100,
+          "value": 2.4763680909805643,
+          "timestamp": 1767226097246
+        },
+        {
+          "step": 1700,
+          "value": 42.09825754666959,
+          "timestamp": 1767228459475
+        },
+        {
+          "step": 3200,
+          "value": 79.24377891137806,
+          "timestamp": 1767230670844
+        },
+        {
+          "step": 4800,
+          "value": 118.86566836706709,
+          "timestamp": 1767233027772
+        },
+        {
+          "step": 6400,
+          "value": 158.48755782275612,
+          "timestamp": 1767235384448
+        },
+        {
+          "step": 8000,
+          "value": 198.10944727844515,
+          "timestamp": 1767237732357
+        },
+        {
+          "step": 9500,
+          "value": 235.2549686431536,
+          "timestamp": 1767239930690
+        },
+        {
+          "step": 11100,
+          "value": 274.87685809884266,
+          "timestamp": 1767242289752
+        },
+        {
+          "step": 12700,
+          "value": 314.49874755453163,
+          "timestamp": 1767244642297
+        },
+        {
+          "step": 14300,
+          "value": 354.12063701022066,
+          "timestamp": 1767247012657
+        },
+        {
+          "step": 15800,
+          "value": 391.26615837492915,
+          "timestamp": 1767249243014
+        },
+        {
+          "step": 17400,
+          "value": 430.8880478306182,
+          "timestamp": 1767251628351
+        },
+        {
+          "step": 19000,
+          "value": 470.5099372863072,
+          "timestamp": 1767254020430
+        },
+        {
+          "step": 20600,
+          "value": 510.13182674199624,
+          "timestamp": 1767256397291
+        },
+        {
+          "step": 22100,
+          "value": 547.2773481067047,
+          "timestamp": 1767258554180
+        },
+        {
+          "step": 23700,
+          "value": 586.8992375623938,
+          "timestamp": 1767260853746
+        },
+        {
+          "step": 25300,
+          "value": 626.5211270180828,
+          "timestamp": 1767263185313
+        },
+        {
+          "step": 26900,
+          "value": 666.1430164737718,
+          "timestamp": 1767265537921
+        },
+        {
+          "step": 28400,
+          "value": 703.2885378384802,
+          "timestamp": 1767267742345
+        },
+        {
+          "step": 30000,
+          "value": 742.9104272941693,
+          "timestamp": 1767270087697
+        }
+      ],
+      "checkpoint_step": [
+        {
+          "step": 5000,
+          "value": 5000.0,
+          "timestamp": 1767233321851
+        },
+        {
+          "step": 10000,
+          "value": 10000.0,
+          "timestamp": 1767240668731
+        },
+        {
+          "step": 15000,
+          "value": 15000.0,
+          "timestamp": 1767248053472
+        },
+        {
+          "step": 20000,
+          "value": 20000.0,
+          "timestamp": 1767255512930
+        },
+        {
+          "step": 25000,
+          "value": 25000.0,
+          "timestamp": 1767262743565
+        },
+        {
+          "step": 30000,
+          "value": 30000.0,
+          "timestamp": 1767270088051
+        }
+      ],
+      "system/gpu_0_utilization_percentage": [
+        {
+          "step": 0,
+          "value": 0.0,
+          "timestamp": 1767225610232
+        },
+        {
+          "step": 174,
+          "value": 100.0,
+          "timestamp": 1767227390613
+        },
+        {
+          "step": 347,
+          "value": 100.0,
+          "timestamp": 1767229158207
+        },
+        {
+          "step": 521,
+          "value": 100.0,
+          "timestamp": 1767230942194
+        },
+        {
+          "step": 695,
+          "value": 100.0,
+          "timestamp": 1767232718422
+        },
+        {
+          "step": 868,
+          "value": 100.0,
+          "timestamp": 1767234484394
+        },
+        {
+          "step": 1042,
+          "value": 96.0,
+          "timestamp": 1767236259924
+        },
+        {
+          "step": 1216,
+          "value": 100.0,
+          "timestamp": 1767238046488
+        },
+        {
+          "step": 1389,
+          "value": 100.0,
+          "timestamp": 1767239814608
+        },
+        {
+          "step": 1563,
+          "value": 100.0,
+          "timestamp": 1767241592716
+        },
+        {
+          "step": 1737,
+          "value": 100.0,
+          "timestamp": 1767243371756
+        },
+        {
+          "step": 1911,
+          "value": 100.0,
+          "timestamp": 1767245146792
+        },
+        {
+          "step": 2084,
+          "value": 100.0,
+          "timestamp": 1767246911858
+        },
+        {
+          "step": 2258,
+          "value": 100.0,
+          "timestamp": 1767248686734
+        },
+        {
+          "step": 2432,
+          "value": 100.0,
+          "timestamp": 1767250472015
+        },
+        {
+          "step": 2605,
+          "value": 100.0,
+          "timestamp": 1767252238586
+        },
+        {
+          "step": 2779,
+          "value": 100.0,
+          "timestamp": 1767254015632
+        },
+        {
+          "step": 2953,
+          "value": 100.0,
+          "timestamp": 1767255792004
+        },
+        {
+          "step": 3126,
+          "value": 100.0,
+          "timestamp": 1767257567480
+        },
+        {
+          "step": 3300,
+          "value": 100.0,
+          "timestamp": 1767259346429
+        }
+      ],
+      "system/gpu_0_memory_usage_percentage": [
+        {
+          "step": 0,
+          "value": 2.0,
+          "timestamp": 1767225610232
+        },
+        {
+          "step": 174,
+          "value": 47.6,
+          "timestamp": 1767227390613
+        },
+        {
+          "step": 347,
+          "value": 47.6,
+          "timestamp": 1767229158207
+        },
+        {
+          "step": 521,
+          "value": 47.6,
+          "timestamp": 1767230942194
+        },
+        {
+          "step": 695,
+          "value": 47.6,
+          "timestamp": 1767232718422
+        },
+        {
+          "step": 868,
+          "value": 47.6,
+          "timestamp": 1767234484394
+        },
+        {
+          "step": 1042,
+          "value": 47.6,
+          "timestamp": 1767236259924
+        },
+        {
+          "step": 1216,
+          "value": 47.6,
+          "timestamp": 1767238046488
+        },
+        {
+          "step": 1389,
+          "value": 47.6,
+          "timestamp": 1767239814608
+        },
+        {
+          "step": 1563,
+          "value": 47.6,
+          "timestamp": 1767241592716
+        },
+        {
+          "step": 1737,
+          "value": 47.6,
+          "timestamp": 1767243371756
+        },
+        {
+          "step": 1911,
+          "value": 47.6,
+          "timestamp": 1767245146792
+        },
+        {
+          "step": 2084,
+          "value": 47.6,
+          "timestamp": 1767246911858
+        },
+        {
+          "step": 2258,
+          "value": 47.6,
+          "timestamp": 1767248686734
+        },
+        {
+          "step": 2432,
+          "value": 47.6,
+          "timestamp": 1767250472015
+        },
+        {
+          "step": 2605,
+          "value": 47.6,
+          "timestamp": 1767252238586
+        },
+        {
+          "step": 2779,
+          "value": 47.6,
+          "timestamp": 1767254015632
+        },
+        {
+          "step": 2953,
+          "value": 47.6,
+          "timestamp": 1767255792004
+        },
+        {
+          "step": 3126,
+          "value": 47.6,
+          "timestamp": 1767257567480
+        },
+        {
+          "step": 3300,
+          "value": 47.6,
+          "timestamp": 1767259346429
+        }
+      ]
+    },
+    "trainingParams": {
+      "POLICY_TYPE": "pi05",
+      "PRETRAINED_PATH": "lerobot/pi05_base",
+      "FINETUNE_MODE": "lora",
+      "LORA_R": 16,
+      "LORA_ALPHA": 16,
+      "STEPS": 30000,
+      "BATCH_SIZE": 4,
+      "SAVE_FREQ": 5000,
+      "LOG_FREQ": 100,
+      "NUM_WORKERS": 4,
+      "COMPILE_MODEL": false,
+      "IMAGE_TAG": "latest"
+    },
+    "plannedSteps": 30000,
+    "lrScheduleParams": {
+      "policy.optimizer_lr": "2.5e-05",
+      "policy.optimizer_betas": "[0.9, 0.95]",
+      "policy.optimizer_eps": "1e-08",
+      "policy.optimizer_weight_decay": "0.01",
+      "policy.optimizer_grad_clip_norm": "1.0",
+      "policy.scheduler_warmup_steps": "1000",
+      "policy.scheduler_decay_steps": "30000",
+      "policy.scheduler_decay_lr": "2.5e-06",
+      "optimizer.type": "adamw",
+      "optimizer.lr": "2.5e-05",
+      "optimizer.weight_decay": "0.01",
+      "optimizer.grad_clip_norm": "1.0",
+      "optimizer.betas": "[0.9, 0.95]",
+      "optimizer.eps": "1e-08",
+      "scheduler.type": "cosine_decay_with_warmup",
+      "scheduler.num_warmup_steps": "1000",
+      "scheduler.num_decay_steps": "30000",
+      "scheduler.peak_lr": "2.5e-05",
+      "scheduler.decay_lr": "2.5e-06"
+    },
+    "notes": []
+  },
+  "comparisons": [
+    {
+      "runId": "00000000000000000000000000000002",
+      "runName": "pi05_lora_short_XXXX",
+      "experimentId": "1",
+      "experimentName": "lerobot-pi",
+      "status": "FINISHED",
+      "startTime": 1767158790048,
+      "endTime": 1767160018075,
+      "params": {
+        "dataset.repo_id": "lerobot/libero",
+        "dataset.repo_type": "dataset",
+        "dataset.root": "/fsx/ubuntu/sample-physical-ai-scaffolding-kit/samples/lerobot-openpi/.cache/huggingface/lerobot/lerobot/libero",
+        "dataset.episodes": "None",
+        "dataset.image_transforms.enable": "False",
+        "dataset.image_transforms.max_num_transforms": "3",
+        "dataset.image_transforms.random_order": "False",
+        "dataset.image_transforms.tfs.brightness.weight": "1.0",
+        "dataset.image_transforms.tfs.brightness.type": "ColorJitter",
+        "dataset.image_transforms.tfs.brightness.kwargs.brightness": "[0.8, 1.2]",
+        "dataset.image_transforms.tfs.contrast.weight": "1.0",
+        "dataset.image_transforms.tfs.contrast.type": "ColorJitter",
+        "dataset.image_transforms.tfs.contrast.kwargs.contrast": "[0.8, 1.2]",
+        "dataset.image_transforms.tfs.saturation.weight": "1.0",
+        "dataset.image_transforms.tfs.saturation.type": "ColorJitter",
+        "dataset.image_transforms.tfs.saturation.kwargs.saturation": "[0.5, 1.5]",
+        "dataset.image_transforms.tfs.hue.weight": "1.0",
+        "dataset.image_transforms.tfs.hue.type": "ColorJitter",
+        "dataset.image_transforms.tfs.hue.kwargs.hue": "[-0.05, 0.05]",
+        "dataset.image_transforms.tfs.sharpness.weight": "1.0",
+        "dataset.image_transforms.tfs.sharpness.type": "SharpnessJitter",
+        "dataset.image_transforms.tfs.sharpness.kwargs.sharpness": "[0.5, 1.5]",
+        "dataset.image_transforms.tfs.affine.weight": "1.0",
+        "dataset.image_transforms.tfs.affine.type": "RandomAffine",
+        "dataset.image_transforms.tfs.affine.kwargs.degrees": "[-5.0, 5.0]",
+        "dataset.image_transforms.tfs.affine.kwargs.translate": "[0.05, 0.05]",
+        "dataset.revision": "None",
+        "dataset.use_imagenet_stats": "True",
+        "dataset.video_backend": "torchcodec",
+        "dataset.return_uint8": "False",
+        "dataset.depth_output_unit": "mm",
+        "dataset.streaming": "False",
+        "dataset.eval_split": "0.0",
+        "env": "None",
+        "policy.type": "pi05",
+        "policy.n_obs_steps": "1",
+        "policy.device": "cuda",
+        "policy.use_amp": "False",
+        "policy.use_peft": "False",
+        "policy.push_to_hub": "False",
+        "policy.repo_id": "None",
+        "policy.private": "None",
+        "policy.tags": "None",
+        "policy.license": "None",
+        "policy.pretrained_path": "lerobot/pi05_base",
+        "policy.pretrained_revision": "None",
+        "policy.paligemma_variant": "gemma_2b",
+        "policy.action_expert_variant": "gemma_300m",
+        "policy.dtype": "bfloat16",
+        "policy.chunk_size": "50",
+        "policy.n_action_steps": "50",
+        "policy.max_state_dim": "32",
+        "policy.max_action_dim": "32",
+        "policy.num_inference_steps": "10",
+        "policy.time_sampling_beta_alpha": "1.5",
+        "policy.time_sampling_beta_beta": "1.0",
+        "policy.time_sampling_scale": "0.999",
+        "policy.time_sampling_offset": "0.001",
+        "policy.min_period": "0.004",
+        "policy.max_period": "4.0",
+        "policy.use_relative_actions": "False",
+        "policy.relative_exclude_joints": "['gripper']",
+        "policy.action_feature_names": "None",
+        "policy.rtc_config": "None",
+        "policy.image_resolution": "[224, 224]",
+        "policy.empty_cameras": "0",
+        "policy.tokenizer_max_length": "200",
+        "policy.normalization_mapping.VISUAL": "IDENTITY",
+        "policy.normalization_mapping.STATE": "QUANTILES",
+        "policy.normalization_mapping.ACTION": "QUANTILES",
+        "policy.gradient_checkpointing": "True",
+        "policy.compile_model": "False",
+        "policy.compile_mode": "max-autotune",
+        "policy.freeze_vision_encoder": "False",
+        "policy.train_expert_only": "False",
+        "policy.optimizer_lr": "2.5e-05",
+        "policy.optimizer_betas": "[0.9, 0.95]",
+        "policy.optimizer_eps": "1e-08",
+        "policy.optimizer_weight_decay": "0.01",
+        "policy.optimizer_grad_clip_norm": "1.0",
+        "policy.scheduler_warmup_steps": "1000",
+        "policy.scheduler_decay_steps": "30000",
+        "policy.scheduler_decay_lr": "2.5e-06",
+        "reward_model": "None",
+        "output_dir": "/fsx/ubuntu/sample-physical-ai-scaffolding-kit/samples/lerobot-openpi/outputs/pi05_lora_short_XXXX",
+        "job_name": "pi05_lora_short_XXXX",
+        "resume": "False",
+        "seed": "1000",
+        "cudnn_deterministic": "False",
+        "num_workers": "4",
+        "batch_size": "4",
+        "prefetch_factor": "4",
+        "persistent_workers": "True",
+        "dataloader_multiprocessing_context": "spawn",
+        "steps": "20",
+        "env_eval_freq": "20000",
+        "log_freq": "5",
+        "eval_steps": "0",
+        "max_eval_samples": "0",
+        "tolerance_s": "0.0001",
+        "save_checkpoint": "True",
+        "save_freq": "10",
+        "use_policy_training_preset": "True",
+        "optimizer.type": "adamw",
+        "optimizer.lr": "2.5e-05",
+        "optimizer.weight_decay": "0.01",
+        "optimizer.grad_clip_norm": "1.0",
+        "optimizer.betas": "[0.9, 0.95]",
+        "optimizer.eps": "1e-08",
+        "scheduler.type": "cosine_decay_with_warmup",
+        "scheduler.num_warmup_steps": "1000",
+        "scheduler.num_decay_steps": "30000",
+        "scheduler.peak_lr": "2.5e-05",
+        "scheduler.decay_lr": "2.5e-06",
+        "eval.n_episodes": "50",
+        "eval.batch_size": "5",
+        "eval.use_async_envs": "True",
+        "eval.recording": "False",
+        "eval.recording_repo_id": "None",
+        "eval.recording_private": "False",
+        "wandb.enable": "True",
+        "wandb.disable_artifact": "False",
+        "wandb.project": "lerobot-pi",
+        "wandb.entity": "None",
+        "wandb.notes": "None",
+        "wandb.run_id": "None",
+        "wandb.mode": "None",
+        "wandb.add_tags": "True",
+        "peft.target_modules": "None",
+        "peft.full_training_modules": "None",
+        "peft.method_type": "LORA",
+        "peft.init_type": "None",
+        "peft.r": "16",
+        "peft.lora_alpha": "16",
+        "job.target": "None",
+        "job.image": "huggingface/lerobot-gpu:latest",
+        "job.timeout": "2d",
+        "job.detach": "False",
+        "job.tags": "[]",
+        "save_checkpoint_to_hub": "False",
+        "sample_weighting": "None",
+        "checkpoint_path": "None"
+      },
+      "tags": {
+        "mlflow.user": "ubuntu",
+        "mlflow.source.name": "training/mlflow_train.py",
+        "mlflow.source.type": "LOCAL",
+        "mlflow.runName": "pi05_lora_short_XXXX",
+        "lerobot.pretrained_path": "lerobot/pi05_base",
+        "lerobot.version": "0.6.1",
+        "lerobot.policy_type": "pi05",
+        "lerobot.finetune_mode": "lora",
+        "lerobot.dataset_repo_id": "lerobot/libero",
+        "pask.output_dir": "/fsx/ubuntu/sample-physical-ai-scaffolding-kit/samples/lerobot-openpi/outputs/pi05_lora_short_XXXX",
+        "pask.image_tag": "latest",
+        "pask.cluster": "pask-cluster",
+        "pask.run_type": "train",
+        "slurm.job_id": "1001",
+        "slurm.job_ids": "1000,1001",
+        "pask.last_checkpoint_dir": "/fsx/ubuntu/sample-physical-ai-scaffolding-kit/samples/lerobot-openpi/outputs/pi05_lora_short_XXXX/checkpoints/000030"
+      },
+      "metrics": {
+        "train/loss": [
+          {
+            "step": 5,
+            "value": 0.49325478076934814,
+            "timestamp": 1767159147421
+          },
+          {
+            "step": 10,
+            "value": 0.5032326638698578,
+            "timestamp": 1767159154420
+          },
+          {
+            "step": 15,
+            "value": 0.5144618272781372,
+            "timestamp": 1767159161799
+          },
+          {
+            "step": 20,
+            "value": 0.5000595569610595,
+            "timestamp": 1767159168803
+          },
+          {
+            "step": 25,
+            "value": 0.5463079690933228,
+            "timestamp": 1767160007990
+          },
+          {
+            "step": 30,
+            "value": 0.5954951524734498,
+            "timestamp": 1767160015169
+          }
+        ],
+        "train/grad_norm": [
+          {
+            "step": 5,
+            "value": 0.08549689203500747,
+            "timestamp": 1767159147421
+          },
+          {
+            "step": 10,
+            "value": 0.08278390914201736,
+            "timestamp": 1767159154420
+          },
+          {
+            "step": 15,
+            "value": 0.08016174584627152,
+            "timestamp": 1767159161799
+          },
+          {
+            "step": 20,
+            "value": 0.08294045925140381,
+            "timestamp": 1767159168803
+          },
+          {
+            "step": 25,
+            "value": 0.08882795423269271,
+            "timestamp": 1767160007990
+          },
+          {
+            "step": 30,
+            "value": 0.09484193176031112,
+            "timestamp": 1767160015169
+          }
+        ],
+        "train/lr": [
+          {
+            "step": 5,
+            "value": 2.3528219102440346e-05,
+            "timestamp": 1767159147421
+          },
+          {
+            "step": 10,
+            "value": 1.71412612257562e-05,
+            "timestamp": 1767159154420
+          },
+          {
+            "step": 15,
+            "value": 8.767748516574073e-06,
+            "timestamp": 1767159161799
+          },
+          {
+            "step": 20,
+            "value": 3.312771155229386e-06,
+            "timestamp": 1767159168803
+          },
+          {
+            "step": 25,
+            "value": 5.481018064851751e-06,
+            "timestamp": 1767160007990
+          },
+          {
+            "step": 30,
+            "value": 2.8661391924103746e-06,
+            "timestamp": 1767160015169
+          }
+        ],
+        "train/update_s": [
+          {
+            "step": 5,
+            "value": 1.5141269405954518,
+            "timestamp": 1767159147421
+          },
+          {
+            "step": 10,
+            "value": 1.3734986222116277,
+            "timestamp": 1767159154420
+          },
+          {
+            "step": 15,
+            "value": 1.373159012605902,
+            "timestamp": 1767159161799
+          },
+          {
+            "step": 20,
+            "value": 1.3760277531808243,
+            "timestamp": 1767159168803
+          },
+          {
+            "step": 25,
+            "value": 1.4932987415930257,
+            "timestamp": 1767160007990
+          },
+          {
+            "step": 30,
+            "value": 1.3985225039883518,
+            "timestamp": 1767160015169
+          }
+        ],
+        "train/dataloading_s": [
+          {
+            "step": 5,
+            "value": 1.7335197654087096,
+            "timestamp": 1767159147421
+          },
+          {
+            "step": 10,
+            "value": 0.0028456225991249084,
+            "timestamp": 1767159154420
+          },
+          {
+            "step": 15,
+            "value": 0.0028344619902782144,
+            "timestamp": 1767159161799
+          },
+          {
+            "step": 20,
+            "value": 0.002869487600401044,
+            "timestamp": 1767159168803
+          },
+          {
+            "step": 25,
+            "value": 1.687068353802897,
+            "timestamp": 1767160007990
+          },
+          {
+            "step": 30,
+            "value": 0.003055130981374532,
+            "timestamp": 1767160015169
+          }
+        ],
+        "train/samples_per_s": [
+          {
+            "step": 5,
+            "value": 1.2316610647965212,
+            "timestamp": 1767159147421
+          },
+          {
+            "step": 10,
+            "value": 2.906249664705068,
+            "timestamp": 1767159154420
+          },
+          {
+            "step": 15,
+            "value": 2.9069905300051664,
+            "timestamp": 1767159161799
+          },
+          {
+            "step": 20,
+            "value": 2.9008688114668852,
+            "timestamp": 1767159168803
+          },
+          {
+            "step": 25,
+            "value": 1.257716445938151,
+            "timestamp": 1767160007990
+          },
+          {
+            "step": 30,
+            "value": 2.8539268180363044,
+            "timestamp": 1767160015169
+          }
+        ],
+        "train/gpu_mem_gb": [
+          {
+            "step": 5,
+            "value": 9.701063537597657,
+            "timestamp": 1767159147421
+          },
+          {
+            "step": 10,
+            "value": 9.70298900604248,
+            "timestamp": 1767159154420
+          },
+          {
+            "step": 15,
+            "value": 9.702981567382812,
+            "timestamp": 1767159161799
+          },
+          {
+            "step": 20,
+            "value": 9.70298900604248,
+            "timestamp": 1767159168803
+          },
+          {
+            "step": 25,
+            "value": 9.703017807006836,
+            "timestamp": 1767160007990
+          },
+          {
+            "step": 30,
+            "value": 9.703025245666504,
+            "timestamp": 1767160015169
+          }
+        ],
+        "train/epochs": [
+          {
+            "step": 5,
+            "value": 7.313550180096173e-05,
+            "timestamp": 1767159147421
+          },
+          {
+            "step": 10,
+            "value": 0.00014627100360192346,
+            "timestamp": 1767159154420
+          },
+          {
+            "step": 15,
+            "value": 0.00021940650540288518,
+            "timestamp": 1767159161799
+          },
+          {
+            "step": 20,
+            "value": 0.0002925420072038469,
+            "timestamp": 1767159168803
+          },
+          {
+            "step": 25,
+            "value": 0.00036567750900480864,
+            "timestamp": 1767160007990
+          },
+          {
+            "step": 30,
+            "value": 0.00043881301080577037,
+            "timestamp": 1767160015169
+          }
+        ],
+        "train/samples": [
+          {
+            "step": 5,
+            "value": 20.0,
+            "timestamp": 1767159147421
+          },
+          {
+            "step": 10,
+            "value": 40.0,
+            "timestamp": 1767159154420
+          },
+          {
+            "step": 15,
+            "value": 60.0,
+            "timestamp": 1767159161799
+          },
+          {
+            "step": 20,
+            "value": 80.0,
+            "timestamp": 1767159168803
+          },
+          {
+            "step": 25,
+            "value": 100.0,
+            "timestamp": 1767160007990
+          },
+          {
+            "step": 30,
+            "value": 120.0,
+            "timestamp": 1767160015169
+          }
+        ],
+        "train/episodes": [
+          {
+            "step": 5,
+            "value": 0.12381840454902822,
+            "timestamp": 1767159147421
+          },
+          {
+            "step": 10,
+            "value": 0.24763680909805644,
+            "timestamp": 1767159154420
+          },
+          {
+            "step": 15,
+            "value": 0.3714552136470846,
+            "timestamp": 1767159161799
+          },
+          {
+            "step": 20,
+            "value": 0.4952736181961129,
+            "timestamp": 1767159168803
+          },
+          {
+            "step": 25,
+            "value": 0.6190920227451411,
+            "timestamp": 1767160007990
+          },
+          {
+            "step": 30,
+            "value": 0.7429104272941692,
+            "timestamp": 1767160015169
+          }
+        ],
+        "checkpoint_step": [
+          {
+            "step": 10,
+            "value": 10.0,
+            "timestamp": 1767159154745
+          },
+          {
+            "step": 20,
+            "value": 20.0,
+            "timestamp": 1767159169137
+          },
+          {
+            "step": 30,
+            "value": 30.0,
+            "timestamp": 1767160015512
+          }
+        ],
+        "system/gpu_0_utilization_percentage": [
+          {
+            "step": 0,
+            "value": 0.0,
+            "timestamp": 1767158800281
+          },
+          {
+            "step": 4,
+            "value": 0.0,
+            "timestamp": 1767158841067
+          },
+          {
+            "step": 7,
+            "value": 0.0,
+            "timestamp": 1767158871692
+          },
+          {
+            "step": 11,
+            "value": 0.0,
+            "timestamp": 1767158915241
+          },
+          {
+            "step": 15,
+            "value": 64.0,
+            "timestamp": 1767158956277
+          },
+          {
+            "step": 19,
+            "value": 0.0,
+            "timestamp": 1767158997079
+          },
+          {
+            "step": 22,
+            "value": 0.0,
+            "timestamp": 1767159027698
+          },
+          {
+            "step": 26,
+            "value": 0.0,
+            "timestamp": 1767159068522
+          },
+          {
+            "step": 30,
+            "value": 0.0,
+            "timestamp": 1767159109397
+          },
+          {
+            "step": 34,
+            "value": 0.0,
+            "timestamp": 1767159150200
+          },
+          {
+            "step": 37,
+            "value": 0.0,
+            "timestamp": 1767159660610
+          },
+          {
+            "step": 41,
+            "value": 0.0,
+            "timestamp": 1767159701445
+          },
+          {
+            "step": 45,
+            "value": 0.0,
+            "timestamp": 1767159742225
+          },
+          {
+            "step": 49,
+            "value": 0.0,
+            "timestamp": 1767159785446
+          },
+          {
+            "step": 52,
+            "value": 0.0,
+            "timestamp": 1767159816086
+          },
+          {
+            "step": 56,
+            "value": 0.0,
+            "timestamp": 1767159856967
+          },
+          {
+            "step": 60,
+            "value": 0.0,
+            "timestamp": 1767159897842
+          },
+          {
+            "step": 64,
+            "value": 5.0,
+            "timestamp": 1767159938761
+          },
+          {
+            "step": 67,
+            "value": 0.0,
+            "timestamp": 1767159969417
+          },
+          {
+            "step": 71,
+            "value": 0.0,
+            "timestamp": 1767160010742
+          }
+        ],
+        "system/gpu_0_memory_usage_percentage": [
+          {
+            "step": 0,
+            "value": 2.0,
+            "timestamp": 1767158800281
+          },
+          {
+            "step": 4,
+            "value": 2.0,
+            "timestamp": 1767158841067
+          },
+          {
+            "step": 7,
+            "value": 2.0,
+            "timestamp": 1767158871692
+          },
+          {
+            "step": 11,
+            "value": 42.6,
+            "timestamp": 1767158915241
+          },
+          {
+            "step": 15,
+            "value": 42.6,
+            "timestamp": 1767158956277
+          },
+          {
+            "step": 19,
+            "value": 42.6,
+            "timestamp": 1767158997079
+          },
+          {
+            "step": 22,
+            "value": 42.6,
+            "timestamp": 1767159027698
+          },
+          {
+            "step": 26,
+            "value": 42.6,
+            "timestamp": 1767159068522
+          },
+          {
+            "step": 30,
+            "value": 42.6,
+            "timestamp": 1767159109397
+          },
+          {
+            "step": 34,
+            "value": 42.8,
+            "timestamp": 1767159150200
+          },
+          {
+            "step": 37,
+            "value": 2.0,
+            "timestamp": 1767159660610
+          },
+          {
+            "step": 41,
+            "value": 2.0,
+            "timestamp": 1767159701445
+          },
+          {
+            "step": 45,
+            "value": 2.0,
+            "timestamp": 1767159742225
+          },
+          {
+            "step": 49,
+            "value": 42.6,
+            "timestamp": 1767159785446
+          },
+          {
+            "step": 52,
+            "value": 42.6,
+            "timestamp": 1767159816086
+          },
+          {
+            "step": 56,
+            "value": 42.6,
+            "timestamp": 1767159856967
+          },
+          {
+            "step": 60,
+            "value": 42.6,
+            "timestamp": 1767159897842
+          },
+          {
+            "step": 64,
+            "value": 42.6,
+            "timestamp": 1767159938761
+          },
+          {
+            "step": 67,
+            "value": 42.6,
+            "timestamp": 1767159969417
+          },
+          {
+            "step": 71,
+            "value": 42.8,
+            "timestamp": 1767160010742
+          }
+        ]
+      },
+      "trainingParams": {
+        "POLICY_TYPE": "pi05",
+        "PRETRAINED_PATH": "lerobot/pi05_base",
+        "FINETUNE_MODE": "lora",
+        "LORA_R": 16,
+        "LORA_ALPHA": 16,
+        "STEPS": 20,
+        "BATCH_SIZE": 4,
+        "SAVE_FREQ": 10,
+        "LOG_FREQ": 5,
+        "NUM_WORKERS": 4,
+        "COMPILE_MODEL": false,
+        "IMAGE_TAG": "latest"
+      },
+      "plannedSteps": 30,
+      "lrScheduleParams": {
+        "policy.optimizer_lr": "2.5e-05",
+        "policy.optimizer_betas": "[0.9, 0.95]",
+        "policy.optimizer_eps": "1e-08",
+        "policy.optimizer_weight_decay": "0.01",
+        "policy.optimizer_grad_clip_norm": "1.0",
+        "policy.scheduler_warmup_steps": "1000",
+        "policy.scheduler_decay_steps": "30000",
+        "policy.scheduler_decay_lr": "2.5e-06",
+        "optimizer.type": "adamw",
+        "optimizer.lr": "2.5e-05",
+        "optimizer.weight_decay": "0.01",
+        "optimizer.grad_clip_norm": "1.0",
+        "optimizer.betas": "[0.9, 0.95]",
+        "optimizer.eps": "1e-08",
+        "scheduler.type": "cosine_decay_with_warmup",
+        "scheduler.num_warmup_steps": "1000",
+        "scheduler.num_decay_steps": "30000",
+        "scheduler.peak_lr": "2.5e-05",
+        "scheduler.decay_lr": "2.5e-06"
+      },
+      "notes": [
+        "planned_steps uses the last metric step because params.steps keeps the first value on resumed runs"
+      ]
+    }
+  ],
+  "criteria": {
+    "datasetKey": "lerobot.dataset_repo_id",
+    "datasetValue": "lerobot/libero",
+    "experiments": [
+      "vams-training",
+      "lerobot-pi"
+    ],
+    "maxCompareRuns": 5,
+    "statuses": [
+      "FINISHED"
+    ]
+  }
+}

@@ -13,9 +13,16 @@ MLflow App은 serverless이므로 사용하지 않는 동안에는 App 요금이
 Artifact를 저장하는 S3 bucket의 storage 및 request 요금은 별도로 발생합니다.
 Training을 MLflow에 기록하는 절차는 [pi0 LoRA training](/samples/openpi-sample/docs/ko/pi0_LoRA_training.md)과 [LeRobot을 사용한 pi0.5 training](/samples/lerobot-openpi/docs/ko/lerobot_pi05_training.md) 문서를 참고하세요.
 
+VAMS(Visual Asset Management System)의 workflow에서 이 cluster로 LeRobot training을 실행하는 연동도 구축할 수 있습니다.
+cdk.json의 `Vams.Enabled`를 `true`로 하면 SQS queue, DLQ, DynamoDB table을 만들고 Outputs에 `VamsQueueUrl`, `VamsQueueArn`, `VamsDeadLetterQueueUrl`, `VamsTableName`이 추가됩니다. `Vams.SeparateLoginRole`이 `true`이면 login group 전용 role도 만들고 Outputs에 `LoginExecutionRoleARN`이 추가됩니다. 이미 만든 cluster에서는 login group의 role을 바꿀 수 없으므로 `false`로 합니다.
+절차는 [VAMS 연동 도입 및 운영](/hyperpod/docs/ko/VAMS_INTEGRATION/OVERVIEW.md)을 참고하세요.
+
 ![Architecture](/hyperpod/docs/architecture.png)
 
 ## Table of Contents
 
 1. [Deployment](/hyperpod/docs/ko/DEPLOYMENT.md)
+1. [VAMS 연동 도입 및 운영](/hyperpod/docs/ko/VAMS_INTEGRATION/OVERVIEW.md)
+1. [VAMS 연동 구조](/hyperpod/docs/ko/VAMS_INTEGRATION/ARCHITECTURE.md)
+1. [VAMS 연동 사양](/hyperpod/docs/ko/VAMS_INTEGRATION/SPEC.md)
 1. [Cleanup](/hyperpod/docs/ko/CLEANUP.md)

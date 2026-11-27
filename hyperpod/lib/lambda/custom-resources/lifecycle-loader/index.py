@@ -127,9 +127,34 @@ def render_override(file_content):
 
     The scripts run on the cluster nodes and cannot read the CDK context, so the
     values they need are injected here from this function's environment.
+    The VAMS poller variables are set only when the VAMS integration is enabled;
+    otherwise their placeholders become empty and install_vams_poller.sh skips.
     """
     substitutions = {
         "__LUSTRE_FILESYSTEM_PATH__": os.environ.get("LUSTRE_FILESYSTEM_PATH", ""),
+        "__LUSTRE_S3_PREFIX__": os.environ.get("LUSTRE_S3_PREFIX", ""),
+        "__VAMS_ENABLED__": os.environ.get("VAMS_ENABLED", ""),
+        "__LOGIN_GROUP_NAME__": os.environ.get("LOGIN_GROUP_NAME", ""),
+        "__VAMS_QUEUE_URL__": os.environ.get("VAMS_QUEUE_URL", ""),
+        "__VAMS_TABLE_NAME__": os.environ.get("VAMS_TABLE_NAME", ""),
+        "__VAMS_DATA_BUCKET__": os.environ.get("VAMS_DATA_BUCKET", ""),
+        "__VAMS_REGION__": os.environ.get("VAMS_REGION", ""),
+        "__VAMS_CONFIG_NAME__": os.environ.get("VAMS_CONFIG_NAME", ""),
+        "__VAMS_VISIBILITY_TIMEOUT_SECONDS__": os.environ.get(
+            "VAMS_VISIBILITY_TIMEOUT_SECONDS", ""
+        ),
+        "__VAMS_HEARTBEAT_INTERVAL_SECONDS__": os.environ.get(
+            "VAMS_HEARTBEAT_INTERVAL_SECONDS", ""
+        ),
+        "__VAMS_ABORT_GRACE_SECONDS__": os.environ.get("VAMS_ABORT_GRACE_SECONDS", ""),
+        "__VAMS_LEASE_SECONDS__": os.environ.get("VAMS_LEASE_SECONDS", ""),
+        "__VAMS_ITEM_TTL_DAYS__": os.environ.get("VAMS_ITEM_TTL_DAYS", ""),
+        "__VAMS_INGEST_WAIT_SECONDS__": os.environ.get("VAMS_INGEST_WAIT_SECONDS", ""),
+        "__VAMS_MAX_CONCURRENT_RUNS__": os.environ.get("VAMS_MAX_CONCURRENT_RUNS", ""),
+        "__VAMS_SLURM_PARTITION__": os.environ.get("VAMS_SLURM_PARTITION", ""),
+        "__VAMS_MLFLOW_EXPERIMENT_NAME__": os.environ.get(
+            "VAMS_MLFLOW_EXPERIMENT_NAME", ""
+        ),
     }
     text = file_content.decode("utf-8")
     for placeholder, value in substitutions.items():

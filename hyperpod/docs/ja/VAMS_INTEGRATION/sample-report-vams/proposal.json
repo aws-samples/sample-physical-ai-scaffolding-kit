@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "baseRunId": "00000000000000000000000000000011",
+  "parameters": {
+    "POLICY_TYPE": "pi05",
+    "PRETRAINED_PATH": "lerobot/pi05_base",
+    "FINETUNE_MODE": "lora",
+    "LORA_R": 16,
+    "LORA_ALPHA": 16,
+    "STEPS": 20000,
+    "BATCH_SIZE": 4,
+    "SAVE_FREQ": 5000,
+    "LOG_FREQ": 100,
+    "NUM_WORKERS": 4,
+    "COMPILE_MODEL": false,
+    "IMAGE_TAG": "latest"
+  },
+  "changes": [
+    {
+      "key": "STEPS",
+      "from": 30000,
+      "to": 20000,
+      "reason": "1 エピソードのデータを 30 周以上学習しており、評価の損失が無いまま訓練の損失だけが下がっている。学習率は 30000 ステップで減衰しきっていて、これ以上 STEPS を延ばしても効果は小さい。データを増やすまでは周回数を減らす",
+      "evidence": [
+        "overfit_risk",
+        "epochs=32.03416978109984",
+        "lr_progress=0.10028108681633426",
+        "estimated_episodes=1.0",
+        "few_episodes"
+      ]
+    }
+  ],
+  "expectedEffect": "周回数を減らし、1 エピソードへの過学習の度合いを下げる。訓練の損失の最終値は前の run より高くなる可能性があるが、それ自体は悪化を意味しない",
+  "risks": [
+    "入力のデータセットが 1 エピソードしかない（few_episodes）。パラメータの調整より、エピソードを足したデータセットか view を入力にすることを優先する",
+    "評価の損失（eval/*）が記録されていないため、過学習は直接は判定していない。overfit_risk は train/epochs による代理の判定である",
+    "STEPS を 30000 未満にすると、warmup と cosine 減衰が STEPS に合わせて縮むため、同じステップの損失を前の run と単純に比べられない",
+    "データセットの品質のフラグ task_text_issue が 1 エピソードに立っている。タスクの文の確認を VAMS で行う"
+  ],
+  "alternatives": [
+    {
+      "parameters": {
+        "POLICY_TYPE": "pi05",
+        "PRETRAINED_PATH": "lerobot/pi05_base",
+        "FINETUNE_MODE": "lora",
+        "LORA_R": 16,
+        "LORA_ALPHA": 16,
+        "STEPS": 30000,
+        "BATCH_SIZE": 4,
+        "SAVE_FREQ": 5000,
+        "LOG_FREQ": 100,
+        "NUM_WORKERS": 4,
+        "COMPILE_MODEL": false,
+        "IMAGE_TAG": "latest"
+      },
+      "reason": "エピソードを足したデータセットか view に入力を替える場合は、12 項目を前の run と同じにし、データの違いだけを比べる"
+    }
+  ]
+}
