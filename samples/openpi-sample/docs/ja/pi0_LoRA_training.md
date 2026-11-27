@@ -106,8 +106,8 @@ cd
 git clone https://github.com/aws-samples/sample-physical-ai-scaffolding-kit.git
 
 # セットアップを実行。パラメータについて以下を参照
-cd samples/openpi-sample/lora_training
-./setup.sh --hf-token "hf_xxxxx"
+cd sample-physical-ai-scaffolding-kit/samples/openpi-sample/lora_training
+bash setup.sh --hf-token "hf_xxxxx"
 
 # 環境変数を反映
 source ~/.bashrc
@@ -149,7 +149,7 @@ source ~/.bashrc
 
 ```bash
 # ECR イメージを Enroot 形式に変換
-cd samples/openpi-sample/lora_training
+cd sample-physical-ai-scaffolding-kit/samples/openpi-sample/lora_training
 
 # EC2 メタデータから自動取得
 ./hyperpod_import_container.sh
@@ -203,6 +203,18 @@ cd samples/openpi-sample/lora_training
 * SquashFS 形式 (`.sqsh`) に変換
 * `/fsx/enroot/data/` に保存
 
+**ルートディスク容量について**:
+
+Docker の Pull 先（`/opt/sagemaker/docker/data-root`）と Enroot の一時領域（既定は `/tmp`）はどちらも Login Node のルートボリューム上にあります。展開後のイメージは約 18 GB で、SquashFS 変換中はさらに同程度の一時領域を消費するため、ルートボリュームの空きが 40 GB 程度しかない場合は一時領域を FSx に退避してから実行します。
+
+```bash
+mkdir -p /fsx/enroot/tmp
+export ENROOT_TEMP_PATH=/fsx/enroot/tmp
+./hyperpod_import_container.sh
+```
+
+変換完了後、`/fsx/enroot/tmp` に残った中間ファイルは削除して構いません。
+
 **出力例**:
 
 ```
@@ -228,7 +240,7 @@ enroot list
 #### 正規化統計の計算（初回のみ）
 
 ```bash
-cd samples/openpi-sample/lora_training
+cd sample-physical-ai-scaffolding-kit/samples/openpi-sample/lora_training
 
 # Slurm ジョブとして投入
 sbatch ./slurm_compute_norm_stats.sh pi0_libero_low_mem_finetune
@@ -266,8 +278,10 @@ We had to rate limit you, you hit the quota of 1000 api requests per 5 minutes p
 
 #### LoRA ファインチューニングの実行（GPU ジョブ）
 
+このジョブは `--gres=gpu:1 --cpus-per-task=8 --mem=28G` を要求します。クラスタに GPU 付きの worker group が無い場合、ジョブは投入できてもリソースが確保できず PENDING のままになります。`sinfo` と `scontrol show node <ノード名>` の `Gres` を確認し、GPU が割り当てられていなければ CDK の `cdk.json` の `WorkerGroup` に GPU インスタンス（例: `ml.g5.2xlarge` = A10G 24 GB / 8 vCPU / 32 GB）を追加してからデプロイしてください。
+
 ```bash
-cd samples/openpi-sample/lora_training
+cd sample-physical-ai-scaffolding-kit/samples/openpi-sample/lora_training
 
 # LoRA トレーニングを投入
 sbatch ./slurm_train_lora.sh pi0_libero_low_mem_finetune my_lora_run
