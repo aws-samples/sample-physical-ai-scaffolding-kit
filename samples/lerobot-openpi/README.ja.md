@@ -9,3 +9,4 @@ Slurm と Enroot を使い、`lerobot/libero` データセットを GPU 1 枚で
 ## ドキュメント一覧
 
 1. [LeRobot π0.5 Training](docs/ja/lerobot_pi05_training.md): HyperPod 上で Slurm と Enroot を使い、Docker コンテナで π0.5 を LoRA で finetuning するガイド
+2. [Training Advisor](docs/ja/training_advisor.md): MLflow に記録された学習の結果を診断し、次の学習パラメータの提案とレポートを作る skill `pask-training-advisor` の仕組みとレポートの見方

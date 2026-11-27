@@ -1,0 +1,55 @@
+{
+  "pask-lerobot-openpi-training": {
+    "templateId": "pask-lerobot-openpi-default",
+    "templateTags": [
+      {
+        "key": "POLICY_TYPE",
+        "value": "pi05"
+      },
+      {
+        "key": "PRETRAINED_PATH",
+        "value": "lerobot/pi05_base"
+      },
+      {
+        "key": "FINETUNE_MODE",
+        "value": "lora"
+      },
+      {
+        "key": "LORA_R",
+        "value": 16
+      },
+      {
+        "key": "LORA_ALPHA",
+        "value": 16
+      },
+      {
+        "key": "STEPS",
+        "value": 20000
+      },
+      {
+        "key": "BATCH_SIZE",
+        "value": 4
+      },
+      {
+        "key": "SAVE_FREQ",
+        "value": 5000
+      },
+      {
+        "key": "LOG_FREQ",
+        "value": 100
+      },
+      {
+        "key": "NUM_WORKERS",
+        "value": 4
+      },
+      {
+        "key": "COMPILE_MODEL",
+        "value": false
+      },
+      {
+        "key": "IMAGE_TAG",
+        "value": "latest"
+      }
+    ]
+  }
+}

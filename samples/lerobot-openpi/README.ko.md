@@ -7,3 +7,4 @@
 ## Documentation
 
 1. [π0.5 Training](docs/ko/lerobot_pi05_training.md): AWS SageMaker HyperPod에서 Slurm + Enroot로 LeRobot의 π0.5를 fine-tuning하는 가이드
+2. [Training Advisor](docs/ko/training_advisor.md): MLflow에 기록된 학습 결과를 진단하고 다음 학습 파라미터의 제안과 report를 만드는 skill `pask-training-advisor`의 구조와 report 보는 법
