@@ -105,7 +105,10 @@
       "StackPrefix": "Dev",
       "VpcId": "",
       "SubnetAZ": "",
-      "InstanceType": "g6e.8xlarge"
+      "InstanceType": "g6e.8xlarge",
+      "AllowedIpv4Cidrs": [
+        "0.0.0.0/0"
+      ]
     }
   }
 }

@@ -36,21 +36,18 @@ export class WorkstationStack extends cdk.Stack {
       description: "Allow DCV and TensorBoard access",
       allowAllOutbound: true,
     });
-    securityGroup.addIngressRule(
-      aws_ec2.Peer.anyIpv4(),
-      aws_ec2.Port.tcp(8443),
-      "Allow Amazon DCV access (TCP/WebSocket)",
-    );
-    securityGroup.addIngressRule(
-      aws_ec2.Peer.anyIpv4(),
-      aws_ec2.Port.udp(8443),
-      "Allow Amazon DCV access (QUIC/UDP)",
-    );
-    securityGroup.addIngressRule(
-      aws_ec2.Peer.anyIpv4(),
-      aws_ec2.Port.tcp(6006),
-      "Allow TensorBoard access",
-    );
+    for (const cidr of config.AllowedIpv4Cidrs) {
+      securityGroup.addIngressRule(
+        aws_ec2.Peer.ipv4(cidr),
+        aws_ec2.Port.tcp(8443),
+        "Allow Amazon DCV access (TCP/WebSocket)",
+      );
+      securityGroup.addIngressRule(
+        aws_ec2.Peer.ipv4(cidr),
+        aws_ec2.Port.udp(8443),
+        "Allow Amazon DCV access (QUIC/UDP)",
+      );
+    }
 
     // IAM Role for workstation instances
     const instanceRole = new aws_iam.Role(this, "InstanceRole", {
@@ -77,10 +74,24 @@ export class WorkstationStack extends cdk.Stack {
     );
 
     // S3 Files file system
+    const s3FilesAccessLogsBucket = new aws_s3.Bucket(
+      this,
+      "S3FilesAccessLogsBucket",
+      {
+        blockPublicAccess: aws_s3.BlockPublicAccess.BLOCK_ALL,
+        encryption: aws_s3.BucketEncryption.S3_MANAGED,
+        enforceSSL: true,
+        objectOwnership: aws_s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+        autoDeleteObjects: true,
+      },
+    );
     const s3FilesBucket = new aws_s3.Bucket(this, "S3FilesBucket", {
       versioned: true,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
+      enforceSSL: true,
+      serverAccessLogsBucket: s3FilesAccessLogsBucket,
     });
 
     const s3FilesRole = new aws_iam.Role(this, "S3FilesRole", {
@@ -237,8 +248,21 @@ export class WorkstationStack extends cdk.Stack {
         actions: ["ssm:SendCommand"],
         resources: [
           `arn:${Aws.PARTITION}:ssm:${this.region}::document/AWS-RunShellScript`,
+        ],
+      }),
+    );
+    // Only the workstations that the Launch Lambda tagged can receive commands.
+    connectLambdaRole.addToPolicy(
+      new aws_iam.PolicyStatement({
+        actions: ["ssm:SendCommand"],
+        resources: [
           `arn:${Aws.PARTITION}:ec2:${this.region}:${this.account}:instance/*`,
         ],
+        conditions: {
+          StringEquals: {
+            "ssm:resourceTag/ManagedBy": "workstation-imagebuilder",
+          },
+        },
       }),
     );
     connectLambdaRole.addToPolicy(
