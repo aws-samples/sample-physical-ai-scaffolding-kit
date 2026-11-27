@@ -122,6 +122,9 @@
       "Lustre": {
         "S3Prefix": "",
         "FileSystemPath": "/s3link"
+      },
+      "Mlflow": {
+        "Enabled": false
       }
     }
   }

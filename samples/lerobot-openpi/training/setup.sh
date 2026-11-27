@@ -2,28 +2,65 @@
 # Setup the LeRobot OpenPI (pi0 / pi0.5) environment on HyperPod
 # This script will:
 #   1. Create the required directories on FSx
-#   2. Add the LeRobot OpenPI configuration block to ~/.bashrc
+#   2. Read the MLflow App ARN and the cluster name from the CloudFormation stack outputs
+#   3. Add the LeRobot OpenPI configuration block to ~/.bashrc
 #
-# Usage: ./setup.sh [--hf-token "hf_xxxxx"]
+# Usage: ./setup.sh [--hf-token "hf_xxxxx"] [--mlflow-tracking-uri <ARN>]
+#                   [--stack-name <name>] [--region <region>] [--no-mlflow]
+#
+# Options:
+#   --hf-token             Hugging Face token written to the block as HF_TOKEN
+#   --mlflow-tracking-uri  MLflow App ARN. Overrides the MlflowAppArn stack output
+#   --stack-name           CloudFormation stack name (default: PASK)
+#   --region               Region of the stack (default: EC2 metadata via IMDSv2)
+#   --no-mlflow            Do not write the MLflow settings to the block
 
 set -e
 
-USAGE='Usage: ./setup.sh [--hf-token "hf_xxxxx"]'
+USAGE='Usage: ./setup.sh [--hf-token "hf_xxxxx"] [--mlflow-tracking-uri <ARN>] [--stack-name <name>] [--region <region>] [--no-mlflow]'
 BLOCK_START="# LeRobot OpenPI Configuration"
 BLOCK_END="# End LeRobot OpenPI Configuration"
 BASHRC="${HOME}/.bashrc"
 
 HF_TOKEN_ARG=""
+MLFLOW_TRACKING_URI_ARG=""
+STACK_NAME="PASK"
+REGION_ARG=""
+ENABLE_MLFLOW=true
+
+require_value() {
+    if [[ -z "$2" ]]; then
+        echo "ERROR: $1 requires a value"
+        echo "${USAGE}"
+        exit 1
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         --hf-token)
-            if [[ -z "$2" ]]; then
-                echo "ERROR: --hf-token requires a value"
-                echo "${USAGE}"
-                exit 1
-            fi
+            require_value "$1" "$2"
             HF_TOKEN_ARG="$2"
             shift 2
+            ;;
+        --mlflow-tracking-uri)
+            require_value "$1" "$2"
+            MLFLOW_TRACKING_URI_ARG="$2"
+            shift 2
+            ;;
+        --stack-name)
+            require_value "$1" "$2"
+            STACK_NAME="$2"
+            shift 2
+            ;;
+        --region)
+            require_value "$1" "$2"
+            REGION_ARG="$2"
+            shift 2
+            ;;
+        --no-mlflow)
+            ENABLE_MLFLOW=false
+            shift
             ;;
         *)
             echo "Unknown option: $1"
@@ -46,7 +83,7 @@ echo "Script location: ${SCRIPT_DIR}"
 echo "Base directory:  ${BASE_DIR}"
 echo ""
 
-echo "[1/2] Creating required directories..."
+echo "[1/3] Creating required directories..."
 
 DIRS=(
     "${BASE_DIR}/logs"
@@ -70,7 +107,70 @@ for dir in "${DIRS[@]}"; do
 done
 echo ""
 
-echo "[2/2] Updating ${BASHRC}..."
+# Prints the value of the first stack output whose key starts with $1, or "None".
+get_stack_output() {
+    aws cloudformation describe-stacks \
+        --stack-name "${STACK_NAME}" \
+        --region "${STACK_REGION}" \
+        --query "Stacks[0].Outputs[?starts_with(OutputKey, '$1')].OutputValue | [0]" \
+        --output text
+}
+
+echo "[2/3] Resolving the MLflow settings..."
+
+MLFLOW_TRACKING_URI_VALUE=""
+MLFLOW_REGION=""
+CLUSTER_NAME=""
+if [ "${ENABLE_MLFLOW}" != true ]; then
+    echo "  Skipped (--no-mlflow)"
+else
+    STACK_REGION="${REGION_ARG}"
+    if [ -z "${STACK_REGION}" ]; then
+        TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" -s 2>/dev/null || true)
+        STACK_REGION=$(curl -H "X-aws-ec2-metadata-token: ${TOKEN}" -s http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || true)
+    fi
+
+    if [ -z "${STACK_REGION}" ]; then
+        echo "  WARNING: Could not determine the region from EC2 metadata. Pass --region to read the stack outputs"
+    else
+        echo "  Stack:  ${STACK_NAME} (${STACK_REGION})"
+        CLUSTER_NAME=$(get_stack_output HyperPodClusterId) || CLUSTER_NAME=""
+        if [ -z "${CLUSTER_NAME}" ] || [ "${CLUSTER_NAME}" = "None" ]; then
+            echo "  WARNING: Could not read the HyperPodClusterId output of stack ${STACK_NAME}"
+            CLUSTER_NAME=""
+        fi
+        if [ -z "${MLFLOW_TRACKING_URI_ARG}" ]; then
+            MLFLOW_TRACKING_URI_VALUE=$(get_stack_output MlflowAppArn) || MLFLOW_TRACKING_URI_VALUE=""
+            if [ -z "${MLFLOW_TRACKING_URI_VALUE}" ] || [ "${MLFLOW_TRACKING_URI_VALUE}" = "None" ]; then
+                echo "  WARNING: Could not read the MlflowAppArn output of stack ${STACK_NAME}"
+                MLFLOW_TRACKING_URI_VALUE=""
+            fi
+        fi
+    fi
+
+    if [ -n "${MLFLOW_TRACKING_URI_ARG}" ]; then
+        MLFLOW_TRACKING_URI_VALUE="${MLFLOW_TRACKING_URI_ARG}"
+    fi
+
+    if [ -n "${MLFLOW_TRACKING_URI_VALUE}" ]; then
+        # arn:aws:sagemaker:<region>:<account>:mlflow-app/<name>
+        MLFLOW_REGION=$(echo "${MLFLOW_TRACKING_URI_VALUE}" | cut -d: -f4)
+        if [ -z "${MLFLOW_REGION}" ]; then
+            echo "  WARNING: Could not read the region from the MLflow App ARN: ${MLFLOW_TRACKING_URI_VALUE}"
+            MLFLOW_TRACKING_URI_VALUE=""
+        fi
+    fi
+
+    if [ -n "${MLFLOW_TRACKING_URI_VALUE}" ]; then
+        echo "  MLflow App: ${MLFLOW_TRACKING_URI_VALUE}"
+        echo "  Cluster:    ${CLUSTER_NAME:-(unknown)}"
+    else
+        echo "  WARNING: Continuing without MLflow. Training runs are not recorded"
+    fi
+fi
+echo ""
+
+echo "[3/3] Updating ${BASHRC}..."
 
 touch "${BASHRC}"
 
@@ -103,6 +203,13 @@ EOF
     if [ -n "${HF_TOKEN_ARG}" ]; then
         printf 'export HF_TOKEN=%q\n' "${HF_TOKEN_ARG}"
     fi
+    if [ -n "${MLFLOW_TRACKING_URI_VALUE}" ]; then
+        printf 'export MLFLOW_TRACKING_URI=%q\n' "${MLFLOW_TRACKING_URI_VALUE}"
+        printf 'export AWS_DEFAULT_REGION=%q\n' "${MLFLOW_REGION}"
+        if [ -n "${CLUSTER_NAME}" ]; then
+            printf 'export PASK_CLUSTER_NAME=%q\n' "${CLUSTER_NAME}"
+        fi
+    fi
     if [ "${WRITE_ENROOT_DATA}" = true ]; then
         echo "export ENROOT_CACHE_PATH=/fsx/enroot"
         echo "export ENROOT_DATA_PATH=/fsx/enroot/data"
@@ -132,6 +239,13 @@ if [ -n "${HF_TOKEN_ARG}" ]; then
 else
     echo "  HF_TOKEN:                   (not set in this block)"
 fi
+if [ -n "${MLFLOW_TRACKING_URI_VALUE}" ]; then
+    echo "  MLFLOW_TRACKING_URI:        ${MLFLOW_TRACKING_URI_VALUE}"
+    echo "  AWS_DEFAULT_REGION:         ${MLFLOW_REGION}"
+    echo "  PASK_CLUSTER_NAME:          ${CLUSTER_NAME:-(not set in this block)}"
+else
+    echo "  MLFLOW_TRACKING_URI:        (not set in this block; MLflow tracking is disabled)"
+fi
 if [ "${WRITE_ENROOT_DATA}" = true ]; then
     echo "  ENROOT_CACHE_PATH:          /fsx/enroot"
     echo "  ENROOT_DATA_PATH:           /fsx/enroot/data"
@@ -150,5 +264,7 @@ echo "  2. sbatch slurm_build_docker.sh"
 echo "  3. ./hyperpod_import_container.sh"
 echo ""
 echo "Note: running samples/openpi-sample/lora_training/setup.sh later removes every line"
-echo "      containing 'export HF_TOKEN=' or 'ENROOT_' from ~/.bashrc, including the ones"
-echo "      in this block. Run this script again after that."
+echo "      containing 'export HF_TOKEN=', 'ENROOT_CACHE_PATH' or 'ENROOT_DATA_PATH' from"
+echo "      ~/.bashrc, including the ones in this block. Run this script again after that."
+echo "      The MLFLOW_TRACKING_URI, AWS_DEFAULT_REGION and PASK_CLUSTER_NAME lines in this"
+echo "      block are not removed by it."

@@ -36,6 +36,18 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=packages/openpi-client/src,target=packages/openpi-client/src \
     GIT_LFS_SKIP_SMUDGE=1 uv sync --frozen --no-install-project --no-dev
 
+# Install MLflow tracking dependencies on top of the locked environment
+# - mlflow-skinny: Logs training runs to the SageMaker AI MLflow App
+# - sagemaker-mlflow: SigV4 auth plugin for the MLflow App tracking server
+# - nvidia-ml-py: Provides pynvml for MLflow GPU system metrics
+# Installed with uv pip install so that openpi's pyproject.toml and uv.lock stay unchanged.
+# nvidia-ml-py matches the version resolved in openpi's uv.lock; psutil is already an openpi dependency.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --python /.venv/bin/python \
+    mlflow-skinny==3.10.1 \
+    sagemaker-mlflow==0.5.0 \
+    nvidia-ml-py==12.575.51
+
 # Copy transformers_replace files (model architecture patches)
 COPY src/openpi/models_pytorch/transformers_replace/ /tmp/transformers_replace/
 RUN /.venv/bin/python -c "import transformers; print(transformers.__file__)" | \
@@ -48,6 +60,9 @@ ENV PYTHONPATH=/app:/app/src
 
 # Activate virtual environment by default
 ENV PATH="/.venv/bin:$PATH"
+
+# Verify that the MLflow tracking dependencies are importable
+RUN /.venv/bin/python -c "import mlflow, sagemaker_mlflow, psutil, pynvml; print(mlflow.__version__)"
 
 # Training-specific environment variables
 # XLA_PYTHON_CLIENT_MEM_FRACTION: Allocate 90% of GPU memory to JAX

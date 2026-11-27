@@ -5,7 +5,9 @@
 # flavors are not needed. Only NPP is added from the CUDA apt repository, because
 # the cu128 torchcodec wheel links against it and the PyTorch wheels do not ship it.
 # Pinned versions: LeRobot (LEROBOT_VERSION), Python (PYTHON_VERSION), uv image tag,
-# and the PyTorch CUDA backend (cu128).
+# the PyTorch CUDA backend (cu128), and the MLflow client packages (mlflow-skinny,
+# sagemaker-mlflow, nvidia-ml-py). mlflow-skinny matches the 3.10 server of the
+# SageMaker AI MLflow App; nvidia-ml-py provides GPU system metrics.
 #
 # Build context: samples/lerobot-openpi/training/ (no files are copied into the image).
 
@@ -51,7 +53,10 @@ ENV PATH=/opt/lerobot/.venv/bin:$PATH
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install \
     --torch-backend=cu128 \
-    "lerobot[pi,training,peft]==${LEROBOT_VERSION}"
+    "lerobot[pi,training,peft]==${LEROBOT_VERSION}" \
+    "mlflow-skinny==3.10.1" \
+    "sagemaker-mlflow==0.5.0" \
+    "nvidia-ml-py==13.615.71"
 
 # HOME, HF_HOME, HF_LEROBOT_HOME, TRITON_CACHE_DIR and TORCHINDUCTOR_CACHE_DIR are
 # intentionally not set here. Enroot mounts the squashfs image read-only and runs it
@@ -63,7 +68,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Fail the build early if dependency resolution produced a broken environment.
 # This check must not touch the GPU because the build host may not have one.
 RUN ldconfig -p | grep -q "libnppicc.so.12" \
-    && python -c "import torch, transformers, peft, lerobot; print(lerobot.__version__, torch.__version__, torch.version.cuda)" \
+    && python -c "import torch, transformers, peft, lerobot, mlflow, sagemaker_mlflow, pynvml; print(lerobot.__version__, torch.__version__, torch.version.cuda)" \
     && lerobot-train --help > /dev/null \
     && lerobot-edit-dataset --help > /dev/null \
     && hf --help > /dev/null

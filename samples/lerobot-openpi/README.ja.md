@@ -4,6 +4,7 @@
 
 本ディレクトリには、Amazon SageMaker HyperPod 上で LeRobot の PyTorch 版 π0.5 を LoRA で finetuning するサンプルスクリプトがあります。
 Slurm と Enroot を使い、`lerobot/libero` データセットを GPU 1 枚で学習します。
+学習の設定、metrics、LoRA のアダプタは Amazon SageMaker AI の MLflow App に記録できます。
 
 ## ドキュメント一覧
 

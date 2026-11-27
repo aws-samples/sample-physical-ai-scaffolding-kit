@@ -13,6 +13,8 @@
 # LeRobot pi0 / pi0.5 Fine-tuning - Slurm Job Script (1 GPU)
 # ================================================
 # Runs lerobot-train inside the lerobot-pi-train container on a single GPU.
+# When MLFLOW_TRACKING_URI is set (setup.sh writes it to ~/.bashrc), training runs
+# through training/mlflow_train.py and is recorded to the SageMaker MLflow App.
 #
 # The #SBATCH values above target ml.g6.2xlarge (1x NVIDIA L4 24 GB, 8 vCPU, 32 GiB).
 # Override them on the sbatch command line for other instance types, e.g.:
@@ -49,6 +51,12 @@
 #   EXTRA_ARGS        Additional arguments appended to lerobot-train (default: empty)
 #   IMAGE_TAG         Container image tag (default: latest)
 #   CONTAINER_IMAGE   Full path to the .sqsh file (default: ${ENROOT_DATA_PATH}/lerobot-pi-train+${IMAGE_TAG}.sqsh)
+#   MLFLOW_TRACKING_URI  MLflow App ARN. Unset disables MLflow tracking (default: from ~/.bashrc)
+#   MLFLOW_EXPERIMENT_NAME  MLflow experiment name for a new run (default: lerobot-pi).
+#                     A resumed MLflow run keeps the experiment in its train_config.json
+#   MLFLOW_DISABLE_ARTIFACT  Skip uploading the final LoRA adapter: true / false (default: false)
+#   MLFLOW_ADAPTER_MAX_MB  Maximum adapter size in MB to upload as an artifact (default: 200)
+#   MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL  System metrics interval in seconds (default: 10)
 #
 # The learning rate is not passed; the LeRobot policy preset is used.
 # ================================================
@@ -76,6 +84,11 @@ COMPILE_MODEL="${COMPILE_MODEL:-false}"
 RESUME="${RESUME:-false}"
 EXTRA_ARGS="${EXTRA_ARGS:-}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
+MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-}"
+MLFLOW_EXPERIMENT_NAME="${MLFLOW_EXPERIMENT_NAME:-lerobot-pi}"
+MLFLOW_DISABLE_ARTIFACT="${MLFLOW_DISABLE_ARTIFACT:-false}"
+MLFLOW_ADAPTER_MAX_MB="${MLFLOW_ADAPTER_MAX_MB:-200}"
+MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL="${MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL:-10}"
 
 MIN_DRIVER_VERSION="570.86"
 
@@ -179,22 +192,57 @@ else
 fi
 echo "  Output dir:      ${OUTPUT_DIR}"
 echo "  Resume:          ${RESUME}"
+if [ -n "${MLFLOW_TRACKING_URI}" ]; then
+    echo "  MLflow:          enabled (${MLFLOW_TRACKING_URI})"
+    if [ "${RESUME}" = "true" ]; then
+        echo "  MLflow experiment: from train_config.json, or ${MLFLOW_EXPERIMENT_NAME} if the run had no MLflow tracking"
+    else
+        echo "  MLflow experiment: ${MLFLOW_EXPERIMENT_NAME}"
+    fi
+else
+    echo "  MLflow:          disabled (MLFLOW_TRACKING_URI is not set)"
+fi
 echo ""
 
 echo "[3/4] Building the lerobot-train command..."
 
+# mlflow_train.py replaces the W&B logger of lerobot-train with an MLflow one, so
+# the --wandb.* options select the MLflow experiment and the artifact upload.
+if [ -n "${MLFLOW_TRACKING_URI}" ]; then
+    TRAIN_ENTRYPOINT=(python training/mlflow_train.py)
+    TRACKING_ARGS=(
+        --wandb.enable=true
+        "--wandb.project=${MLFLOW_EXPERIMENT_NAME}"
+        "--wandb.disable_artifact=${MLFLOW_DISABLE_ARTIFACT}"
+    )
+else
+    TRAIN_ENTRYPOINT=(lerobot-train)
+    TRACKING_ARGS=(--wandb.enable=false)
+fi
+
 if [ "${RESUME}" = "true" ]; then
     TRAIN_CMD=(
-        lerobot-train
+        "${TRAIN_ENTRYPOINT[@]}"
         --resume=true
         "--config_path=${RESUME_CONFIG_PATH}"
     )
     if [ -n "${STEPS_OVERRIDE}" ]; then
         TRAIN_CMD+=("--steps=${STEPS_OVERRIDE}")
     fi
+    # A run that already records to MLflow keeps wandb.project and wandb.run_id from
+    # train_config.json so that it continues in the same experiment and run.
+    # A run started without MLflow is recorded as a new MLflow run.
+    if [ -n "${MLFLOW_TRACKING_URI}" ]; then
+        RESUMED_WANDB_ENABLE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["wandb"]["enable"])' "${RESUME_CONFIG_PATH}")"
+        if [ "${RESUMED_WANDB_ENABLE}" != "True" ]; then
+            TRAIN_CMD+=("${TRACKING_ARGS[@]}")
+        fi
+    else
+        TRAIN_CMD+=("${TRACKING_ARGS[@]}")
+    fi
 else
     TRAIN_CMD=(
-        lerobot-train
+        "${TRAIN_ENTRYPOINT[@]}"
         "--dataset.repo_id=${DATASET_REPO_ID}"
         "--dataset.root=${DATASET_ROOT}"
         "--policy.type=${POLICY_TYPE}"
@@ -211,7 +259,7 @@ else
         "--save_freq=${SAVE_FREQ}"
         "--log_freq=${LOG_FREQ}"
         "--num_workers=${NUM_WORKERS}"
-        --wandb.enable=false
+        "${TRACKING_ARGS[@]}"
     )
     case "${FINETUNE_MODE}" in
         lora)
@@ -254,6 +302,14 @@ export HF_LEROBOT_HOME="${LEROBOT_PI_HF_LEROBOT_HOME}"
 export TRITON_CACHE_DIR="${LEROBOT_PI_CACHE_DIR}/triton"
 export TORCHINDUCTOR_CACHE_DIR="${LEROBOT_PI_CACHE_DIR}/torchinductor"
 export HF_TOKEN
+if [ -n "${MLFLOW_TRACKING_URI}" ]; then
+    export MLFLOW_TRACKING_URI
+    export AWS_DEFAULT_REGION
+    export MLFLOW_SYSTEM_METRICS_SAMPLING_INTERVAL
+    export MLFLOW_ADAPTER_MAX_MB
+    export IMAGE_TAG
+    export PASK_CLUSTER_NAME
+fi
 
 echo "[4/4] Running training..."
 

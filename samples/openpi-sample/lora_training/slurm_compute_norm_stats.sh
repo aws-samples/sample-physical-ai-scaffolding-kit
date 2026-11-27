@@ -21,6 +21,12 @@
 #   sbatch /path/to/slurm_compute_norm_stats.sh [CONFIG_NAME]
 # Example:
 #   sbatch slurm_compute_norm_stats.sh pi0_libero_low_mem_finetune
+#
+# Environment Variables:
+#   MLFLOW_TRACKING_URI (optional): SageMaker MLflow App ARN. MLflow tracking is
+#     disabled when unset (written to ~/.bashrc by setup.sh)
+#   MLFLOW_EXPERIMENT_NAME (optional): MLflow experiment name
+#     (default: project_name of the training config)
 # ================================================
 
 set -e
@@ -118,6 +124,29 @@ fi
 # Change to project directory
 cd "${OPENPI_PROJECT_ROOT}"
 
+# MLflow settings passed into the container. When MLflow is disabled,
+# MLFLOW_TRACKING_URI is unset because bash under srun reads ~/.bashrc, where
+# setup.sh writes it, so that the computation behaves exactly as without MLflow.
+# This job has no GPU and does not log system metrics.
+MLFLOW_EXPORTS="
+         unset MLFLOW_TRACKING_URI"
+if [ -n "${MLFLOW_TRACKING_URI}" ]; then
+    echo "MLflow: enabled (${MLFLOW_TRACKING_URI})"
+    OPENPI_GIT_COMMIT=$(git -C "${OPENPI_PROJECT_ROOT}" rev-parse --short HEAD)
+    MLFLOW_EXPORTS="
+         export MLFLOW_TRACKING_URI='${MLFLOW_TRACKING_URI}'
+         export AWS_DEFAULT_REGION='${AWS_DEFAULT_REGION:-$(echo "${MLFLOW_TRACKING_URI}" | cut -d: -f4)}'
+         export OPENPI_GIT_COMMIT='${OPENPI_GIT_COMMIT}'
+         export PASK_CLUSTER_NAME='${PASK_CLUSTER_NAME}'
+         export SLURM_JOB_ID='${SLURM_JOB_ID}'"
+    if [ -n "${MLFLOW_EXPERIMENT_NAME}" ]; then
+        MLFLOW_EXPORTS="${MLFLOW_EXPORTS}
+         export MLFLOW_EXPERIMENT_NAME='${MLFLOW_EXPERIMENT_NAME}'"
+    fi
+else
+    echo "MLflow: disabled (MLFLOW_TRACKING_URI is not set)"
+fi
+
 # Run normalization statistics computation
 echo "Starting normalization statistics computation..."
 srun --container-image="${CONTAINER_IMAGE}" \
@@ -128,10 +157,15 @@ srun --container-image="${CONTAINER_IMAGE}" \
          export OPENPI_DATA_HOME=${OPENPI_DATA_HOME}
          export HF_TOKEN=${HF_TOKEN}
          export PYTHONPATH=${OPENPI_PROJECT_ROOT}:${OPENPI_PROJECT_ROOT}/src:${OPENPI_PROJECT_ROOT}/packages/openpi-client/src
+         ${MLFLOW_EXPORTS}
 
          # Clear problematic XLA flags
          unset XLA_FLAGS
          export XLA_FLAGS=''
+
+         # The GPU is hidden above (NVIDIA_VISIBLE_DEVICES=void), so keep JAX
+         # from initializing its CUDA backend, which fails without a GPU.
+         export JAX_PLATFORMS=cpu
 
          echo 'Container environment setup complete'
          echo 'Working directory:' \$(pwd)
@@ -145,7 +179,8 @@ srun --container-image="${CONTAINER_IMAGE}" \
          # Note: Config name is passed as --config-name argument (tyro convention)
          # Note: the container venv is on a read-only squashfs mount, so uv run
          # cannot re-sync the project. The interpreter on PATH is that venv.
-         python scripts/compute_norm_stats.py --config-name ${CONFIG_NAME}
+         # Note: exec replaces this shell so that SIGTERM from Slurm reaches Python.
+         exec python scripts/compute_norm_stats.py --config-name ${CONFIG_NAME}
      "
 
 EXIT_CODE=$?

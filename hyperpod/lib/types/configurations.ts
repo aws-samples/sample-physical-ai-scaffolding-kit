@@ -27,9 +27,13 @@ export type Lustre = {
   S3Prefix: string;
   FileSystemPath: string;
 };
+export type Mlflow = {
+  Enabled: boolean;
+};
 export type Configuration = {
   StackName: string;
   ClusterVPC: ClusterVPC;
   Cluster: ClusterInfo;
   Lustre: Lustre;
+  Mlflow?: Mlflow;
 };
