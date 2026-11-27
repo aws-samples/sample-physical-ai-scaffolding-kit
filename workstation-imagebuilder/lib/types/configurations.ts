@@ -9,4 +9,6 @@ export type Configuration = {
   VpcId: string;
   DefaultInstanceType: string;
   ImageNames: string[];
+  /** IPv4 CIDR ranges allowed to connect to Amazon DCV (TCP/UDP 8443). */
+  AllowedIpv4Cidrs: string[];
 };

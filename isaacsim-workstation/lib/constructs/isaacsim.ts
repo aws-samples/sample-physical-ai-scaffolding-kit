@@ -21,7 +21,14 @@ export interface IsaacSimProps {
   stackPrefix: string;
   readonly vpc: aws_ec2.IVpc;
   instanceType: string;
+  /** IPv4 CIDR ranges allowed to connect to Amazon DCV (TCP 8443). */
+  allowedIpv4Cidrs: string[];
+  /** Owners passed to DescribeImages so that only the AMI from the expected publisher is used. */
+  amiOwners?: string[];
 }
+
+/** The Isaac Sim AMI is distributed through AWS Marketplace. */
+const DEFAULT_AMI_OWNERS = ['aws-marketplace'];
 
 export class IsaacSimWorkstation extends Construct {
   public readonly instanceRole: aws_iam.Role;
@@ -48,10 +55,20 @@ export class IsaacSimWorkstation extends Construct {
 
     const region = Stack.of(this).region;
     // S3 Files file system
+    const s3FilesAccessLogsBucket = new aws_s3.Bucket(this, 'S3FilesAccessLogsBucket', {
+      blockPublicAccess: aws_s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: aws_s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      objectOwnership: aws_s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+    });
     const s3FilesBucket = new aws_s3.Bucket(this, 'S3FilesBucket', {
       versioned: true,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
+      enforceSSL: true,
+      serverAccessLogsBucket: s3FilesAccessLogsBucket,
     });
 
     // IAM role for S3 Files service
@@ -135,16 +152,13 @@ export class IsaacSimWorkstation extends Construct {
       description: 'Allow DCV access',
       allowAllOutbound: true,
     });
-    this.securityGroup.addIngressRule(
-      aws_ec2.Peer.anyIpv4(),
-      aws_ec2.Port.tcp(8443),
-      'Allow Amazon DCV access',
-    );
-    this.securityGroup.addIngressRule(
-      aws_ec2.Peer.anyIpv4(),
-      aws_ec2.Port.tcp(6006),
-      'Allow TensorBoard access',
-    );
+    for (const cidr of props.allowedIpv4Cidrs) {
+      this.securityGroup.addIngressRule(
+        aws_ec2.Peer.ipv4(cidr),
+        aws_ec2.Port.tcp(8443),
+        'Allow Amazon DCV access',
+      );
+    }
 
     // S3 Files mount targets (require security group to exist)
     const s3FilesMountSg = new aws_ec2.SecurityGroup(this, 'S3FilesMountSG', {
@@ -205,6 +219,7 @@ export class IsaacSimWorkstation extends Construct {
       resourceType: 'Custom::AmiLookup',
       properties: {
         AmiName: 'OV-Template-aws-ubuntu-isaac_sim-20260206T111303-prod-l4r5drddssotm',
+        AmiOwners: props.amiOwners ?? DEFAULT_AMI_OWNERS,
       },
     });
 
@@ -226,6 +241,7 @@ export class IsaacSimWorkstation extends Construct {
       role: this.instanceRole,
       securityGroup: this.securityGroup,
       userData: userData,
+      httpTokens: aws_ec2.HttpTokens.REQUIRED,
       blockDevices: [
         {
           deviceName: '/dev/sda1',

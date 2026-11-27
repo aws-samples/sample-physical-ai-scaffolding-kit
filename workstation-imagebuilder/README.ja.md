@@ -164,6 +164,7 @@ DCV クライアントを閉じた場合でも、サーバー側のセッショ�
 | `ImageNames` | `["isaacsim6.0", "isaacsim5.1"]` | ビルドするイメージ名の配列 |
 | `VpcId` | `""` (新規作成) | 既存 VPC を使う場合に指定 |
 | `DefaultInstanceType` | `g6e.4xlarge` | Launch Lambda のデフォルトインスタンスタイプ |
+| `AllowedIpv4Cidrs` | `["0.0.0.0/0"]` | Amazon DCV（TCP/UDP 8443）への接続を許可する IPv4 の CIDR。接続元の PC のアドレス範囲に絞ることを推奨します。`-c AllowedIpv4Cidrs=...` で複数指定する場合はカンマで区切ります |
 
 ## 独自イメージの追加方法
 

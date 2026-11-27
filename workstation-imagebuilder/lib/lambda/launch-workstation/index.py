@@ -97,6 +97,10 @@ def handler(event, context):
 
     if not subnet_id:
         subnet_id = find_subnet_for_instance_type(vpc_subnet_ids, instance_type)
+    elif subnet_id not in vpc_subnet_ids:
+        raise ValueError(
+            f"Subnet {subnet_id} is not one of the workstation subnets: {vpc_subnet_ids}"
+        )
 
     # UserData script to mount S3 Files
     userdata = f"""#!/bin/bash
@@ -149,6 +153,7 @@ echo "Bootstrap complete."
             }
         ],
         "IamInstanceProfile": {"Arn": instance_profile_arn},
+        "MetadataOptions": {"HttpTokens": "required"},
         "UserData": userdata,
         "TagSpecifications": [
             {

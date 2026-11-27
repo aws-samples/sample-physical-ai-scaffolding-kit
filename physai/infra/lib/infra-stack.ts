@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as fsx from 'aws-cdk-lib/aws-fsx';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
@@ -42,6 +43,17 @@ export class InfraStack extends cdk.Stack {
       gatewayEndpoints: {
         S3: { service: ec2.GatewayVpcEndpointAwsService.S3 },
       },
+      flowLogs: {
+        FlowLog: {
+          destination: ec2.FlowLogDestination.toCloudWatchLogs(
+            new logs.LogGroup(this, 'VpcFlowLogGroup', {
+              retention: logs.RetentionDays.ONE_WEEK,
+              removalPolicy: cdk.RemovalPolicy.DESTROY,
+            }),
+          ),
+          trafficType: ec2.FlowLogTrafficType.ALL,
+        },
+      },
     });
 
     this.privateSubnet = this.vpc.privateSubnets[0];
@@ -65,10 +77,20 @@ export class InfraStack extends cdk.Stack {
 
     // ── S3 Data Bucket ──
 
+    const dataAccessLogsBucket = new s3.Bucket(this, 'DataAccessLogsBucket', {
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
+    });
+
     this.dataBucket = new s3.Bucket(this, 'DataBucket', {
       bucketName: `${clusterName}-data-${account}-${this.region}`,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+      serverAccessLogsBucket: dataAccessLogsBucket,
     });
 
     // ── FSx for Lustre ──

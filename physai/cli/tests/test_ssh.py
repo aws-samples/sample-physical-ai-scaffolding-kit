@@ -225,3 +225,22 @@ def test_load_ssh_config_unset_is_none(tmp_path, monkeypatch):
     monkeypatch.setattr(config_module, "CONFIG_PATH", cfg_file)
     cfg = config_module.load()
     assert cfg["ssh_config"] is None
+
+
+def test_write_file_quotes_remote_path(fake_run):
+    s = make_session(fake_run)
+    s.write_file("/fsx/physai/sync/a b;id", "hello")
+    argv = _last_argv(fake_run)
+    assert argv[-1] == "cat > '/fsx/physai/sync/a b;id'"
+
+
+def test_stream_log_quotes_job_id():
+    with patch("physai.ssh.subprocess.Popen") as popen:
+        popen.return_value.wait.return_value = 0
+        s = object.__new__(Session)
+        s.host = "myhost"
+        s.ssh_config = None
+        s._socket = "/tmp/sock"
+        s.stream_log("1;id")
+        argv = popen.call_args.args[0]
+        assert argv[-1] == "python3 - '1;id'"

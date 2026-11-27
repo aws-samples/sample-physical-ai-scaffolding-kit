@@ -21,6 +21,7 @@ export class WorkstationStack extends cdk.Stack {
       stackPrefix: props.config.StackPrefix,
       vpc: simulatorVpc.vpc,
       instanceType: props.config.InstanceType,
+      allowedIpv4Cidrs: props.config.AllowedIpv4Cidrs,
     });
   }
 }

@@ -221,3 +221,39 @@ def test_rm_propagates_non_permission_runtime_errors():
     session.run.side_effect = run_side_effect
     with pytest.raises(RuntimeError, match="connection lost"):
         rm(session, "datasets", "foo", force=True)
+
+
+@pytest.mark.parametrize("path", ["..", "../physai", "sub/../../etc", "/../x"])
+def test_ls_rejects_parent_segments(path):
+    session = MagicMock()
+    with pytest.raises(SystemExit, match=r"'\.\.' segments"):
+        ls(session, "raw", path)
+    session.run.assert_not_called()
+
+
+def test_ls_quotes_path_with_shell_metacharacters():
+    session = MagicMock()
+    session.run.return_value = ""
+    ls(session, "raw", "a;id")
+    cmd = session.run.call_args[0][0]
+    assert cmd.startswith("cd '/fsx/raw/a;id' 2>/dev/null && ")
+
+
+def test_rm_quotes_name_with_shell_metacharacters():
+    session = MagicMock()
+
+    def run(cmd):
+        if cmd.startswith("if [ -d"):
+            return "dir"
+        if cmd.startswith("squeue"):
+            return ""
+        if cmd.startswith("du -sh"):
+            return "1K"
+        return ""
+
+    session.run.side_effect = run
+    rm(session, "datasets", "x;id", force=True)
+    rm_calls = [
+        c.args[0] for c in session.run.call_args_list if c.args[0].startswith("rm -rf")
+    ]
+    assert rm_calls == ["rm -rf '/fsx/datasets/x;id'"]

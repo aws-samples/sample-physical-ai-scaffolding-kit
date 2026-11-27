@@ -52,7 +52,7 @@ export class Vpc extends Construct {
           EC2Describe: new aws_iam.PolicyDocument({
             statements: [
               new aws_iam.PolicyStatement({
-                actions: ['ec2:DescribeSubnets', 'ec2:DescribeInstanceTypeOfferings'],
+                actions: ['ec2:DescribeInstanceTypeOfferings'],
                 resources: ['*'],
               }),
             ],
@@ -111,6 +111,17 @@ export class Vpc extends Construct {
         ],
         enableDnsHostnames: true,
         enableDnsSupport: true,
+        flowLogs: {
+          FlowLog: {
+            destination: aws_ec2.FlowLogDestination.toCloudWatchLogs(
+              new aws_logs.LogGroup(this, 'FlowLogGroup', {
+                retention: aws_logs.RetentionDays.ONE_WEEK,
+                removalPolicy: cdk.RemovalPolicy.DESTROY,
+              }),
+            ),
+            trafficType: aws_ec2.FlowLogTrafficType.ALL,
+          },
+        },
       });
       this.vpc.node.addDependency(subnetSelectorResource);
       this.publicSubnet = this.vpc.publicSubnets[0] as aws_ec2.PublicSubnet;

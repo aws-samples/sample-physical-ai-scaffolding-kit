@@ -56,11 +56,13 @@ You can customize settings in the `config` section of `cdk.json`:
 | `VpcId` | `""` (create new) | Specify to use an existing VPC |
 | `SubnetAZ` | `""` (auto-select) | Explicitly specify an AZ |
 | `InstanceType` | `g6e.8xlarge` | GPU instance type |
+| `AllowedIpv4Cidrs` | `["0.0.0.0/0"]` | IPv4 CIDR ranges allowed to connect to Amazon DCV (TCP 8443). Restrict this to the address range of your PC. On the command line, separate multiple ranges with commas |
 
 To specify via command line:
 
 ```bash
 cdk deploy -c VpcId=vpc-xxxxxxxx -c SubnetAZ=subnet-xxxxxxxx
+cdk deploy -c AllowedIpv4Cidrs=203.0.113.0/24,198.51.100.0/24
 ```
 
 ### Stack Outputs
@@ -131,7 +133,7 @@ From the PC where you ran `cdk deploy`, set the password for DCV login. Use the 
 export UBUNTU_PW="your-password-here"
 
 # Run the SetPasswordCommand from the stack outputs as-is
-aws ssm send-command --instance-ids i-0986d7fe5a672b6f5 --document-name "AWS-RunShellScript" --parameters "commands=[\"HASHED=\$(openssl passwd -6 '${UBUNTU_PW}') && sudo usermod --password \\\"\$HASHED\\\" ubuntu\"]" --region us-east-1 --output text --query "Command.CommandId"
+aws ssm send-command --instance-ids i-0123456789abcdef0 --document-name "AWS-RunShellScript" --parameters "commands=[\"HASHED=\$(openssl passwd -6 '${UBUNTU_PW}') && sudo usermod --password \\\"\$HASHED\\\" ubuntu\"]" --region us-east-1 --output text --query "Command.CommandId"
 ```
 
 ### Connect via Amazon DCV
