@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import traceback
+import urllib.parse
 import urllib.request
 import urllib.error
 
@@ -13,6 +14,28 @@ logger.setLevel(logging.INFO)
 # CloudFormation response constants
 SUCCESS = "SUCCESS"
 FAILED = "FAILED"
+
+GITHUB_API_HOST = "api.github.com"
+GITHUB_RAW_CONTENT_HOST = "raw.githubusercontent.com"
+
+
+def require_https_url(url):
+    """Raise ValueError unless the URL uses the https scheme.
+
+    urllib.request.urlopen also opens file:// and other schemes, so every URL is
+    checked before it is opened.
+    """
+    scheme = urllib.parse.urlparse(url).scheme
+    if scheme != "https":
+        raise ValueError(f"Refusing to open URL with scheme '{scheme}': only https is allowed")
+
+
+def require_https_url_on_host(url, expected_host):
+    """Raise ValueError unless the URL uses https and points at the expected host."""
+    require_https_url(url)
+    host = urllib.parse.urlparse(url).hostname
+    if host != expected_host:
+        raise ValueError(f"Refusing to open URL on host '{host}': expected '{expected_host}'")
 
 
 def send_cfn_response(
@@ -28,6 +51,7 @@ def send_cfn_response(
     Send a response to CloudFormation regarding the success or failure of a custom resource deployment.
     """
     response_url = event["ResponseURL"]
+    require_https_url(response_url)
 
     logger.info(f"CFN response URL: {response_url}")
 
@@ -98,6 +122,23 @@ def upload_file_to_s3(
     )
 
 
+def render_override(file_content):
+    """Substitute deploy-time placeholders in a lifecycle override script.
+
+    The scripts run on the cluster nodes and cannot read the CDK context, so the
+    values they need are injected here from this function's environment.
+    """
+    substitutions = {
+        "__LUSTRE_FILESYSTEM_PATH__": os.environ.get("LUSTRE_FILESYSTEM_PATH", ""),
+    }
+    text = file_content.decode("utf-8")
+    for placeholder, value in substitutions.items():
+        if placeholder in text:
+            logger.info(f"Substituting {placeholder} with {value!r}")
+            text = text.replace(placeholder, value)
+    return text.encode("utf-8")
+
+
 def upload_local_overrides(s3_client, bucket, bucket_path):
     """Upload local lifecycle script overrides after the upstream scripts."""
     overrides_dir = os.path.join(os.path.dirname(__file__), "overrides")
@@ -117,6 +158,8 @@ def upload_local_overrides(s3_client, bucket, bucket_path):
             logger.info(f"Uploading local override {s3_key}")
             with open(file_path, "rb") as f:
                 file_content = f.read()
+            if file_name.endswith(".sh"):
+                file_content = render_override(file_content)
             upload_file_to_s3(
                 s3_client,
                 bucket,
@@ -129,6 +172,7 @@ def upload_local_overrides(s3_client, bucket, bucket_path):
 
 def download_github_file(download_url):
     """Download file content from GitHub."""
+    require_https_url_on_host(download_url, GITHUB_RAW_CONTENT_HOST)
     file_req = urllib.request.Request(download_url)
     file_req.add_header("User-Agent", "AWS-Lambda-SlurmLifecycleScriptLoader")
 
@@ -141,6 +185,7 @@ def process_directory(s3_client, bucket, bucket_path, repo_url, branch, path, pr
     api_url = f"https://api.github.com/repos/{repo_url.split('github.com/')[1]}/contents/{path}?ref={branch}"
     logger.info(f"Fetching directory contents from: {api_url}")
 
+    require_https_url_on_host(api_url, GITHUB_API_HOST)
     req = urllib.request.Request(api_url)
     req.add_header("Accept", "application/vnd.github.v3+json")
     req.add_header("User-Agent", "AWS-Lambda-SlurmLifecycleScriptLoader")
@@ -227,6 +272,7 @@ def handle_create_update(event, context):
 
     try:
         s3.head_bucket(Bucket=bucket)
+        require_https_url_on_host(api_url, GITHUB_API_HOST)
         req = urllib.request.Request(api_url)
         req.add_header("Accept", "application/vnd.github.v3+json")
         req.add_header("User-Agent", "AWS-Lambda-SlurmLifecycleScriptLoader")

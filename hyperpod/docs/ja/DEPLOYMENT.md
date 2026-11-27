@@ -77,7 +77,7 @@ CDK でデプロイされるアーキテクチャについて幾つかの設定�
   },
   "ClusterVPC": {
     "SubnetAZ": "",  // 事前に特定のAZを指定する場合に入力
-    "UseFlowLog": false  // VPC Flow logsを有効にしたい場合は trueに設定
+    "UseFlowLog": true  // VPC Flow logsを有効にしたい場合は trueに設定
   },
   "Lustre": {
     "S3Prefix": "",  // Lustreのリンク先S3バケットのpathを指定する場合に指定
@@ -138,7 +138,7 @@ aws cloudformation describe-stacks --stack-name PASK --query "Stacks[0].Outputs"
 まずは、[sshのセットアップスクリプト](https://docs.aws.amazon.com/ja_jp/sagemaker/latest/dg/sagemaker-hyperpod-run-jobs-slurm-access-nodes.html)を利用して、ローカル PC から ssh コマンドでアクセスできるようにセットアップします。
 
 ```bash
-wget https://raw.githubusercontent.com/awslabs/awsome-distributed-training/refs/heads/main/1.architectures/5.sagemaker-hyperpod/easy-ssh.sh -O easy-ssh.sh
+wget https://raw.githubusercontent.com/awslabs/awsome-distributed-ai/refs/heads/main/architectures/sagemaker-hyperpod-slurm/easy-ssh.sh -O easy-ssh.sh
 chmod +x easy-ssh.sh
 ```
 
@@ -190,11 +190,13 @@ Instance Type: ml.c5.large
 ubuntu@ip-10-1-155-217:~$
 ```
 
-LustreのストレージにリンクされているS3バケットのディレクトリの権限をubuntuユーザーでも書き込める様にします。
+LustreのストレージにリンクされているS3バケットのディレクトリは、デプロイ時にライフサイクルスクリプト `on_init_complete.sh` がubuntuユーザーの所有に設定します。手動での権限変更は不要です。
 
 ```bash
-sudo chmod -R 777 /fsx/s3link
+ls -ld /fsx/s3link
 ```
+
+`ubuntu ubuntu` の所有になっていることを確認してください。`root` 所有のままの場合は、ライフサイクルスクリプトが実行されていない可能性があります。
 
 試しにファイルを書き込んでみて、S3に反映されることを確認します。
 

@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import traceback
+import urllib.parse
 import urllib.request
 import urllib.error
 
@@ -13,6 +14,17 @@ logger.setLevel(logging.INFO)
 # CloudFormation response constants
 SUCCESS = "SUCCESS"
 FAILED = "FAILED"
+
+
+def require_https_url(url):
+    """Raise ValueError unless the URL uses the https scheme.
+
+    urllib.request.urlopen also opens file:// and other schemes, so every URL is
+    checked before it is opened.
+    """
+    scheme = urllib.parse.urlparse(url).scheme
+    if scheme != "https":
+        raise ValueError(f"Refusing to open URL with scheme '{scheme}': only https is allowed")
 
 fsx_client = boto3.client("fsx")
 
@@ -30,6 +42,7 @@ def send_cfn_response(
     Send a response to CloudFormation regarding the success or failure of a custom resource deployment.
     """
     response_url = event["ResponseURL"]
+    require_https_url(response_url)
 
     logger.info(f"CFN response URL: {response_url}")
 

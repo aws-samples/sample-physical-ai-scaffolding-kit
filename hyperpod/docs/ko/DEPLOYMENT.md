@@ -77,7 +77,7 @@ CDK가 deploy하는 architecture의 여러 설정을 구성할 수 있습니다.
   },
   "ClusterVPC": {
     "SubnetAZ": "",  // Specify a particular AZ in advance if needed
-    "UseFlowLog": false  // Set to true to enable VPC Flow Logs
+    "UseFlowLog": true  // Set to true to enable VPC Flow Logs
   },
   "Lustre": {
     "S3Prefix": "",  // Specify the S3 bucket path for the Lustre link target if needed
@@ -138,7 +138,7 @@ Deployment를 통해 HyperPod에 cluster가 provision되었습니다. 이 sectio
 먼저 [SSH setup script](https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod-run-jobs-slurm-access-nodes.html)를 사용해 local machine에서 SSH access를 설정합니다.
 
 ```bash
-wget https://raw.githubusercontent.com/awslabs/awsome-distributed-training/refs/heads/main/1.architectures/5.sagemaker-hyperpod/easy-ssh.sh -O easy-ssh.sh
+wget https://raw.githubusercontent.com/awslabs/awsome-distributed-ai/refs/heads/main/architectures/sagemaker-hyperpod-slurm/easy-ssh.sh -O easy-ssh.sh
 chmod +x easy-ssh.sh
 ```
 
@@ -190,11 +190,13 @@ Instance Type: ml.c5.large
 ubuntu@ip-10-1-155-217:~$
 ```
 
-ubuntu user가 S3-linked Lustre storage directory에 write할 수 있도록 permission을 설정합니다.
+S3-linked Lustre storage directory는 deploy 시 lifecycle script `on_init_complete.sh`가 ubuntu user 소유로 설정합니다. 수동 permission 변경은 필요하지 않습니다.
 
 ```bash
-sudo chmod -R 777 /fsx/s3link
+ls -ld /fsx/s3link
 ```
+
+소유자가 `ubuntu ubuntu`인지 확인하세요. 여전히 `root` 소유라면 lifecycle script가 실행되지 않았을 수 있습니다.
 
 File을 write한 뒤 S3에 나타나는지 확인합니다.
 

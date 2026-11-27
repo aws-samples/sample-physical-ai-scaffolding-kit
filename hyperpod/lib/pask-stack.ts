@@ -31,6 +31,7 @@ export class PASKStack extends cdk.Stack {
       privateSubnet: clusterVpc.privateSubnet,
       lfsSecurityGroup: clusterVpc.lsfSecurityGroup,
       lfs: lustre.fs,
+      accessLogsBucket: bucket.accessLogsBucket,
     });
 
     new cdk.CfnOutput(this, 'Region', {

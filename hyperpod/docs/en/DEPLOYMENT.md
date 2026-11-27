@@ -77,7 +77,7 @@ To make changes, run `vim cdk.json` and edit using the command-line editor.
   },
   "ClusterVPC": {
     "SubnetAZ": "",  // Specify a particular AZ in advance if needed
-    "UseFlowLog": false  // Set to true to enable VPC Flow Logs
+    "UseFlowLog": true  // Set to true to enable VPC Flow Logs
   },
   "Lustre": {
     "S3Prefix": "",  // Specify the S3 bucket path for the Lustre link target if needed
@@ -138,7 +138,7 @@ The deployment has provisioned the cluster on HyperPod. This section explains ho
 First, use the [SSH setup script](https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod-run-jobs-slurm-access-nodes.html) to configure SSH access from your local machine.
 
 ```bash
-wget https://raw.githubusercontent.com/awslabs/awsome-distributed-training/refs/heads/main/1.architectures/5.sagemaker-hyperpod/easy-ssh.sh -O easy-ssh.sh
+wget https://raw.githubusercontent.com/awslabs/awsome-distributed-ai/refs/heads/main/architectures/sagemaker-hyperpod-slurm/easy-ssh.sh -O easy-ssh.sh
 chmod +x easy-ssh.sh
 ```
 
@@ -190,11 +190,13 @@ Instance Type: ml.c5.large
 ubuntu@ip-10-1-155-217:~$
 ```
 
-Set the permissions on the S3-linked Lustre storage directory so the ubuntu user can write to it.
+The `on_init_complete.sh` lifecycle script hands the S3-linked Lustre storage directory to the ubuntu user at deploy time, so no manual permission change is needed.
 
 ```bash
-sudo chmod -R 777 /fsx/s3link
+ls -ld /fsx/s3link
 ```
+
+Confirm that the owner is `ubuntu ubuntu`. If it is still owned by `root`, the lifecycle script may not have run.
 
 Test by writing a file and verifying it appears in S3.
 

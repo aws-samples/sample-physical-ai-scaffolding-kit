@@ -38,7 +38,7 @@ export class VpcOneAz extends Construct {
         EC2Describe: new aws_iam.PolicyDocument({
           statements: [
             new aws_iam.PolicyStatement({
-              actions: ['ec2:DescribeSubnets', 'ec2:DescribeInstanceTypeOfferings'],
+              actions: ['ec2:DescribeInstanceTypeOfferings'],
               resources: ['*'],
             }),
           ],
