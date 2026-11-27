@@ -151,7 +151,7 @@ Submitted 1 stage(s): eval
  1) In a second terminal, open the SSM tunnel and KEEP IT RUNNING:
 
     aws ssm start-session \
-      --target sagemaker-cluster:p5bbuyk3t9ag_gpu-workers-i-09fc45686023bcdce \
+      --target sagemaker-cluster:xxxxxxxxxxxx_gpu-workers-i-0123456789abcdef0 \
       --document-name AWS-StartPortForwardingSession \
       --parameters '{"portNumber":["8443"],"localPortNumber":["8443"]}' \
       --region us-west-2

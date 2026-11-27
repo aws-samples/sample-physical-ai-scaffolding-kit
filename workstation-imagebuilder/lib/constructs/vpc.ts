@@ -1,5 +1,5 @@
 import * as cdk from "aws-cdk-lib";
-import { aws_ec2 } from "aws-cdk-lib";
+import { aws_ec2, aws_logs } from "aws-cdk-lib";
 import { Construct } from "constructs";
 
 export interface VpcProps {
@@ -35,6 +35,17 @@ export class Vpc extends Construct {
         ],
         enableDnsHostnames: true,
         enableDnsSupport: true,
+        flowLogs: {
+          FlowLog: {
+            destination: aws_ec2.FlowLogDestination.toCloudWatchLogs(
+              new aws_logs.LogGroup(this, "FlowLogGroup", {
+                retention: aws_logs.RetentionDays.ONE_WEEK,
+                removalPolicy: cdk.RemovalPolicy.DESTROY,
+              }),
+            ),
+            trafficType: aws_ec2.FlowLogTrafficType.ALL,
+          },
+        },
       });
 
       this.vpc.addGatewayEndpoint("S3Endpoint", {

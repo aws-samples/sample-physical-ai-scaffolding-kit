@@ -1,6 +1,6 @@
 """Job management: list, status, logs, cancel via Slurm."""
 
-from .ssh import Session
+from .ssh import Session, validate_job_id
 
 # squeue fields: JobID | JobName | State | SubmitTime | StartTime | Elapsed | Comment
 SQUEUE_FORMAT = '"%i|%j|%T|%V|%S|%M|%k"'
@@ -115,6 +115,7 @@ def list_jobs(session: Session) -> None:
 
 def status_job(session: Session, job_id: str) -> None:
     """Show status of a specific job."""
+    validate_job_id(job_id)
     out = session.run(
         f"TZ=UTC squeue -j {job_id} --format={SQUEUE_FORMAT} --noheader 2>/dev/null || true"
     )
@@ -160,10 +161,12 @@ def status_job(session: Session, job_id: str) -> None:
 
 def logs_job(session: Session, job_id: str) -> None:
     """Tail the log of a job."""
+    validate_job_id(job_id)
     session.stream_log(job_id)
 
 
 def cancel_job(session: Session, job_id: str) -> None:
     """Cancel a job."""
+    validate_job_id(job_id)
     session.run(f"scancel {job_id}")
     print(f"Cancelled job {job_id}")
